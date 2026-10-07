@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inbound SAP – Đối chiếu hóa đơn (trimming &amp; vải)</title>
+<style>
+:root{
+  --bg:#f6f7f9; --card:#fff; --ink:#16191d; --muted:#6b7280; --line:#e3e6ea;
+  --brand:#1f5fbf; --brand-soft:#eaf1fc; --good:#0f7b4f; --bad:#c0392b; --warn:#fff8e6;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#0f1216;--card:#171b21;--ink:#e7eaee;--muted:#9aa3ad;--line:#262c34;--brand:#6aa6ff;--brand-soft:#18243a;--good:#4ade80;--bad:#ff7b6b;--warn:#2a2313;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:28px 20px 90px}
+h1{font-size:22px;margin:0 0 4px}
+.ver{display:inline-block;vertical-align:middle;margin-left:8px;padding:2px 9px;border-radius:20px;background:var(--brand-soft);color:var(--brand);font-size:12px;font-weight:700;letter-spacing:.02em}
+.sub{color:var(--muted);margin:0 0 24px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:30px 18px;cursor:pointer;transition:.15s;text-align:center}
+.drop:hover,.drop.drag{border-color:var(--brand);background:var(--brand-soft)}
+.drop .t{font-weight:700;font-size:16px}
+.drop .d{color:var(--muted);font-size:13px;margin-top:6px}
+.drop input{display:none}
+.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px}
+button{background:var(--brand);color:#fff;border:0;border-radius:9px;padding:11px 18px;font-size:14.5px;font-weight:600;cursor:pointer}
+button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+button:disabled{opacity:.5;cursor:default}
+label.chk{display:flex;align-items:center;gap:7px;font-size:13.5px;color:var(--muted);cursor:pointer}
+#dls{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+a.dl{display:inline-block;background:var(--good);color:#fff;text-decoration:none;border-radius:9px;padding:9px 16px;font-weight:600;font-size:13.5px;width:fit-content}
+a.dl.alt{background:transparent;color:var(--good);border:1.5px solid var(--good)}
+.hidden{display:none}
+#log{font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;max-height:230px;overflow:auto;margin-top:14px;color:var(--muted);white-space:pre-wrap}
+.logline.ok{color:var(--good)}
+.logline.err{color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.warn>td{background:var(--warn)}
+table.inner{width:auto;min-width:420px;border:1px solid var(--line);border-radius:8px;margin:6px 0 10px}
+table.files .fn{display:block;font-size:11.5px;color:var(--muted);word-break:break-all}
+.ok2{color:var(--good);font-weight:700}
+.miss{color:var(--bad)}
+.tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700}
+.tag.good{background:rgba(15,123,79,.14);color:var(--good)}
+.tag.bad{background:rgba(192,57,43,.14);color:var(--bad)}
+.tag.warnt{background:rgba(217,144,0,.16);color:#b47a00}
+.tag.via{background:var(--brand-soft);color:var(--brand)}
+.bad{color:var(--bad)}.good{color:var(--good)}
+.mono{font-variant-numeric:tabular-nums;color:var(--muted)}
+.selbar{font-size:12.5px;color:var(--muted);margin:14px 0 4px}
+.stale{color:#b47a00;font-size:12.5px;font-weight:600;margin-top:12px}
+.selbar a{color:var(--brand);text-decoration:none;font-weight:600}
+th.c,td.c{width:34px;text-align:center;padding-right:0}
+table.files tr.off td:not(.c){opacity:.45}
+table.files input[type=checkbox]{width:15px;height:15px;cursor:pointer}
+.note{color:var(--muted);font-size:12.5px;max-width:340px}
+.hint{color:var(--muted);font-size:12.5px;margin:8px 0 2px}
+.sum{display:flex;gap:26px;flex-wrap:wrap;margin-bottom:16px}
+.sum div{display:flex;flex-direction:column}
+.sum span{font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+.sum b{font-size:17px}
+.alert{border:2px solid var(--bad);background:rgba(192,57,43,.08);border-radius:10px;padding:12px 14px;margin:10px 0}
+.alert .ttl{font-size:15px;font-weight:800;color:var(--bad)}
+.alert .lines{display:flex;gap:20px;flex-wrap:wrap;margin-top:7px;font-size:13px}
+.alert .li{margin-top:5px;font-size:12.5px}
+details.inv{border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:10px;background:var(--card)}
+details.inv.bad{border-color:var(--bad)}
+details.inv.warn{border-color:#d99000}
+details.inv summary{cursor:pointer;font-size:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+details.inv table{margin-top:10px}
+details{margin-top:10px}
+summary{cursor:pointer}
+ul.rules{margin:8px 0 0;padding-left:20px;color:var(--muted);font-size:13px}
+ul.rules li{margin:3px 0}
+code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11 · 07.10.2026 · 6 mẫu riêng + bộ đọc chung</span></h1>
+  <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) và file .xls/.doc thì công cụ báo để anh xin file gốc. Mọi xử lý chạy trong trình duyệt.</p>
+
+  <div class="card">
+    <div class="drop" id="dropall">
+      <div class="t">Kéo–thả thư mục hoặc nhiều file vào đây</div>
+      <div class="d">Hóa đơn .pdf · Packing list .pdf hoặc .xlsx (theo PO) · Chứng từ vải .xlsx (HĐ + PKL cùng file) · File inbound .xlsx · PO SCAF-SCAX .xlsx — nhận diện theo nội dung, không theo tên file</div>
+      <input type="file" multiple accept=".pdf,.xlsx,.xlsm,.xls,.doc,.docx">
+    </div>
+    <div id="detect" class="hint"></div>
+    <div id="groups"></div>
+    <div class="row">
+      <button id="runpo">Xuất danh sách PO</button>
+      <button id="run">Đối chiếu &amp; xuất file</button>
+      <button id="dlall" class="ghost hidden">Tải tất cả</button>
+      <button id="clear" class="ghost">Xóa danh sách</button>
+      <span id="count" class="hint"></span>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label class="chk"><input type="checkbox" id="onlyMatched" checked> File import SAP chỉ giữ các dòng thuộc hóa đơn</label>
+      <label class="chk"><input type="checkbox" id="perReport"> Xuất thêm file báo cáo chi tiết cho từng hóa đơn</label>
+      <label class="chk"><input type="checkbox" id="useQty"> Dùng cột Quantity khi Invoice Quantity còn trống</label>
+    </div>
+    <div id="stale" class="stale"></div>
+    <div id="dls"></div>
+    <div id="log"></div>
+    <details>
+      <summary class="hint">Quy tắc xử lý</summary>
+      <ul class="rules">
+        <li>Ghép bộ: cùng thư mục → tên file chứa số hóa đơn → cùng số <em>Despatch Note</em> (packing list) → trùng PO nhiều nhất (inbound).</li>
+        <li>Số hóa đơn: ký hiệu + <code>#</code> + số đệm 8 chữ số → <code>1C26TVN#00002086</code>; ngày dạng <code>dd.mm.yyyy</code> ghi text.</li>
+        <li>PO: mã trong dòng mô tả hóa đơn → tra cột <em>PO No ScaX</em> → không thấy thì dò cột <em>PO No.</em> (PO đã là ScaF)
+        → <b>nếu bản thân mã đã đúng dạng SAP (2–6 chữ + đúng 7 số, vd <code>TRI0012500</code>) thì dùng luôn, không cần file PO</b>
+        → cuối cùng đối chiếu với cột A của file inbound. Hóa đơn ITL từ 10.2026 ghi thẳng PO ScaF sau <code>//</code>
+        (<code>… / VCH101F // TRI0012500</code>) nên không còn cần bảng chuyển đổi.</li>
+        <li>Một <em>Despatch Note</em> có thể bị chia thành nhiều hóa đơn → các hóa đơn đó <b>dùng chung một packing list</b>.</li>
+        <li>Item: lấy mã giữa <code>/</code> và <code>//</code> trên hóa đơn → sinh các biến thể từ chi tiết đến chung
+        (<code>LB 5731 Main C/509</code> → <code>LB5731MAINC/509</code> · <code>LB5731C/509</code> · <code>LB5731</code>),
+        thử lần lượt trong <em>Material Description</em> + <em>Specification</em> (bỏ hết dấu cách, không phân biệt hoa thường),
+        rồi lọc tiếp bằng từ khóa trong mã (<code>Main</code>, <code>Care</code>, <code>Angel Pink</code>…).</li>
+        <li>Hai dòng hóa đơn cùng PO giành nhau một dòng inbound → chấm điểm: biến thể càng chi tiết càng cao,
+        có từ khóa của mình +2, mang từ khóa của item khác −6; dòng thua đi tìm lại trong phần chưa ai chiếm.</li>
+        <li>Vẫn còn nhiều nhóm cùng họ mã → chọn nhóm có tổng số lượng khớp hóa đơn; nếu không có nhóm nào khớp thì
+        <b>cảnh báo mơ hồ</b> kèm danh sách nhóm còn lại để kiểm tra tay, thay vì đoán bừa.</li>
+        <li>Size packing list dạng <code>&lt;size nội bộ&gt;/&lt;size quốc tế&gt;</code>: <code>XS/XP</code>→XS, <code>S-DD/P-DD</code>→S-DD, <code>XL/XXL / XG/XXG</code>→XL/XXL.
+        Packing list không ghi mã invoice trên từng dòng size (size trần <code>XS - 100 PCS</code>) thì nhóm size đầu tiên
+        thường dính luôn mã nhãn phía trước (<code>LB 6742 XS - 100 PCS</code>) — công cụ <b>cắt bỏ phần mã nhãn</b> rồi mới
+        lấy size, nếu không sẽ mất đúng nhóm size đầu tiên của mỗi dòng hàng.</li>
+        <li>Giá trị: đơn giá hóa đơn vs <em>Gross Price</em>, thành tiền vs <code>Σ(Invoice Qty × Gross Price + Surcharge)</code> → lệch thì cảnh báo đỏ.</li>
+        <li>File import SAP giữ nguyên cột &amp; sheet của template; mọi cột kiểm tra nằm ở file báo cáo riêng.
+        Các <b>dòng rác</b> trong file SAP xuất ra (ô lẻ, không có số PO) cũng bị bỏ, vì để lại sẽ làm SAP báo lỗi khi import.</li>
+        <li><b>Đối chiếu tổng số lượng độc lập</b>: so dòng <em>Tổng cộng</em> trên chứng từ với tổng
+        <em>Invoice Quantity</em> đã ghi vào file inbound — lệch là cảnh báo đỏ, có cột riêng trong sheet <code>TONG HOP</code>.</li>
+        <li>Chỉ các hóa đơn được <b>tick ở cột đầu bảng</b> mới được xuất. Khi bạn thả thêm file, công cụ tự chọn sẵn đúng hóa đơn vừa thêm.</li>
+      </ul>
+      <div class="hint" style="margin-top:12px"><b>Riêng chủ hàng vải</b></div>
+      <ul class="rules">
+        <li>Nhận diện chủ hàng theo nội dung: <em>Techwork</em> (sheet <code>Invoice</code> + <code>Packing List</code>, cột <code>QTY/M</code>) ·
+        <em>New Style / BLAO</em> (sheet <code>INV</code>, cột <code>11. PO Number</code>) ·
+        <em>Quanzhou Hengyu</em> (sheet <code>invoice</code> + <code>码单</code>, <code>Marks &amp; Nos.</code>). Hóa đơn và packing list nằm trong cùng một file.</li>
+        <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
+        Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
+        <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
+        màu so sau khi bỏ hết dấu cách/gạch, cho phép một bên là tiền tố của bên kia (<code>SILVER SATIN</code> ↔ <code>SILVER SATIN-0500552</code>)
+        hoặc đảo thứ tự từ (<code>SOLID11-4002 TSX … Powdered Sugar</code> ↔ <code>POWDERED SUGAR 11-4002TSX</code>).
+        Mã <em>Lapdip Color</em> trùng thì cộng điểm; đơn giá trùng cộng điểm. Nhiều dòng cùng điểm → <b>CẦN KIỂM TAY</b>, không tự điền.</li>
+        <li>Số lượng lấy theo <b>đơn vị của file inbound</b> (<em>Base Unit of Measure</em>): inbound KG thì lấy số kí, YD thì lấy số yard.
+        Hóa đơn không có con số đúng đơn vị → <b>SAI ĐƠN VỊ</b>.</li>
+        <li>Công cụ <b>ghi Invoice Quantity</b> theo hóa đơn (SAP xuất sẵn cột này bằng số còn lại của PO) và nói rõ đã sửa từ bao nhiêu.</li>
+        <li>Dung sai: <code>Đã giao + SL hóa đơn ≤ Over Tolerance Qty</code> → đạt. Vượt <em>Quantity</em> mà còn trong dung sai → <b>KHỚP (trong dung sai)</b>;
+        vượt dung sai → <b>VƯỢT DUNG SAI</b> (đỏ, SAP sẽ báo lỗi); giao ít hơn PO → <b>KHỚP (giao thiếu)</b>.</li>
+        <li>Lệch thì soi theo <b>lô / cây vải</b> thay cho size: Techwork dùng <code>Lot No.</code> + <code>Rolls #</code>,
+        Hengyu dùng sheet <code>码单</code> (<code>LOT#</code>), BLAO dùng các sheet lô <code>Y92296…</code>. Báo cáo có sheet <code>CHI TIET LO</code>.</li>
+        <li>Thành tiền: Techwork tính <code>SL × đơn giá + phụ phí</code>; BLAO và Hengyu ghi <code>SL × đơn giá</code>, phụ phí là dòng riêng.</li>
+      </ul>
+      <div class="hint" style="margin-top:12px"><b>J&amp;H Yubo</b> (v10)</div>
+      <ul class="rules">
+        <li>Chứng từ là sheet <code>PKL</code> nội bộ: mỗi dòng là một <b>lô</b> của một mã vải + màu. Nhiều dòng cùng
+        (<em>SCAVI CODE</em> + màu) được gộp thành một dòng đối chiếu, vì trong inbound chúng là cùng một dòng PO.</li>
+        <li>Khóa dò: <b>SCAVI CODE</b> (khớp với đầu cột <em>Material</em> của inbound) + màu. Đơn vị KG theo cột <em>Cân nặng (KG)</em>.</li>
+        <li>Ô PO ghi nhiều mã (<code>J&amp;H0009000 / J&amp;H0008500 / …</code>) → dò trong tất cả các PO đó.</li>
+        <li><b>Cùng mã Material nằm ở nhiều PO</b> → chia theo <b>PO cũ trước (FIFO)</b>: lấp đầy phần còn nhận được của
+        PO số nhỏ nhất, thừa thì tràn sang PO kế tiếp; trạng thái <code>KHỚP (chia nhiều PO)</code> và có sheet
+        <code>PHAN BO PO</code> để kiểm lại.</li>
+        <li>Ô <code>HD:</code> đã có số → điền luôn. Nếu chỉ có số (vd <code>1728</code>) mà chưa có ký hiệu thì cảnh báo vàng
+        "thiếu ký hiệu HĐ"; thả kèm <b>file PDF hóa đơn GTGT</b> là công cụ ghép lại và điền đủ
+        <code>1C26TYY#00001728</code> + ngày, đồng thời <b>đối chiếu tổng tiền hàng</b> của PKL với hóa đơn
+        (lệch thì cảnh báo đỏ). Ô <code>HD:</code> trống và không có PDF → vẫn xuất, để trống cột <em>Invoice Number</em>.</li>
+        <li>Thả nhiều bản <code>ZMME0032_&lt;dấu thời gian&gt;.xlsx</code> → chọn bản có ngày gần ngày hóa đơn nhất.</li>
+        <li>Ghép file PDF hóa đơn với đúng file PKL theo <b>số trong ô "HD:"</b> (+5đ) và <b>ngày</b> (+3đ), rồi mới tới số PO
+        trùng — vì nhiều file PKL của cùng chủ hàng đều trùng hết số PO. Không có dấu hiệu nào thì <b>không ghép</b>.</li>
+        <li>Chia FIFO <b>bỏ qua dòng PO đã giao đủ</b> (<em>Delivered ≥ Quantity</em>), chỉ dùng phần dung sai còn lại của nó
+        khi các dòng còn mở không đủ chỗ — tránh ghi một vài kí lẻ vào dòng PO đã xong.</li>
+        <li>Cột có chữ <em>comment</em> (vd "Mỹ Ngọc comment 29Sep") chỉ dùng để <b>nhắc</b> khi khác cột Cân nặng, không lấy số.</li>
+      </ul>
+      <div class="hint" style="margin-top:12px"><b>Inkava</b> — hóa đơn PDF + packing list Excel theo PO (v10)</div>
+      <ul class="rules">
+        <li>Hóa đơn GTGT dạng khác: PO nằm ở dòng <b>trước</b> dòng số lượng, mã hàng ở dòng <b>sau</b>
+        (<code>PODUY0095800- Label L56xW20MM-</code> / <code>1 PCS 16.988,00 100 1.698.800</code> / <code>ALABPRWV0228</code>).
+        Nhận ra khi bảng hàng không có dấu <code>//</code> mà có dòng bắt đầu bằng <code>PO&lt;mã&gt;</code>.</li>
+        <li>Packing list là file .xlsx riêng cho <b>từng PO</b> (có <code>PO No:</code> và cột <code>Material Code</code>) — một hóa đơn nhiều PO thì thả nhiều file.</li>
+        <li>Vì packing list có sẵn <em>Material Code + Size + Spec</em>, công cụ <b>điền Invoice Quantity cho từng dòng inbound</b>
+        thay vì bắt điền tay.</li>
+        <li>Packing list gộp nhiều <em>Order No</em> mà tổng không bằng hóa đơn → chọn đúng nhóm Order No có tổng bằng hóa đơn
+        (vd tổng file 29.742 nhưng hóa đơn 16.988 → lấy nhóm <code>112568 P27</code>), và nói rõ trong ghi chú.</li>
+        <li>Mã PO không tra được qua file PO SCAF-SCAX nhưng có sẵn trong cột A của file inbound → dùng luôn mã đó.</li>
+      </ul>
+      <div class="hint" style="margin-top:12px"><b>Bộ đọc chung — chủ hàng chưa có mẫu riêng (v11)</b></div>
+      <ul class="rules">
+        <li>Áp dụng cho mọi file Excel/PDF không phải mẫu ITL/Inkava/Techwork/BLAO/HYU/Yubo. <b>Excel:</b> tìm dòng tiêu đề bằng từ khoá
+        (<code>PO</code>, <code>ITEM/ARTICLE/DESCRIPTION</code>, <code>COLOUR</code>, <code>SIZE</code>, <code>QTY/QUANTITY/METERS/YDS</code>, <code>UNIT</code>, <code>PRICE</code>, <code>AMOUNT</code>, <code>LOT</code>, <code>ROLL</code>, <code>CTN</code>…);
+        dòng hàng = dòng có số lượng; ô trống kéo xuống từ dòng trên (ô gộp); cột không có tiêu đề vẫn được đọc làm mô tả.
+        Sheet có cột giá/thành tiền là <b>hoá đơn</b>, sheet không có giá là <b>packing list</b>.</li>
+        <li><b>PDF:</b> ghép chữ theo toạ độ (kể cả trang xoay ngang), tìm dòng tiêu đề bảng để biết cột số lượng/size/màu/PO; số lượng là số
+        đứng cạnh đơn vị (<code>309 YDS</code>, <code>MT 632,50</code>, <code>1,673.0 meters</code>) hoặc nằm dưới cột số lượng. Dòng có mã PO SAP mở một
+        <b>khối</b>; chữ trong khối (mã hàng, màu, lapdip, Material) là ngữ cảnh của các dòng hàng trong khối.
+        Hoá đơn GTGT Việt Nam không theo mẫu ITL: dòng hàng bắt đầu bằng STT + đơn vị + số lượng, mô tả lấy ở dòng kề trên/dưới.</li>
+        <li><b>Số hoá đơn:</b> nhãn <code>INVOICE NO / INV NO / CI NO / No. &amp; date of invoice / SO No</code> (giá trị cùng ô, ô bên phải hoặc ô dưới);
+        không có thì lấy từ tên file (nếu mã đó có trong chữ của file) hoặc tên thư mục (<code>invoice 100972 - …</code>) và ghi rõ nguồn.
+        Số hoá đơn trùng dạng mã PO SAP bị loại.</li>
+        <li><b>Ghép với inbound theo thứ tự ưu tiên:</b> (1) mã <em>Material SAP</em> ghi ngay trên dòng chứng từ (Stretchline, Pioneer, Freetex) → lấy thẳng dòng đó;
+        (2) PO SAP trên chứng từ (kể cả dạng <code>PO.CAP0022700</code>, <code>PO: LHT0012200</code>, <code>CH10034200</code> 2 chữ + 8 số);
+        chứng từ không ghi PO hoặc ghi mã riêng của chủ hàng (<code>FUJIANBAI1-2610</code>) mà inbound chỉ có một PO → dùng PO đó;
+        (3) mã hàng: <em>Supplier Ref</em> / đầu <em>Material Description</em> của inbound có trong chữ chứng từ (<code>N.295/207/73</code>, <code>SW1235</code>, <code>YN60448/3</code> dù bị xuống dòng);
+        (4) màu theo thang điểm cũ, cộng thêm khi mã trong <em>Specification</em>/<em>Lapdip</em> xuất hiện trên chứng từ (<code>7283</code>, <code>LF610143B</code>);
+        (5) <b>size</b>: cột size hoặc size trong mô tả (<code>36.9CM</code> ↔ <code>0369</code>, <code>75B</code>, <code>M/L</code>) — có size mà PO không có size đó → <b>THIẾU DÒNG</b>.</li>
+        <li>Chứng từ ghi <b>gộp một dòng cho nhiều size</b> (Cheung Hing sticker, nhãn): nếu tổng còn nhận của các dòng size đúng bằng số chứng từ → điền từng size
+        (<b>KHỚP (chia theo size)</b>); không bằng → <b>CẦN KIỂM TAY</b> và <b>không tự điền</b> (v11 cũng bỏ việc tự chia FIFO cho mọi trường hợp nhiều dòng khác Material).</li>
+        <li>Hoá đơn ghi gộp theo mã hàng còn <b>packing list ghi từng PO/size</b> (SunPo): nếu tổng packing list của mã đó bằng tổng hoá đơn → tách dòng theo packing list rồi mới đối chiếu.</li>
+        <li><b>Packing list rời</b> (file Excel/PDF riêng, nhiều file cũng được) gắn vào chứng từ cùng thư mục, cùng số hoá đơn, trùng PO hoặc trùng mã hàng.
+        So sánh thận trọng: chỉ nhận nhóm packing list có đủ dấu hiệu (PO/màu/mã/size/lô); nhiều dòng hoá đơn cùng trỏ về một nhóm (6 + 106 ↔ 112) thì so tổng.
+        Packing list đọc từ <b>PDF</b> chỉ để tham khảo — lệch thì ghi chú, không hạ trạng thái. Thư mục chỉ có packing list (hoá đơn là bản scan) → dùng packing list làm chứng từ, số hoá đơn lấy từ tên thư mục.</li>
+        <li>Chọn file inbound cho chứng từ chung: PO trùng · cùng thư mục · tên file · ngày gần · <em>Partner Name</em> trong inbound trùng tên chủ hàng trên chứng từ (Carvico không ghi PO).</li>
+        <li>Không đọc được: PDF dạng ảnh (Paddies, Prestige, Vanessa, SunPo CI, Brugnoli invoice), Excel 97-2003 <code>.xls</code> (Vinity), Word <code>.doc</code> (Freetex PKL) — công cụ báo tên file, cần xin file gốc/Excel.
+        Số ghi bằng công thức Excel cùng dòng (<code>=E54*F54</code>) được tính lại từ ô gốc vì giá trị lưu đôi khi cũ.</li>
+      </ul>
+    </details>
+  </div>
+
+  <div class="card" id="reportCard">
+    <div id="report"><p class="sub" style="margin:0">Chưa có kết quả.</p></div>
+  </div>
+</div>
+
+<script type="text/plain" id="lib-exceljs">@@lib-exceljs@@</script>
+<script type="text/plain" id="lib-pdfjs">@@lib-pdfjs@@</script>
+<script type="text/plain" id="lib-pdfworker">@@lib-pdfworker@@</script>
+<script>
+(function(){
+  function b64blob(id,type){
+    var b64=document.getElementById(id).textContent.trim();
+    var bin=atob(b64),len=bin.length,arr=new Uint8Array(len);
+    for(var i=0;i<len;i++)arr[i]=bin.charCodeAt(i);
+    return new Blob([arr],{type:type});
+  }
+  function loadScript(blob){
+    return new Promise(function(res,rej){
+      var u=URL.createObjectURL(blob),s=document.createElement('script');
+      s.onload=function(){res()};s.onerror=rej;s.src=u;document.head.appendChild(s);
+    });
+  }
+  var JS='application/javascript';
+  Promise.all([loadScript(b64blob('lib-exceljs',JS)),loadScript(b64blob('lib-pdfjs',JS))]).then(function(){
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(b64blob('lib-pdfworker',JS));
+    var s=document.createElement('script');s.textContent=document.getElementById('app-src').textContent;document.body.appendChild(s);
+  }).catch(function(e){alert('Không tải được thư viện: '+e);});
+})();
+</script>
+<script type="text/plain" id="app-src">@@APP@@</script>
+</body>
+</html>
