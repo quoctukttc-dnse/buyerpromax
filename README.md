@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.1 — 6 mẫu riêng + bộ đọc chung + OCR)
+# Inbound SAP – Đối chiếu hóa đơn (v11.3 — 6 mẫu riêng + bộ đọc chung + OCR + .xls)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -59,7 +59,8 @@ dòng inbound theo thứ tự **Material SAP → PO → mã hàng → màu/spec/
 (Excel/PDF) tự gắn vào hoá đơn cùng thư mục; hoá đơn ghi gộp theo mã còn packing list ghi theo PO/size
 thì được tách theo packing list. Chi tiết luật ở `QUY-TAC-DO.md` phần IV.
 
-Không đọc được và công cụ sẽ báo: Excel 97-2003 `.xls`, file Word `.doc`.
+File Excel 97-2003 `.xls` được tự chuyển sang `.xlsx` trong trình duyệt (SheetJS nhúng sẵn, chạy offline) rồi đọc
+như bình thường — dòng thông báo ghi "đã tự chuyển sang .xlsx". Không đọc được và công cụ sẽ báo: file Word `.doc`.
 
 ## PDF dạng ảnh (scan) — OCR (v11.1)
 
@@ -138,7 +139,7 @@ Rồi vào **Settings → Pages** → Source `Deploy from a branch` → Branch `
 
 ## Giới hạn
 
-- PDF scan đọc bằng OCR nên có thể sai số/sai chữ — luôn kiểm bản gốc; ảnh mờ hoặc có con dấu đè lên bảng (Vanessa) không đọc được. `.xls` và `.doc` chưa hỗ trợ.
+- PDF scan đọc bằng OCR nên có thể sai số/sai chữ — luôn kiểm bản gốc; ảnh mờ hoặc có con dấu đè lên bảng (Vanessa) không đọc được. `.doc` chưa hỗ trợ; `.xls` chuyển tự động nhưng file `.xls` hỏng thì phải mở bằng Excel rồi lưu lại `.xlsx`.
 - Bộ đọc chung không biết bố cục trước, nên với chứng từ lạ hãy xem kỹ cột *Cách dò* và ghi chú trong báo cáo;
   dòng không chắc sẽ là CẦN KIỂM TAY / THIẾU DÒNG và **không được điền**.
 - Cột trong file inbound tìm theo **tên tiêu đề dòng 1**, nên đổi thứ tự cột vẫn chạy đúng.

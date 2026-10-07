@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.1)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.3)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -645,8 +645,9 @@ Hing Yip, Hoa Nghiêm Vina, Best Pacific, China Junye, Luen Hing, Pioneer Elasti
 S&M International, Seamless Solutions, Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan
 (KNE) — tất cả đọc được và điền đúng theo số người đã điền tay trong inbound (trừ các dòng người
 điền từ nguồn khác). PDF dạng ảnh (scan) từ v11.1 được đọc bằng **OCR** (G9): Paddies, Prestige,
-SunPo CI, hoá đơn Brugnoli đọc được; Vanessa không (con dấu đè lên bảng). **Không đọc được**:
-Vinity (.xls), Freetex PKL (.doc), Showwin (thư mục rỗng).
+SunPo CI, hoá đơn Brugnoli đọc được; Vanessa không (con dấu đè lên bảng). Excel 97-2003 `.xls`
+(Vinity) từ v11.2 được tự chuyển sang `.xlsx` trong trình duyệt (G10). **Không đọc được**: Freetex PKL
+(.doc), Showwin (thư mục rỗng).
 
 ## G1. Nhận diện vai trò file
 
@@ -768,7 +769,7 @@ chỉ có một inbound và một chứng từ.
 ## G8. Những gì bộ đọc chung **không** làm
 
 - OCR chỉ là phương án dự phòng (G9): số liệu từ bản scan luôn gắn nhãn OCR và phải đối chiếu bản gốc.
-- Không đọc `.xls` (Vinity) và `.doc` (Freetex PKL).
+- Không đọc file Word `.doc` (Freetex PKL).
 - Không đoán nhóm khi ô PO/mã canh giữa theo chiều dọc mà nhóm có > 3 dòng (Dongguan Uwork: dòng
   `12 40` nằm giữa hai mã) — dòng sai sẽ lộ ra dưới dạng VƯỢT DUNG SAI/THIẾU DÒNG để kiểm tay.
 - Không tự chia size khi tổng không khớp (Cheung Hing nhãn `Evangeline-11434 58 DZ` cho 7 size).
@@ -806,6 +807,42 @@ PDF không có lớp chữ (dưới 40 ký tự trích được) được coi l�
 
 Kết quả kiểm thử: Paddies 5/5 dòng đúng số người điền (14 s), Prestige 1/1, Brugnoli 1/1 (số HĐ
 100972, ngày 25.09), SunPo giống hệt khi chỉ có file Excel; Vanessa báo nhập tay.
+
+## G10. Excel 97-2003 (`.xls`) — tự chuyển sang `.xlsx` (từ v11.2, 07.10.2026)
+
+ExcelJS (thư viện đọc Excel của công cụ) chỉ đọc định dạng `.xlsx`. File `.xls` (định dạng nhị phân
+BIFF của Excel 97-2003, Vinity/Vista Tex gửi `INVOICE.xls`) được xử lý như sau:
+
+1. Thư viện SheetJS (bản core, nhúng sẵn trong `index.html`, chỉ nạp khi gặp file `.xls`) đọc file và
+   ghi lại thành `.xlsx` **trong bộ nhớ trình duyệt** — không tạo file, không cần Excel, chạy offline.
+   Giữ nguyên giá trị ô, ô gộp, ngày tháng; mất định dạng màu/khung (không cần cho việc đọc).
+2. Bản `.xlsx` này đi tiếp đúng luồng của mọi file Excel khác (mẫu riêng → packing list theo PO →
+   inbound → bộ đọc chung), nên hoá đơn, packing list hay cả file inbound dạng `.xls` đều dùng được.
+3. Dòng thông báo dưới ô kéo–thả ghi `<tên file>: Excel 97-2003 — đã tự chuyển sang .xlsx để đọc`.
+   File `.xls` hỏng hoặc không phải Excel thật (một số phần mềm xuất HTML rồi đặt đuôi `.xls` — SheetJS
+   vẫn đọc được loại này) → báo "không chuyển được" kèm lý do, cần mở bằng Excel rồi *Lưu dưới dạng .xlsx*.
+
+Cùng v11.2, bộ đọc chung Excel (G2) nhận thêm kiểu **dòng phụ ở DƯỚI**: bảng không có cột PO, màu và
+PO ghi ở dòng ngay dưới dòng hàng (Vinity: `PADDING :FNJ08WHN1C236 /WIDHT 36"  YDS 236` rồi dòng
+`COL.BEIGE /PO NO.VTC0000100`). Nhận ra khi dòng đầu tiên có mã PO SAP nằm **sau** dòng hàng đầu tiên;
+khi đó dòng phụ được gán ngược cho dòng hàng phía trên (PO, màu — bỏ tiền tố `COL.` và đoạn `/PO NO.…`,
+mã Material nếu có) và **không** kéo xuống dòng hàng kế tiếp. Các bảng kiểu cũ (PO/màu ghi ở dòng
+trên hoặc có cột riêng) không đổi. Kết quả Vinity: 2/2 dòng khớp PO VTC0000100 BEIGE 236 / NAVY 127 YDS,
+tổng 2.178 USD đúng hoá đơn.
+
+## Thay đổi của v11.3 (07.10.2026) — PKL Yubo mẫu mới không có ô "HD:"
+
+- PKL `PKL_SCAVI_6.10.xlsx` (10.2026) không còn ô `HD:` / `Ngày xuất HD:`; ngày ghi ở dòng
+  `Ngày 6 tháng 10 Năm 2026` phía trên bảng. `parseDateCell` hiểu dạng "Ngày d tháng m năm yyyy"; reader
+  Yubo lấy ngày ở các dòng trên tiêu đề bảng khi không có ô `HD:` → ghép được với hoá đơn GTGT PDF cùng
+  ngày (luật Y, +3 cùng ngày, +1 mỗi PO trùng).
+- Dự phòng ghép: khi chỉ còn đúng **một** hoá đơn GTGT PDF chưa ghép và đúng **một** chứng từ chưa có số
+  HĐ, lại trùng PO trong nội dung PDF → ghép dù không trùng số/ngày. Trước đó bộ này tách thành hai hoá đơn
+  (PKL "chưa có số HĐ" + PDF đọc bằng bộ đọc chung) — chính là lỗi "không nhận dạng được hoá đơn".
+- Trạng thái mới cho PO đã giao một phần: đợt này vượt **phần còn lại** của PO nhưng cộng dồn vẫn trong
+  dung sai → `KHỚP (trong dung sai)` với ghi chú "PO … đã giao … chỉ còn … — vượt … nhưng cộng dồn còn
+  trong dung sai"; trước đây báo `KHỚP (giao thiếu)` với "còn lại" âm (khó hiểu). `VƯỢT DUNG SAI` không đổi.
+- Kết quả bộ 1808: 4/4 dòng khớp PO J&H0009800, tổng 630.727.350 đ đúng hoá đơn, INB_1C26TYY-00001808.
 
 ## Thay đổi khác của v11
 

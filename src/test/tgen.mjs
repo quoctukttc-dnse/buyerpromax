@@ -60,8 +60,12 @@ async function pdfLinesXY(file) {
 const docs = [], inbs = [];
 for (const f of files) {
   const ext = path.extname(f).toLowerCase();
-  if (ext === '.xlsx' || ext === '.xlsm') {
-    const wb = new ExcelJS.Workbook(); await wb.xlsx.load(fs.readFileSync(f));
+  if (ext === '.xlsx' || ext === '.xlsm' || ext === '.xls') {
+    let buf = fs.readFileSync(f);
+    if (ext === '.xls') { /* Excel 97-2003 → xlsx bằng SheetJS (npm i xlsx@0.18.5) */
+      const X = require('xlsx'); const w0 = X.read(buf, { type: 'buffer', cellDates: true }); buf = X.write(w0, { type: 'buffer', bookType: 'xlsx', cellDates: true });
+    }
+    const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf);
     const head = (wb.worksheets[0].getRow(1).values || []).join(' ').toLowerCase();
     if (/purchasing document/.test(head)) { inbs.push({ f, wb }); continue; }
     const d = lib.readGenWb(wb, path.basename(f), path.dirname(f));

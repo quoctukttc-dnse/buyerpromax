@@ -180,7 +180,9 @@ function parseDateCell(raw, yearHint) {
   if (raw instanceof Date) return dmy(raw.getUTCDate(), raw.getUTCMonth() + 1, raw.getUTCFullYear());
   if (typeof raw === 'number') return raw > 20000 && raw < 80000 ? fromSerial(raw) : '';
   const s = String(raw);
-  let m = s.match(/(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{4})/);
+  let m = s.match(/ng[àa]y\s*(\d{1,2})\s*th[áa]ng\s*(\d{1,2})\s*n[ăa]m\s*(\d{4})/i);   // Ngày 6 tháng 10 Năm 2026 (PKL Yubo)
+  if (m) return dmy(m[1], m[2], m[3]);
+  m = s.match(/(\d{1,2})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{4})/);
   if (m) return (Number(m[2]) > 12 && Number(m[1]) <= 12) ? dmy(m[2], m[1], m[3]) : dmy(m[1], m[2], m[3]);   // 09/17/2026 kiểu Mỹ (tháng/ngày/năm)
   m = s.match(/(\d{4})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/);
   if (m) return dmy(m[3], m[2], m[1]);
@@ -515,6 +517,10 @@ function readYubo(wb) {
         }
       }
     }
+  }
+  /* PKL không có ô "HD:" (mẫu 10.2026): lấy ngày ở dòng "Ngày 6 tháng 10 Năm 2026" phía trên bảng để ghép với hoá đơn GTGT PDF */
+  if (!invDate) {
+    for (let r = 1; r <= Math.min(hr - 1, 12) && !invDate; r++) for (let c = 1; c <= 24; c++) { const d = parseDateCell(T(ws, r, c)); if (d) { invDate = d; break; } }
   }
 
   const map = new Map();
@@ -914,6 +920,10 @@ function analyzeFab(inv, pkl, rows, opts) {
     } else if (q > qtyPo + EPS) {
       status = 'KHỚP (trong dung sai)';
       note += `Giao ${q} ${inbUnit} vượt PO ${qtyPo} nhưng còn trong dung sai (tối đa ${overTol}).`;
+    } else if (delivered > EPS && q > qtyPo - delivered + EPS) {
+      /* PO đã giao một phần: đợt này vượt phần còn lại nhưng cộng dồn vẫn trong dung sai */
+      status = 'KHỚP (trong dung sai)';
+      note += `Giao ${q} ${inbUnit}, PO ${qtyPo} đã giao ${delivered} chỉ còn ${Math.round((qtyPo - delivered) * 1000) / 1000} — vượt ${Math.round((q - qtyPo + delivered) * 1000) / 1000} nhưng cộng dồn còn trong dung sai (tối đa ${overTol}).`;
     } else if (q < qtyPo - EPS) {
       status = 'KHỚP (giao thiếu)';
       note += `Giao ${q}/${qtyPo} ${inbUnit} — còn lại ${Math.round((qtyPo - delivered - q) * 1000) / 1000}.`;

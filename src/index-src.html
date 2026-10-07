@@ -82,7 +82,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.1 · 07.10.2026 · 6 mẫu riêng + bộ đọc chung + OCR</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.3 · 07.10.2026 · 6 mẫu riêng + bộ đọc chung + OCR + .xls</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls/.doc thì công cụ báo để anh xin file gốc. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -174,7 +174,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         (lệch thì cảnh báo đỏ). Ô <code>HD:</code> trống và không có PDF → vẫn xuất, để trống cột <em>Invoice Number</em>.</li>
         <li>Thả nhiều bản <code>ZMME0032_&lt;dấu thời gian&gt;.xlsx</code> → chọn bản có ngày gần ngày hóa đơn nhất.</li>
         <li>Ghép file PDF hóa đơn với đúng file PKL theo <b>số trong ô "HD:"</b> (+5đ) và <b>ngày</b> (+3đ), rồi mới tới số PO
-        trùng — vì nhiều file PKL của cùng chủ hàng đều trùng hết số PO. Không có dấu hiệu nào thì <b>không ghép</b>.</li>
+        trùng — vì nhiều file PKL của cùng chủ hàng đều trùng hết số PO. Không có dấu hiệu nào thì <b>không ghép</b>, trừ khi chỉ còn đúng một PDF và một PKL chưa có số HĐ trùng PO (mẫu PKL 10.2026 không có ô "HD:", ngày đọc từ dòng <code>Ngày 6 tháng 10 Năm 2026</code>).</li>
         <li>Chia FIFO <b>bỏ qua dòng PO đã giao đủ</b> (<em>Delivered ≥ Quantity</em>), chỉ dùng phần dung sai còn lại của nó
         khi các dòng còn mở không đủ chỗ — tránh ghi một vài kí lẻ vào dòng PO đã xong.</li>
         <li>Cột có chữ <em>comment</em> (vd "Mỹ Ngọc comment 29Sep") chỉ dùng để <b>nhắc</b> khi khác cột Cân nặng, không lấy số.</li>
@@ -222,7 +222,9 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         sửa lỗi OCR hay gặp trong mã/số (<code>BRUOOO01900</code> → <code>BRU0001900</code>, <code>O</code>/<code>0</code>, <code>I</code>/<code>1</code>, dấu <code>|</code> của kẻ ô).
         Chứng từ OCR luôn mang nhãn đỏ <b>OCR — kiểm tra kỹ</b> trong báo cáo: bản scan chữ in rõ (Paddies, Brugnoli, Prestige) đọc tốt;
         bảng kẻ ô dày hoặc scan mờ (Vanessa) có thể mất cột → dòng không chắc sẽ không được điền. Không có mạng → báo "OCR lỗi", cần xin file gốc.</li>
-        <li>Không đọc được: Excel 97-2003 <code>.xls</code> (Vinity), Word <code>.doc</code> (Freetex PKL) — công cụ báo tên file, cần xin file Excel/PDF.
+        <li><b>Excel 97-2003 <code>.xls</code></b> (Vinity): tự chuyển sang .xlsx ngay trong trình duyệt (SheetJS nhúng sẵn, offline) rồi đọc như thường — dòng thông báo ghi "đã tự chuyển".
+        Bảng không có cột PO mà màu/PO ghi ở dòng <i>dưới</i> dòng hàng (<code>COL.BEIGE /PO NO.VTC0000100</code>) được gán ngược cho dòng hàng phía trên.
+        Không đọc được: Word <code>.doc</code> (Freetex PKL) — công cụ báo tên file, cần xin file Excel/PDF.
         Số ghi bằng công thức Excel cùng dòng (<code>=E54*F54</code>) được tính lại từ ô gốc vì giá trị lưu đôi khi cũ.</li>
       </ul>
     </details>
@@ -236,6 +238,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 <script type="text/plain" id="lib-exceljs">@@lib-exceljs@@</script>
 <script type="text/plain" id="lib-pdfjs">@@lib-pdfjs@@</script>
 <script type="text/plain" id="lib-pdfworker">@@lib-pdfworker@@</script>
+<script type="text/plain" id="lib-sheetjs">@@lib-sheetjs@@</script>
 <script>
 (function(){
   function b64blob(id,type){
@@ -253,6 +256,8 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
   var JS='application/javascript';
   Promise.all([loadScript(b64blob('lib-exceljs',JS)),loadScript(b64blob('lib-pdfjs',JS))]).then(function(){
     window.pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(b64blob('lib-pdfworker',JS));
+    /* SheetJS (đọc .xls 97-2003) chỉ nạp khi gặp file .xls */
+    var sj=null; window.loadSheetJS=function(){ if(!sj) sj=loadScript(b64blob('lib-sheetjs',JS)).then(function(){return window.XLSX;}); return sj; };
     var s=document.createElement('script');s.textContent=document.getElementById('app-src').textContent;document.body.appendChild(s);
   }).catch(function(e){alert('Không tải được thư viện: '+e);});
 })();

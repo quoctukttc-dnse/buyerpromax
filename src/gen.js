@@ -315,6 +315,22 @@ function readGenXlsx(wb, opts) {
     const items = [];
     let sticky = { po: '', art: '', color: '', size: '', lot: '' };
     let blank = 0, skippedQty = 0;
+    /* kiểu "dòng phụ ở DƯỚI": không có cột PO, màu + PO ghi ở dòng ngay dưới dòng hàng (Vinity: `COL.BEIGE /PO NO.VTC0000100`).
+       Nhận ra khi dòng đầu tiên có PO SAP nằm SAU dòng hàng đầu tiên; khi đó dòng phụ gán NGƯỢC cho dòng hàng phía trên,
+       không kéo xuống dòng sau. */
+    let postStyle = false;
+    if (!C.po) {
+      let firstItem = 0, firstPo = 0;
+      for (let r = hr + 1; r <= Math.min(hr + 200, ws.rowCount); r++) {
+        const q0 = genNum(V(ws, r, C.qty), vn);
+        if (!firstItem && !isNaN(q0) && q0 > 0) firstItem = r;
+        let txt = ''; for (let c = 1; c <= 30; c++) txt += ' ' + T(ws, r, c);
+        if (!firstPo && genPos(txt).length) firstPo = r;
+        if (firstItem && firstPo) break;
+      }
+      postStyle = firstItem > 0 && firstPo > firstItem;
+    }
+    let lastCont = 0;
     for (let r = hr + 1; r <= ws.rowCount; r++) {
       const cells = []; for (let c = 1; c <= 30; c++) cells.push(T(ws, r, c));
       const rowTxt = cells.join(' | ');
@@ -349,6 +365,24 @@ function readGenXlsx(wb, opts) {
       const colTxt = C.color ? cells[C.color - 1] : '';
       const sizeTxt = C.size ? cells[C.size - 1] : '';
       const lotTxt = C.lot ? cells[C.lot - 1] : (C.ccode && H_RE.lot.test(hdr(C.ccode)) ? cells[C.ccode - 1] : '');
+      if (postStyle && (isNaN(q) || q <= 0) && items.length) {
+        const it = items[items.length - 1];
+        if (it.row === r - 1 || lastCont === r - 1) {
+          const pr = genPos(rowTxt);
+          const txt = [artTxt, colTxt, extra].filter(Boolean).join(' ').replace(/[\r\n]+/g, ' ')
+            .replace(/\/?\s*P\.?O\.?\s*(?:NO|NUMBER)?\.?\s*[:：]?\s*(?:[A-Z][A-Z&]{2}\d{7}|CH\d{8})\b/gi, ' ').replace(/^\s*COL(?:OR|OUR)?\s*[.:：]\s*/i, '').replace(/\s+/g, ' ').trim();
+          if (txt || pr.length) {
+            if (pr.length) { it.poRaw = pr.join(' / '); it.po = pr[0]; it.poList = pr.length > 1 ? pr : null; it.poSapLike = true; sticky.po = it.poRaw; }
+            if (txt && !it.ownColor) { it.colorText = it.colorShort = it.ownColor2 ? it.colorText + ' ' + txt : txt; it.ownColor2 = true; }
+            const m2 = genMats(txt); if (m2.length && !it.mats.length) { it.mats = m2; it.material = m2[0]; }
+            it.desc = [it.article, it.colorText, it.colorCode, it.lot].filter(Boolean).join(' · ');
+            it.ctx = [it.poRaw, it.article, it.colorText, it.colorCode, it.size].filter(Boolean).join(' · ');
+            it.code = it.article || it.colorText;
+            lastCont = r; sticky.color = ''; sticky.art = '';
+            continue;
+          }
+        }
+      }
       if (poTxt) sticky.po = poTxt;
       else if (!C.po) { const pr = genPos(rowTxt); if (pr.length) sticky.po = pr.join(' / '); }
       if (artTxt) sticky.art = artTxt;
@@ -375,7 +409,7 @@ function readGenXlsx(wb, opts) {
         poRaw: sticky.po, po: pos[0] || '', poList: pos.length > 1 ? pos : null,
         poSapLike: pos.length > 0,
         article: art.split(/\s·\s/)[0], desc: [art, colorText, ccode, sticky.lot, extra].filter(Boolean).join(' · '),
-        colorText, colorCode: ccode, colorShort: colorText,
+        colorText, colorCode: ccode, colorShort: colorText, ownColor: !!colTxt,
         size: sizeTxt || sticky.size, lot: lotTxt || sticky.lot, mats, material: mats[0] || '',
         qty: q, unit: u, qtyByUnit: u ? { [u]: q } : {},
         price: C.price ? numNear(ws, r, C.price, vn) : NaN,

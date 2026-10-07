@@ -9,6 +9,7 @@ VEND = {
     'lib-exceljs': 'vendor/exceljs.min.js',
     'lib-pdfjs': 'vendor/pdf.min.js',
     'lib-pdfworker': 'vendor/pdf.worker.min.js',
+    'lib-sheetjs': 'vendor/xlsx.core.min.js',
 }
 for key, fn in VEND.items():
     b64 = base64.b64encode((HERE / fn).read_bytes()).decode()

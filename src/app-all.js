@@ -70,6 +70,15 @@ async function ocrWorker() {
   return OCR_WORKER;
 }
 /* vẽ từng trang PDF ra canvas → nhận dạng → trả về pages giống pdfPages() (toạ độ pt, gốc trái-dưới) */
+/* ---- Excel 97-2003 (.xls) → .xlsx bằng SheetJS (nhúng sẵn, chỉ nạp khi gặp file .xls) ---- */
+const XLS_CONV = new Set();
+async function xlsToXlsx(buf) {
+  if (typeof window.loadSheetJS !== 'function') throw new Error('thiếu thư viện SheetJS');
+  const X = await window.loadSheetJS();
+  const wb = X.read(new Uint8Array(buf), { type: 'array', cellDates: true, cellNF: true });
+  if (!wb || !wb.SheetNames || !wb.SheetNames.length) throw new Error('không có sheet');
+  return X.write(wb, { type: 'array', bookType: 'xlsx', cellDates: true });
+}
 async function ocrPdfPages(file) {
   const data = new Uint8Array(await file.arrayBuffer());
   const pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
@@ -533,10 +542,18 @@ async function classify(file) {
         out = { kind: 'scan', score: 0, lines, why: 'OCR đọc được chữ nhưng không nhận ra bảng hàng (ảnh mờ / có dấu đè)' + (gen && gen.inv && gen.inv.invNo ? ' — số HĐ đọc được: ' + gen.inv.invNo : '') };
       }
     }
-  } else if (/\.xls[xm]$/.test(name)) {
-    const buf = await file.arrayBuffer();
+  } else if (/\.xls[xm]?$/.test(name)) {
+    let buf = await file.arrayBuffer();
+    let fromXls = false;
+    if (/\.xls$/.test(name)) {
+      /* Excel 97-2003: chuyển sang .xlsx ngay trong trình duyệt (SheetJS) rồi đọc như file .xlsx */
+      try { buf = await xlsToXlsx(buf); fromXls = true; }
+      catch (e) { out = { kind: 'xls', score: 0, why: e && e.message ? e.message : String(e) }; CACHE.set(file, out); return out; }
+    }
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buf.slice(0));
+    try { await wb.xlsx.load(buf.slice(0)); }
+    catch (e) { if (fromXls) { out = { kind: 'xls', score: 0, why: 'chuyển sang .xlsx xong nhưng không đọc được: ' + (e && e.message ? e.message : e) }; CACHE.set(file, out); return out; } throw e; }
+    if (fromXls) XLS_CONV.add(file);
     const fp = fabProfile(wb);
     if (fp) {
       let fab = null;
@@ -590,8 +607,7 @@ async function classify(file) {
         out = { kind: 'genpkl', score: 5, buf, gen, pos: [...new Set(gen.pkl.groups.map((x) => x.po).filter(Boolean))] };
       } else out = { kind: '', score: 0, buf };
     }
-  } else if (/\.xls$/.test(name)) out = { kind: 'xls', score: 0 };
-  else if (/\.docx?$/.test(name)) out = { kind: 'doc', score: 0 };
+  } else if (/\.docx?$/.test(name)) out = { kind: 'doc', score: 0 };
   else out = { kind: '', score: 0 };
   CACHE.set(file, out);
   return out;
@@ -664,7 +680,8 @@ async function acceptFiles(fileList) {
   for (const f of list) {
     let c; try { c = await classify(f); } catch (e) { c = { kind: '', score: 0 }; }
     if (c.kind === 'scan') { notices.push(`${f.name}: PDF dạng ảnh (scan)${c.why ? ' — ' + c.why : ''} — cần file Excel/PDF gốc hoặc nhập tay`); continue; }
-    if (c.kind === 'xls') { notices.push(`${f.name}: Excel 97-2003 (.xls) — mở bằng Excel rồi Lưu dưới dạng .xlsx`); continue; }
+    if (c.kind === 'xls') { notices.push(`${f.name}: Excel 97-2003 (.xls) không chuyển được (${c.why || ''}) — mở bằng Excel rồi Lưu dưới dạng .xlsx`); continue; }
+    if (XLS_CONV.has(f)) notices.push(`${f.name}: Excel 97-2003 — đã tự chuyển sang .xlsx để đọc`);
     if (c.kind === 'doc') { notices.push(`${f.name}: file Word — chưa hỗ trợ, cần Excel/PDF`); continue; }
     if (c.kind === 'proforma') { notices.push(`${f.name}: proforma invoice — bỏ qua`); continue; }
     if (!c.kind) { unknown.push(f.name); continue; }
@@ -800,6 +817,21 @@ async function buildGroups() {
       if (pv.invDate) pr.it.inv.invDate = pv.invDate;
       pr.it.inv.pdfTotal = pv.total; pr.it.inv.pdfVat = pv.vat; pr.it.inv.pdfPayment = pv.payment;
       pr.it.inv.pdfFile = pr.v.file.name;
+    }
+    /* chỉ còn đúng MỘT hoá đơn GTGT và MỘT chứng từ chưa có số HĐ, lại trùng PO → ghép dù không trùng số/ngày
+       (PKL Yubo mẫu mới không có ô "HD:", ngày ghi dạng khác) */
+    const vLeft = invs.filter((v) => !v.fabOwner && v.inv && v.inv.invNo);
+    const iLeft = fabs.filter((it) => !it.pdfInv && it.inv && !it.inv.invNo);
+    if (vLeft.length === 1 && iLeft.length === 1) {
+      const v = vLeft[0], it = iLeft[0], cv = CACHE.get(v.file);
+      const txt = cv && cv.lines ? cv.lines.join(' ').toUpperCase().replace(/\s+/g, '') : '';
+      const pos = [...new Set(it.sapPos.concat(it.fab && it.fab.pkl ? it.fab.pkl.groups.map((g) => g.po) : []).filter(Boolean))];
+      if (pos.some((q) => txt.includes(String(q).toUpperCase().replace(/\s+/g, '')))) {
+        v.fabOwner = it; it.pdfInv = v; const pv = v.inv;
+        it.inv.invNo = pv.invNo; it.inv.noInvoiceNo = false; it.inv.noSerial = false;
+        if (pv.invDate) it.inv.invDate = pv.invDate;
+        it.inv.pdfTotal = pv.total; it.inv.pdfVat = pv.vat; it.inv.pdfPayment = pv.payment; it.inv.pdfFile = v.file.name;
+      }
     }
   };
   pairVat();
