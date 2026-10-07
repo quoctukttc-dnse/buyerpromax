@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.1)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -644,8 +644,9 @@ Cheung Hing, Chuangjie, Derun, DJIC, Dongguan Uwork, Freetex VN, Fujian Baikai, 
 Hing Yip, Hoa Nghiêm Vina, Best Pacific, China Junye, Luen Hing, Pioneer Elastic, PT Winnersumbiri,
 S&M International, Seamless Solutions, Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan
 (KNE) — tất cả đọc được và điền đúng theo số người đã điền tay trong inbound (trừ các dòng người
-điền từ nguồn khác). **Không đọc được**: Paddies, Prestige, Vanessa, SunPo CI, hoá đơn Brugnoli
-(PDF dạng ảnh/scan), Vinity (.xls), Freetex PKL (.doc), Showwin (thư mục rỗng).
+điền từ nguồn khác). PDF dạng ảnh (scan) từ v11.1 được đọc bằng **OCR** (G9): Paddies, Prestige,
+SunPo CI, hoá đơn Brugnoli đọc được; Vanessa không (con dấu đè lên bảng). **Không đọc được**:
+Vinity (.xls), Freetex PKL (.doc), Showwin (thư mục rỗng).
 
 ## G1. Nhận diện vai trò file
 
@@ -766,12 +767,45 @@ chỉ có một inbound và một chứng từ.
 
 ## G8. Những gì bộ đọc chung **không** làm
 
-- Không OCR: PDF dạng ảnh (Paddies, Prestige, Vanessa, SunPo CI, hoá đơn Brugnoli) phải xin file gốc.
+- OCR chỉ là phương án dự phòng (G9): số liệu từ bản scan luôn gắn nhãn OCR và phải đối chiếu bản gốc.
 - Không đọc `.xls` (Vinity) và `.doc` (Freetex PKL).
 - Không đoán nhóm khi ô PO/mã canh giữa theo chiều dọc mà nhóm có > 3 dòng (Dongguan Uwork: dòng
   `12 40` nằm giữa hai mã) — dòng sai sẽ lộ ra dưới dạng VƯỢT DUNG SAI/THIẾU DÒNG để kiểm tay.
 - Không tự chia size khi tổng không khớp (Cheung Hing nhãn `Evangeline-11434 58 DZ` cho 7 size).
 - Packing list có thùng trộn size (Yibei thùng 24: 9 M + 170 L) → báo LỆCH PKL để kiểm tay.
+
+## G9. PDF dạng ảnh (scan) — OCR (từ v11.1, 07.10.2026)
+
+PDF không có lớp chữ (dưới 40 ký tự trích được) được coi là bản scan. Nếu ô **OCR** (cạnh ô kéo–thả)
+đang bật, công cụ xử lý như sau; nếu tắt, file được báo "PDF dạng ảnh — đã tắt OCR" và bỏ qua.
+
+1. **Tải bộ OCR khi cần.** Lần đầu gặp bản scan, trình duyệt tải tesseract.js (bộ nhận dạng ~4 MB + dữ liệu
+   ngôn ngữ Anh + Việt ~4,5 MB) từ CDN jsDelivr; cần mạng ở lần này, các lần sau trình duyệt dùng
+   bản đã lưu. Không tải được → file báo "OCR lỗi … cần mạng để tải bộ OCR". Bộ OCR **không** nhúng
+   vào `index.html` để giữ file ~1 MB nén.
+2. **Vẽ từng trang** bằng pdf.js ở độ phóng 3× (≈216 dpi) rồi nhận dạng; mỗi từ nhận được kèm toạ
+   độ, được đổi về cùng hệ toạ độ như PDF có chữ, nên các luật G3 (tiêu đề cột, số lượng cạnh đơn vị,
+   khối theo PO…) dùng lại nguyên vẹn.
+3. **Sửa lỗi OCR hay gặp** trước khi dò: `O`→`0` và `I`/`l`→`1` trong các ô toàn số hoặc mã PO
+   (`PDD00O34OO` → `PDD0003400`), bỏ ký tự `|` của đường kẻ bảng, tách từ dính như `141PAIRS` →
+   `141` + `PAIRS`. Không sửa gì bên trong chữ (tên màu, mã hàng).
+4. **Luôn đi qua bộ đọc chung** (PHẦN IV), không bao giờ đi vào mẫu packing list phụ liệu (mẫu đó cần
+   chữ chính xác từng ký tự). Hoá đơn GTGT scan chỉ đọc được phần đầu (số, ngày) được ghép với
+   chứng từ cùng thư mục theo G7/Y rồi lấy **ngày** từ đó (Paddies: ngày HĐ GTGT 11.09 thay cho ngày
+   commercial invoice 10.09); số HĐ giữ theo ô "VAT Invoice#" trên chứng từ nếu có, vì OCR dễ đọc
+   thiếu ký hiệu.
+5. **Bản scan trùng với file Excel/PDF gốc** (SunPo gửi cả CI.xlsx lẫn CI scan): cùng thư mục và trùng
+   số hoá đơn hoặc tổng số lượng lệch < 0,5 % → bản scan bị bỏ, chỉ giữ bản gốc. Nếu bản gốc chỉ là
+   packing list (Brugnoli: PL có chữ + hoá đơn scan) thì giữ dòng hàng theo packing list, lấy số và
+   ngày hoá đơn từ bản scan (`FATTURA N. 100972`), ghi chú "số hoá đơn lấy từ bản scan (OCR)".
+6. **Không tự điền khi không chắc.** OCR không nhận ra bảng hàng (Vanessa: con dấu đè lên cột size/số
+   lượng) → file báo "OCR đọc được chữ nhưng không nhận ra bảng hàng" kèm số HĐ nếu đọc được, không đưa
+   vào đối chiếu. Dòng có số lượng nhưng không khớp đơn vị/tổng vẫn ra CẦN KIỂM TAY như thường.
+7. **Gắn nhãn.** Hoá đơn có bất kỳ số liệu nào từ OCR được đánh dấu **OCR** trong báo cáo, kèm cảnh báo
+   đỏ "Chứng từ là bản scan, đọc bằng OCR — kiểm tra kỹ số liệu với bản gốc trước khi import".
+
+Kết quả kiểm thử: Paddies 5/5 dòng đúng số người điền (14 s), Prestige 1/1, Brugnoli 1/1 (số HĐ
+100972, ngày 25.09), SunPo giống hệt khi chỉ có file Excel; Vanessa báo nhập tay.
 
 ## Thay đổi khác của v11
 

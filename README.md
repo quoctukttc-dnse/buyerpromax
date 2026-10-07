@@ -1,9 +1,10 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11 — 6 mẫu riêng + bộ đọc chung)
+# Inbound SAP – Đối chiếu hóa đơn (v11.1 — 6 mẫu riêng + bộ đọc chung + OCR)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
 
-Toàn bộ xử lý chạy **trong trình duyệt** (ExcelJS + pdf.js nhúng sẵn). Không gửi file lên máy chủ, chạy được offline.
+Toàn bộ xử lý chạy **trong trình duyệt** (ExcelJS + pdf.js nhúng sẵn). Không gửi file lên máy chủ, chạy được offline
+(riêng OCR cho PDF scan cần mạng ở lần đầu để tải bộ nhận dạng).
 
 ## Cách dùng
 
@@ -58,7 +59,15 @@ dòng inbound theo thứ tự **Material SAP → PO → mã hàng → màu/spec/
 (Excel/PDF) tự gắn vào hoá đơn cùng thư mục; hoá đơn ghi gộp theo mã còn packing list ghi theo PO/size
 thì được tách theo packing list. Chi tiết luật ở `QUY-TAC-DO.md` phần IV.
 
-Không đọc được và công cụ sẽ báo: PDF dạng ảnh (scan), Excel 97-2003 `.xls`, file Word `.doc`.
+Không đọc được và công cụ sẽ báo: Excel 97-2003 `.xls`, file Word `.doc`.
+
+## PDF dạng ảnh (scan) — OCR (v11.1)
+
+PDF không có lớp chữ được nhận dạng bằng tesseract.js (tải từ CDN jsDelivr ở lần đầu, ~8–9 MB kể cả dữ liệu
+tiếng Anh + Việt, sau đó trình duyệt giữ lại). Ô **OCR** cạnh ô kéo–thả cho phép tắt. Kết quả đi qua bộ đọc
+chung như PDF thường, được gắn nhãn **OCR** và cảnh báo đỏ trong báo cáo; bản scan trùng với file gốc
+cùng thư mục bị bỏ; bản scan không nhận ra bảng hàng sẽ báo để nhập tay. Luôn đối chiếu lại số liệu OCR với
+bản gốc trước khi import. Chi tiết ở `QUY-TAC-DO.md` mục G9.
 
 ## Hai chế độ
 
@@ -129,7 +138,7 @@ Rồi vào **Settings → Pages** → Source `Deploy from a branch` → Branch `
 
 ## Giới hạn
 
-- Chỉ đọc được PDF có lớp text (hóa đơn scan thành ảnh sẽ không đọc được — cần OCR); `.xls` và `.doc` chưa hỗ trợ.
+- PDF scan đọc bằng OCR nên có thể sai số/sai chữ — luôn kiểm bản gốc; ảnh mờ hoặc có con dấu đè lên bảng (Vanessa) không đọc được. `.xls` và `.doc` chưa hỗ trợ.
 - Bộ đọc chung không biết bố cục trước, nên với chứng từ lạ hãy xem kỹ cột *Cách dò* và ghi chú trong báo cáo;
   dòng không chắc sẽ là CẦN KIỂM TAY / THIẾU DÒNG và **không được điền**.
 - Cột trong file inbound tìm theo **tên tiêu đề dòng 1**, nên đổi thứ tự cột vẫn chạy đúng.

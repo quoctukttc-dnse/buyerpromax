@@ -669,7 +669,7 @@ function analyzeFab(inv, pkl, rows, opts) {
       } else if (!rawPo) {
         poRows = rows; usedPo = distinct.length === 1 ? distinct[0] : '';
         poNote += distinct.length === 1 ? `Chứng từ không ghi PO — inbound chỉ có PO ${usedPo}. ` : `Chứng từ không ghi PO — dò trên toàn bộ ${distinct.length} PO của inbound. `;
-      } else if (distinct.length === 1 && !/^(?:[A-Z][A-Z&]{2}\d{7}|[A-Z]{2}\d{8})$/.test(rawPo.toUpperCase())) {
+      } else if (distinct.length === 1 && !/^(?:[A-Z][A-Z&]{2}\d{7}|CH\d{8})$/.test(rawPo.toUpperCase())) {
         poRows = rows; usedPo = distinct[0];
         poNote += `PO trên chứng từ "${rawPo}" không phải mã SAP — inbound chỉ có PO ${usedPo} nên dùng mã này. `;
       }
@@ -699,28 +699,28 @@ function analyzeFab(inv, pkl, rows, opts) {
     const artOK = pool.length > 0;
     if (!pool.length) pool = poRows;
     /* size ghi trên chứng từ: giữ đúng size (nếu inbound có cột size) */
-    let sizeBy = false;
+    let sizeBy = false, sizeMiss = false;
     let docSize = it.size || '';
-    if (!docSize && it.gen && pool.some((r) => r.size)) {
-      /* size nằm trong mô tả: "PAN38 36.9CM" · "BRA-CUP 75B" */
+    if (it.gen && pool.some((r) => r.size)) {
+      /* ứng viên size: cột size trên chứng từ, rồi size nằm trong mô tả ("PAN38 36.9CM" · "PD2659-1-75B" · "Bra cup M") */
+      const cands = [];
+      if (it.size) cands.push(it.size);
       const up = String(invText).toUpperCase();
       const m = up.match(/\b(\d{2,3}(?:\.\d)?)\s*CM\b/) || up.match(/\b(\d{2}[A-K]{1,2})\b/);
-      if (m) docSize = m[1] + (/CM/.test(m[0]) ? 'CM' : '');
-      else {
-        /* size chữ ở cuối mô tả: "Bra cup M" · "… / L" */
-        const parts = String((it.article || '') + ' · ' + (it.desc || '')).toUpperCase().split(/\s·\s/);
-        for (const p0 of parts) {
-          const t = p0.replace(/[\s·,\/-]+$/, '');
-          const m2 = t.match(/(?:^|[\s\/·-])(XXS|XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|F|OS)$/);
-          if (m2 && pool.some((r) => sizeSame(m2[1], r.size))) { docSize = m2[1]; break; }
-        }
+      if (m) cands.push(m[1] + (/CM/.test(m[0]) ? 'CM' : ''));
+      const parts = String((it.article || '') + ' · ' + (it.desc || '')).toUpperCase().split(/\s·\s/);
+      for (const p0 of parts) {
+        const t = p0.replace(/[\s·,\/-]+$/, '');
+        const m2 = t.match(/(?:^|[\s\/·-])(XXS|XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|F|OS)$/);
+        if (m2) { cands.push(m2[1]); break; }
       }
-    }
-    let sizeMiss = false;
-    if (docSize && pool.some((r) => r.size)) {
+      let picked = '';
+      for (const c of cands) { const ps = pool.filter((r) => sizeSame(c, r.size)); if (ps.length) { pool = ps; sizeBy = true; picked = c; break; } }
+      docSize = picked || cands[0] || '';
+      if (!picked && cands.length && artOK) { pool = []; sizeMiss = true; }
+    } else if (docSize && pool.some((r) => r.size)) {
       const ps = pool.filter((r) => sizeSame(docSize, r.size));
       if (ps.length) { pool = ps; sizeBy = true; }
-      else if (it.gen && artOK) { pool = []; sizeMiss = true; }
     }
     const scored = pool.map((r) => {
       let s = colorScore(it.colorText, r.color, invText) * 3;

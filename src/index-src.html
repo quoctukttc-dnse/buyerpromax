@@ -82,8 +82,8 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11 · 07.10.2026 · 6 mẫu riêng + bộ đọc chung</span></h1>
-  <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) và file .xls/.doc thì công cụ báo để anh xin file gốc. Mọi xử lý chạy trong trình duyệt.</p>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.1 · 07.10.2026 · 6 mẫu riêng + bộ đọc chung + OCR</span></h1>
+  <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls/.doc thì công cụ báo để anh xin file gốc. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
     <div class="drop" id="dropall">
@@ -103,6 +103,8 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
     <div class="row" style="margin-top:8px">
       <label class="chk"><input type="checkbox" id="onlyMatched" checked> File import SAP chỉ giữ các dòng thuộc hóa đơn</label>
       <label class="chk"><input type="checkbox" id="perReport"> Xuất thêm file báo cáo chi tiết cho từng hóa đơn</label>
+      <label class="chk"><input type="checkbox" id="ocr" checked> OCR PDF dạng ảnh (scan) — cần mạng, lần đầu tải bộ nhận dạng ~8 MB</label>
+      <span id="ocrstat" class="hint"></span>
       <label class="chk"><input type="checkbox" id="useQty"> Dùng cột Quantity khi Invoice Quantity còn trống</label>
     </div>
     <div id="stale" class="stale"></div>
@@ -215,7 +217,12 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         So sánh thận trọng: chỉ nhận nhóm packing list có đủ dấu hiệu (PO/màu/mã/size/lô); nhiều dòng hoá đơn cùng trỏ về một nhóm (6 + 106 ↔ 112) thì so tổng.
         Packing list đọc từ <b>PDF</b> chỉ để tham khảo — lệch thì ghi chú, không hạ trạng thái. Thư mục chỉ có packing list (hoá đơn là bản scan) → dùng packing list làm chứng từ, số hoá đơn lấy từ tên thư mục.</li>
         <li>Chọn file inbound cho chứng từ chung: PO trùng · cùng thư mục · tên file · ngày gần · <em>Partner Name</em> trong inbound trùng tên chủ hàng trên chứng từ (Carvico không ghi PO).</li>
-        <li>Không đọc được: PDF dạng ảnh (Paddies, Prestige, Vanessa, SunPo CI, Brugnoli invoice), Excel 97-2003 <code>.xls</code> (Vinity), Word <code>.doc</code> (Freetex PKL) — công cụ báo tên file, cần xin file gốc/Excel.
+        <li><b>PDF dạng ảnh (scan)</b>: khi PDF không có lớp chữ và ô "OCR" đang bật, công cụ vẽ từng trang ra ảnh (216 dpi) rồi nhận dạng bằng
+        <em>tesseract.js</em> (tiếng Anh + Việt, tải từ CDN jsDelivr lần đầu ~8 MB, sau đó trình duyệt tự lưu). Từ nhận ra (kèm toạ độ) được đưa vào đúng bộ đọc PDF ở trên;
+        sửa lỗi OCR hay gặp trong mã/số (<code>BRUOOO01900</code> → <code>BRU0001900</code>, <code>O</code>/<code>0</code>, <code>I</code>/<code>1</code>, dấu <code>|</code> của kẻ ô).
+        Chứng từ OCR luôn mang nhãn đỏ <b>OCR — kiểm tra kỹ</b> trong báo cáo: bản scan chữ in rõ (Paddies, Brugnoli, Prestige) đọc tốt;
+        bảng kẻ ô dày hoặc scan mờ (Vanessa) có thể mất cột → dòng không chắc sẽ không được điền. Không có mạng → báo "OCR lỗi", cần xin file gốc.</li>
+        <li>Không đọc được: Excel 97-2003 <code>.xls</code> (Vinity), Word <code>.doc</code> (Freetex PKL) — công cụ báo tên file, cần xin file Excel/PDF.
         Số ghi bằng công thức Excel cùng dòng (<code>=E54*F54</code>) được tính lại từ ô gốc vì giá trị lưu đôi khi cũ.</li>
       </ul>
     </details>

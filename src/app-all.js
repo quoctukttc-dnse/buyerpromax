@@ -46,8 +46,57 @@ async function pdfPages(file) {
   PDF_PAGES.set(file, pages);
   return pages;
 }
-async function pdfLines(file) {
-  const pages = await pdfPages(file);
+/* ---------- OCR cho PDF dạng ảnh (tesseract.js, tải từ CDN khi cần; lần đầu ~8 MB) ---------- */
+const OCR_CFG = Object.assign({ script: 'https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js', langs: 'eng+vie', scale: 3 }, window.OCR_CFG || {});
+let OCR_WORKER = null, OCR_FAIL = '';
+function ocrStatus(msg) { const el = $('#ocrstat'); if (el) el.textContent = msg || ''; }
+async function loadOcrScript() {
+  if (window.Tesseract) return true;
+  await new Promise((res, rej) => {
+    const sc = document.createElement('script'); sc.src = OCR_CFG.script; sc.onload = res; sc.onerror = () => rej(new Error('không tải được ' + OCR_CFG.script));
+    document.head.appendChild(sc);
+  });
+  return !!window.Tesseract;
+}
+async function ocrWorker() {
+  if (OCR_WORKER) return OCR_WORKER;
+  await loadOcrScript();
+  const opts = { legacyCore: false, legacyLang: false, logger: (m) => { if (m && m.status && /load|init/i.test(m.status)) ocrStatus(`Đang tải bộ OCR: ${m.status} ${m.progress != null ? Math.round(m.progress * 100) + '%' : ''}`); } };
+  if (OCR_CFG.workerPath) opts.workerPath = OCR_CFG.workerPath;
+  if (OCR_CFG.corePath) opts.corePath = OCR_CFG.corePath;
+  if (OCR_CFG.langPath) opts.langPath = OCR_CFG.langPath;
+  OCR_WORKER = await Tesseract.createWorker(OCR_CFG.langs, 1, opts);
+  await OCR_WORKER.setParameters({ preserve_interword_spaces: '1' });
+  return OCR_WORKER;
+}
+/* vẽ từng trang PDF ra canvas → nhận dạng → trả về pages giống pdfPages() (toạ độ pt, gốc trái-dưới) */
+async function ocrPdfPages(file) {
+  const data = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
+  const worker = await ocrWorker();
+  const pages = [];
+  const scale = OCR_CFG.scale || 3;
+  for (let p = 1; p <= pdf.numPages; p++) {
+    ocrStatus(`Đang OCR ${file.name} — trang ${p}/${pdf.numPages}…`);
+    const page = await pdf.getPage(p);
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    const { data: d } = await worker.recognize(canvas, {}, { blocks: true, text: false });
+    const words = [];
+    let li = 0;
+    for (const b of (d.blocks || [])) for (const pg of (b.paragraphs || [])) for (const ln of (pg.lines || [])) {
+      li++;
+      for (const w of (ln.words || [])) if (w.text && w.text.trim()) words.push({ line: li, x0: w.bbox.x0, y0: w.bbox.y0, x1: w.bbox.x1, y1: w.bbox.y1, text: w.text, conf: w.confidence });
+    }
+    pages.push(ocrWordsToItems(words, scale, canvas.height));
+  }
+  ocrStatus('');
+  (window.__OCR__ = window.__OCR__ || {})[file.name] = pages;
+  return pages;
+}
+function linesFromPages(pages) {
   const out = [];
   for (const items of pages) {
     const its = items.slice().sort((a, b) => (b.y - a.y) || (a.x - b.x));
@@ -66,6 +115,7 @@ async function pdfLines(file) {
   }
   return out;
 }
+async function pdfLines(file) { return linesFromPages(await pdfPages(file)); }
 
 /* ================= Invoice ================= */
 function parseInvoice(lines) {
@@ -417,7 +467,9 @@ function headerIndex(ws) {
 /* tên chủ hàng: dòng đầu có CO., LTD / LIMITED / COMPANY / S.P.A … */
 function supplierNameOf(lines) {
   const L = (lines || []).slice(0, 12).map((x) => String(x).trim()).filter(Boolean);
-  const hit = L.find((x) => /\b(CO\.?,?\s*LTD|LIMITED|COMPANY|CORP|S\.P\.A|INC\b|FACTORY|GROUP|INDUSTR|TEXTILE|CÔNG TY|TNHH)/i.test(x) && !/SCAVI|B'?LAO|BLAO SPORT/i.test(x));
+  const notUs = (x) => !/SCAVI|B'?LAO|BLAO SPORT/i.test(x);
+  const hit = L.find((x) => /\b(CO\.?,?\s*LTD|LIMITED|COMPANY|CORP|S\.P\.A|INC\b|CÔNG TY|CONG TY|TNHH|GMBH|S\.A\b)/i.test(x) && notUs(x))
+    || L.find((x) => /\b(FACTORY|GROUP|INDUSTR|TEXTILE|TRADING)/i.test(x) && notUs(x));
   return (hit || L[0] || '').replace(/\s{2,}.*$/, '').slice(0, 48);
 }
 function supplierNameOfWb(wb) {
@@ -432,21 +484,37 @@ async function classify(file) {
   const name = (file.name || '').toLowerCase();
   let out;
   if (/\.pdf$/.test(name)) {
-    const pages = await pdfPages(file);
-    const lines = await pdfLines(file);
+    let pages = await pdfPages(file);
+    let lines = linesFromPages(pages);
     const nChars = pages.reduce((a, p) => a + p.reduce((b, i) => b + i.s.length, 0), 0);
-    if (nChars < 40) { out = { kind: 'scan', score: 0, lines }; CACHE.set(file, out); return out; }
+    let ocr = false;
+    if (nChars < 40) {
+      const want = $('#ocr') ? $('#ocr').checked : true;
+      if (!want) { out = { kind: 'scan', score: 0, lines, why: 'đã tắt OCR' }; CACHE.set(file, out); return out; }
+      try {
+        pages = await ocrPdfPages(file);
+        lines = linesFromPages(pages);
+        ocr = true;
+        if (lines.join(' ').replace(/\s+/g, '').length < 40) { out = { kind: 'scan', score: 0, lines, why: 'OCR không đọc ra chữ' }; CACHE.set(file, out); return out; }
+      } catch (e) {
+        OCR_FAIL = e && e.message ? e.message : String(e);
+        ocrStatus('');
+        out = { kind: 'scan', score: 0, lines, why: 'OCR lỗi: ' + OCR_FAIL + ' (cần mạng để tải bộ OCR)' }; CACHE.set(file, out); return out;
+      }
+    }
     const t = lines.join(' ').toUpperCase();
     const sInv = hits(t, ['HÓA ĐƠN GIÁ TRỊ GIA TĂNG', 'VAT INVOICE', 'KÝ HIỆU', 'TIỀN THUẾ', 'NGƯỜI BÁN HÀNG', 'ĐVT']);
     const sPkl = hits(t, ['PACKING LIST', 'DESPATCH NOTE', 'LABEL REF', 'CTN NO', 'OUR REF', 'DELIVERY METHOD']);
     let kind = sInv === 0 && sPkl === 0 ? '' : (sInv >= sPkl ? 'inv' : 'pkl');
     const note = (t.match(/(?:GHI CHÚ \(NOTE\)\s*:|DESPATCH NOTE\s*:?)\s*([A-Z]{2}[A-Z0-9]{5,})/) || [])[1] || '';
-    out = { kind, score: Math.max(sInv, sPkl), lines, note };
+    out = { kind, score: Math.max(sInv, sPkl), lines, note, ocr };
     /* hoá đơn GTGT nhưng không theo mẫu ITL/Inkava (không đọc được dòng hàng) → bộ đọc chung */
     const itlItems = kind === 'inv' ? parseInvoice(lines).items.length : 0;
-    if ((kind === 'inv' && !itlItems) || kind === '' || (kind === 'pkl' && sPkl < 2)) {
+    /* bản scan (OCR) luôn qua bộ đọc chung: mẫu packing list phụ liệu cần chữ chính xác, OCR không đáp ứng */
+    if ((kind === 'inv' && !itlItems) || kind === '' || (kind === 'pkl' && (sPkl < 2 || ocr))) {
       let gen = null;
       try { gen = readGenPdf(pages, file.name, dirOf(file)); } catch (e) { gen = null; }
+      if (gen && ocr) { gen.ocr = true; if (gen.inv) gen.inv.ocr = true; }
       if (gen && gen.role === 'proforma') out = { kind: 'proforma', score: 0, lines };
       else if (gen && gen.inv && gen.inv.items.length) {
         gen.supplier = gen.supplier || supplierNameOf(lines);
@@ -457,7 +525,13 @@ async function classify(file) {
       } else if (gen && gen.pkl && gen.pkl.groups.length) {
         gen.supplier = supplierNameOf(lines);
         out = { kind: 'genpkl', score: 5, gen, lines, pos: [...new Set(gen.pkl.groups.map((x) => x.po).filter(Boolean))] };
-      } else if (kind === 'inv' && !itlItems) out = { kind: '', score: 0, lines };
+      } else if (kind === 'inv' && !itlItems) {
+        const pv = parseInvoice(lines);
+        out = pv.invNo ? { kind: 'inv', score: sInv, lines, note, ocr, headerOnly: true } : (ocr ? { kind: 'scan', score: 0, lines, why: 'OCR đọc được chữ nhưng không nhận ra bảng hàng (ảnh mờ / có dấu đè)' } : { kind: '', score: 0, lines });
+      } else if (ocr) {
+        /* bản scan OCR không ra bảng hàng → không đưa vào luồng phụ liệu (sẽ sai), báo để nhập tay */
+        out = { kind: 'scan', score: 0, lines, why: 'OCR đọc được chữ nhưng không nhận ra bảng hàng (ảnh mờ / có dấu đè)' + (gen && gen.inv && gen.inv.invNo ? ' — số HĐ đọc được: ' + gen.inv.invNo : '') };
+      }
     }
   } else if (/\.xls[xm]$/.test(name)) {
     const buf = await file.arrayBuffer();
@@ -589,7 +663,7 @@ async function acceptFiles(fileList) {
   const unknown = [], fresh = new Set(), notices = [];
   for (const f of list) {
     let c; try { c = await classify(f); } catch (e) { c = { kind: '', score: 0 }; }
-    if (c.kind === 'scan') { notices.push(`${f.name}: PDF dạng ảnh (scan) — không có chữ để đọc, cần file Excel/PDF gốc hoặc nhập tay`); continue; }
+    if (c.kind === 'scan') { notices.push(`${f.name}: PDF dạng ảnh (scan)${c.why ? ' — ' + c.why : ''} — cần file Excel/PDF gốc hoặc nhập tay`); continue; }
     if (c.kind === 'xls') { notices.push(`${f.name}: Excel 97-2003 (.xls) — mở bằng Excel rồi Lưu dưới dạng .xlsx`); continue; }
     if (c.kind === 'doc') { notices.push(`${f.name}: file Word — chưa hỗ trợ, cần Excel/PDF`); continue; }
     if (c.kind === 'proforma') { notices.push(`${f.name}: proforma invoice — bỏ qua`); continue; }
@@ -691,21 +765,26 @@ async function buildGroups() {
      Ghép toàn cục: số HĐ trong ô "HD:" trùng số trên PDF (+5) · cùng ngày (+3) ·
      mỗi PO trùng (+1) · cùng thư mục (+0.5). Phải có ít nhất một trong hai dấu hiệu
      đầu, vì nhiều file PKL của cùng chủ hàng đều trùng hết số PO.                      */
-  {
+  const pairVat = () => {
     const digits = (x) => String(x == null ? '' : x).replace(/\D/g, '').replace(/^0+/, '');
     const pairs = [];
     for (const it of fabs) {
       if (!it.inv) continue;
-      const hd = digits(it.inv.no);
+      const hd = digits(it.inv.vatNo || it.inv.no);
+      const gpkPos = STATE.items.filter((x) => x.kind === 'genpkl' && (x.dir || '') === (it.dir || '') && x.gen && x.gen.pkl).map((x) => x.gen.pkl.groups.map((g) => g.po)).flat();
+      const posAll = [...new Set(it.sapPos.concat(it.fab && it.fab.pkl ? it.fab.pkl.groups.map((g) => g.po) : [], gpkPos).filter(Boolean))];
       for (const v of invs) {
         const cv = CACHE.get(v.file);
         if (!cv || !cv.lines || !v.inv || !v.inv.invNo) continue;
         const txt = cv.lines.join(' ').toUpperCase().replace(/\s+/g, '');
-        const nPo = it.sapPos.filter((q) => txt.includes(String(q).toUpperCase().replace(/\s+/g, ''))).length;
+        const nPo = posAll.filter((q) => txt.includes(String(q).toUpperCase().replace(/\s+/g, ''))).length;
         const vn = digits(v.inv.no);
         const sameNo = hd && vn && (vn === hd || vn.endsWith(hd) || hd.endsWith(vn));
         const sameDay = it.inv.invDate && v.inv.invDate && it.inv.invDate === v.inv.invDate;
-        if (!sameNo && !sameDay) continue;
+        /* chứng từ chung (Paddies: commercial invoice + HĐ GTGT scan): PO trùng cũng đủ để ghép khi HĐ GTGT không có dòng hàng */
+        const cv2 = CACHE.get(v.file);
+        const headerOnly = !!(cv2 && cv2.headerOnly);
+        if (!sameNo && !sameDay && !(it.isGen && headerOnly && nPo > 0)) continue;
         const sc = (sameNo ? 5 : 0) + (sameDay ? 3 : 0) + nPo
           + (it.dir && v.dir && it.dir === v.dir ? 0.5 : 0);
         pairs.push({ it, v, sc });
@@ -716,12 +795,14 @@ async function buildGroups() {
       if (pr.it.pdfInv || pr.v.fabOwner) continue;
       pr.v.fabOwner = pr.it; pr.it.pdfInv = pr.v;
       const pv = pr.v.inv;
-      if (pv.invNo) { pr.it.inv.invNo = pv.invNo; pr.it.inv.noInvoiceNo = false; pr.it.inv.noSerial = false; }
+      /* chứng từ đã tự ghi số HĐ GTGT ("VAT Invoice#") thì giữ, vì bản PDF OCR có thể đọc thiếu ký hiệu */
+      if (pv.invNo && !pr.it.inv.vatNo) { pr.it.inv.invNo = pv.invNo; pr.it.inv.noInvoiceNo = false; pr.it.inv.noSerial = false; }
       if (pv.invDate) pr.it.inv.invDate = pv.invDate;
       pr.it.inv.pdfTotal = pv.total; pr.it.inv.pdfVat = pv.vat; pr.it.inv.pdfPayment = pv.payment;
       pr.it.inv.pdfFile = pr.v.file.name;
     }
-  }
+  };
+  pairVat();
 
   /* Hoá đơn GTGT không theo mẫu ITL/Inkava và không ghép được với PKL vải nào → tự nó là chứng từ (bộ đọc chung) */
   for (const it of invs.slice()) {
@@ -736,6 +817,8 @@ async function buildGroups() {
     const ib = inbOf.get(it); if (ib) { ib.used = false; inbOf.delete(it); }
     const pk = pklOf.get(it); if (pk) { pk.used = false; pklOf.delete(it); }
   }
+  /* HĐ GTGT chỉ có phần đầu (scan, OCR) có thể thuộc về chứng từ vừa chuyển ở trên (Paddies: CI + HĐ GTGT scan) → ghép lại lần nữa */
+  pairVat();
   /* ---- packing list rời (Excel/PDF) của chủ hàng dùng bộ đọc chung: gắn vào chứng từ cùng thư mục,
        hoặc có số hoá đơn / PO trùng. Một hoá đơn có thể có nhiều file packing list (CELEB PKL (1)(2)(3)). ---- */
   const gpks = STATE.items.filter((x) => x.kind === 'genpkl');
@@ -780,6 +863,26 @@ async function buildGroups() {
     p.sapPos = [...new Set(p.inv.items.map((x) => x.po).filter(Boolean))];
     p.used = true; fabs.push(p); genFabs.push(p);
   }
+  /* Bản scan OCR trùng với một chứng từ có chữ (SunPo gửi cả CI scan lẫn Excel): cùng thư mục,
+     cùng số hoá đơn hoặc cùng tổng số lượng → bỏ bản OCR, giữ bản có chữ. */
+  STATE.dupOcr = [];
+  {
+    const sumQ = (f) => Math.round(f.inv.items.reduce((a, x) => a + (isNaN(x.qty) ? 0 : x.qty), 0) * 100) / 100;
+    const dg = (x) => String(x == null ? '' : x).replace(/\D/g, '').replace(/^0+/, '');
+    for (const o of fabs.slice()) {
+      if (!o.fab || !o.fab.ocr) continue;
+      const twin = fabs.find((t) => t !== o && t.fab && !t.fab.ocr && (t.dir || '') === (o.dir || '')
+        && ((dg(t.inv.invNo) && dg(t.inv.invNo) === dg(o.inv.invNo)) || (sumQ(t) > 0 && Math.abs(sumQ(t) - sumQ(o)) <= sumQ(t) * 0.005)));
+      if (!twin) continue;
+      /* bản có chữ chỉ là packing list (số trên đó là số packing) → lấy số hoá đơn từ bản scan */
+      if ((!twin.inv.invNo || twin.fab.pklOnly) && o.inv.invNo) { twin.inv.invNo = twin.inv.no = o.inv.invNo; twin.inv.noInvoiceNo = false; twin.inv.noFrom = 'bản scan ' + o.file.name + ' (OCR)'; }
+      if (!twin.inv.invDate && o.inv.invDate) twin.inv.invDate = o.inv.invDate;
+      STATE.dupOcr.push({ o, twin });
+      fabs.splice(fabs.indexOf(o), 1);
+      const gi = genFabs.indexOf(o); if (gi >= 0) genFabs.splice(gi, 1);
+    }
+  }
+
   /* tên file SAP xuất ra có dấu thời gian: ZMME0032_20260926042733 → 26.09.2026.
      Thả nhiều bản xuất thì chọn bản gần ngày hóa đơn nhất.                      */
   const fileDay = (f) => {
@@ -814,8 +917,11 @@ async function buildGroups() {
 
   const prevSel = new Map((STATE.groups || []).map((g) => [g.inv.key, g.sel !== false]));
   STATE.groups = [];
+  STATE.headerOnly = [];
   for (const it of invs) {
     if (it.fabOwner) continue;            // đã dùng làm hóa đơn cho chứng từ vải
+    const cc = CACHE.get(it.file);
+    if (cc && cc.headerOnly && !it.inv.items.length) { STATE.headerOnly.push(it); continue; }   // HĐ GTGT chỉ đọc được số/ngày
     STATE.groups.push({
       inv: it, pkl: pklOf.get(it) || null, inb: inbOf.get(it) || null, pklx: it.pklx || [],
       sel: prevSel.has(it.key) ? prevSel.get(it.key) : true,
@@ -824,7 +930,7 @@ async function buildGroups() {
   for (const it of fabs) {
     STATE.groups.push({
       inv: it, pkl: null, inb: inbFab.get(it) || null, isFab: true, isGen: !!it.isGen, pdfInv: it.pdfInv || null,
-      fabName: (it.isGen ? 'bộ đọc chung · ' : '') + (it.fab.supplier || it.fab.profile) + (it.fab.pkl && it.fab.pkl.files && it.fab.pkl.files.length ? ' · PKL: ' + it.fab.pkl.files.join(', ') : ''),
+      fabName: (it.fab.ocr ? 'OCR · ' : '') + (it.isGen ? 'bộ đọc chung · ' : '') + (it.fab.supplier || it.fab.profile) + (it.fab.pkl && it.fab.pkl.files && it.fab.pkl.files.length ? ' · PKL: ' + it.fab.pkl.files.join(', ') : ''),
       sel: prevSel.has(it.key) ? prevSel.get(it.key) : true,
     });
   }
@@ -860,6 +966,12 @@ function renderSlots() {
   h += '</tbody></table>';
   if (STATE.orphanPkl.length || STATE.orphanInb.length) {
     h += `<div class="hint">Không ghép được với hóa đơn nào: ${[...STATE.orphanPkl, ...STATE.orphanInb].map((x) => esc(x.file.name)).join(', ')}</div>`;
+  }
+  if (STATE.dupOcr && STATE.dupOcr.length) {
+    h += `<div class="hint">Bản scan (OCR) trùng với chứng từ có chữ nên không dùng: ${STATE.dupOcr.map((d) => esc(d.o.file.name) + ' → dùng ' + esc(d.twin.file.name)).join(', ')}</div>`;
+  }
+  if (STATE.headerOnly && STATE.headerOnly.length) {
+    h += `<div class="hint">Hóa đơn GTGT chỉ đọc được số/ngày, không đọc được dòng hàng (bản scan mờ?) và không ghép được với chứng từ nào: ${STATE.headerOnly.map((x) => esc(x.file.name) + ' (' + esc(x.inv.invNo) + ')').join(', ')}</div>`;
   }
   $('#groups').innerHTML = h;
   $('#selAll').checked = n === g.length;
@@ -1309,6 +1421,7 @@ async function run() {
       const inv = g.inv.inv;
       log(`── Hóa đơn ${inv.invNo || g.inv.file.name} (${inv.items.length} dòng)${g.isFab ? ` — ${g.isGen ? '' : 'vải · '}${g.fabName}` : (g.pkl ? '' : ' — không có packing list')}${g.inb ? '' : ' — CHƯA CÓ INBOUND'}`);
       if (g.isGen && inv.noFrom) log(`  Số hoá đơn "${inv.invNo}" lấy từ ${inv.noFrom} — kiểm lại trước khi import.`, 'warn');
+      if (inv.ocr) log('  ⚠ Chứng từ là bản scan, đọc bằng OCR — kiểm tra kỹ số liệu với bản gốc trước khi import.', 'err');
       if (g.isGen && inv.explodedByPkl) log('  Hoá đơn ghi gộp theo mã hàng — đã tách dòng theo packing list (PO/size).', 'ok');
       if (g.isFab && g.pdfInv) log(`  Hóa đơn GTGT: ${inv.invNo} ngày ${inv.invDate} (${g.pdfInv.file.name})`, 'ok');
       const pklGroups = g.isFab ? g.inv.fab.pkl : (g.pkl ? parsePacking((await classify(g.pkl.file)).lines) : null);
@@ -1360,7 +1473,7 @@ async function run() {
     window.__RESULT__ = all.map((a) => ({
       invNo: a.inv.invNo, invDate: a.inv.invDate, pkl: !!a.g.pkl, inb: !!a.g.inb,
       invTotal: a.VAL.invTotal, inbTotal: a.VAL.inbTotal, valueBad: a.VAL.valueBad,
-      lines: a.lines.map((l) => ({ code: l.it.code, po: l.it.po, via: l.it.poVia, sapPo: l.sapPo, invQty: l.it.qty, inbQty: l.base, pklQty: l.pklTotal, status: l.status })),
+      lines: a.lines.map((l) => ({ code: l.it.code, po: l.it.po, via: l.it.poVia, sapPo: l.sapPo, invQty: l.it.qty, inbQty: l.base, pklQty: l.pklTotal, status: l.status, note: l.note })),
     }));
     STATE.lastRunSel = groups.map((x) => x.inv.key).join('|');
     $('#stale').textContent = '';
@@ -1536,6 +1649,10 @@ function writeInvoiceReport(rs, R, inv, lines, VAL, g, withWidths) {
     R++;
   }
   if (VAL.noAmounts && g.isGen) put(R++, ['Chứng từ không có cột đơn giá/thành tiền — chỉ đối chiếu số lượng, không kiểm giá trị.']);
+  if (inv.ocr) {
+    put(R, ['⚠ CHỨNG TỪ LÀ BẢN SCAN, ĐỌC BẰNG OCR — số liệu có thể nhận dạng sai (0/O, 1/I, dấu phẩy). ĐỐI CHIẾU TAY VỚI BẢN GỐC TRƯỚC KHI IMPORT.'], true, 'FFFFC7CE');
+    rs.getCell(R, 1).font = { bold: true, color: { argb: 'FFC00000' } }; R++;
+  }
   if (VAL.valueBad) {
     put(R, ['⚠ HÓA ĐƠN NÀY SAI GIÁ TRỊ – CẦN KIỂM TRA LẠI (đơn giá/thành tiền không khớp PO)'], true, 'FFFFC7CE');
     rs.getCell(R, 1).font = { bold: true, size: 12, color: { argb: 'FFC00000' } }; R++;
@@ -1747,6 +1864,7 @@ function renderAll(all) {
       ${(a.g.pkl || a.g.isFab || (a.g.pklx && a.g.pklx.length)) ? '' : '<span class="tag warnt">không có packing list</span> '}
       ${a.VAL.noInvoiceNo ? '<span class="tag warnt">chưa có số HĐ</span> ' : ''}
       ${a.VAL.noFrom ? `<span class="tag warnt">số HĐ lấy từ ${esc(a.VAL.noFrom)}</span> ` : ''}
+      ${a.inv.ocr ? '<span class="tag bad">OCR — kiểm tra kỹ</span> ' : ''}
       ${a.VAL.noSerial ? '<span class="tag warnt">thiếu ký hiệu HĐ</span> ' : ''}
       ${a.g.pdfInv ? '<span class="tag good">có hóa đơn GTGT</span> ' : ''}
       ${a.VAL.pdfBad ? `<span class="tag bad">lệch hóa đơn GTGT ${fmt(a.VAL.pdfDiff)}</span> ` : ''}
