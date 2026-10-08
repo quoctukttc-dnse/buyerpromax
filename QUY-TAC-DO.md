@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.5)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.6)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -905,6 +905,53 @@ tổng 2.178 USD đúng hoá đơn.
 - Kết quả `Test nhap inb - 8Oct` (14 dòng, 5 PO): tổng 1.199.162.787 đ khớp PO (lệch 0,5 đ làm tròn);
   13 dòng khớp, 1 dòng `VƯỢT DUNG SAI` thật — `MFKNRBSL0144 · GLH FUSHIA` 158 kg trong khi hai PO
   `J&H0009000` + `J&H0009700` chỉ còn nhận 16,868 + 136,838 = 153,706 kg (thừa 4,294).
+
+## T. Thiên Gia — hóa đơn GTGT PDF + packing list PDF (từ v11.6, 08.10.2026)
+
+Chủ hàng **trimming** (in bao bì: tag, sticker, hanger). Inbound PO dạng `TGB0052700`, mã SAP `PHTGPAZZ…`,
+`PSTIPASL…`, `PHGRPAPR…`. Cùng luồng với ITL/Inkava (hàm `analyze`), không qua bộ đọc chung.
+
+**T1. Nhận diện.** Hóa đơn: PDF HĐ GTGT có chữ `THIÊN GIA` (người bán) → đọc dòng hàng dạng C. Packing list: PDF có
+`THIÊN GIA`, **không** có chữ "HÓA ĐƠN GIÁ TRỊ GIA TĂNG", có dòng tiêu đề `PO … TÊN HÀNG … Quantity` → kind `pklx`
+(như packing list Excel Inkava), một file chứa **nhiều PO**. Bản OCR không đi nhánh này.
+
+**T2. Số hóa đơn.** `Mẫu số - Ký hiệu (Serial No.): 1C26TTG` + `Số (Invoice No.): 00000357` → `1C26TTG#00000357`.
+Sửa chung: nhãn `Invoice No.` được thử trước nhãn `No.)` và số phải đứng riêng (`\b`) — trước đây lấy nhầm chữ số
+`1` đầu ký hiệu `1C26TTG` ở dòng "(Serial No.) : 1C26TTG" thành số hóa đơn `00000001`.
+
+**T3. Dòng hóa đơn — dạng C.**
+```
+2 TAG PAPER (L100xW70MM) PO TGB0052700 PC 3.270 330 1.079.100
+HANGER PAPER (L23.8xW14.8CM) PO          ← mô tả xuống dòng
+12 PC 2.759 2.610 7.200.990              ← dòng số lượng
+TGB0055600                               ← PO rơi xuống dòng sau
+```
+> Dòng số lượng = `[STT] mô tả ĐVT SL đơn_giá thành_tiền` (ĐVT: ROL/PC/PCS/CÁI/CUỘN/SET/BỘ/KG/M/TỜ, số kiểu VN
+> `3.270`). Mô tả xuống dòng lấy từ tối đa 2 dòng ngay trên; dòng chỉ có mã PO ngay dưới gán cho dòng vừa đọc.
+> **Mã hàng = kích thước** `L…xW…(MM|CM)`; dò inbound đúng chuỗi đó (không sinh biến thể kiểu `L100` để khỏi
+> lẫn `L100xW70` với `L100xW35`).
+
+**T4. Cùng PO, trùng kích thước → tách bằng đơn giá.** PO `TGB0054400` có hai mặt hàng `L100xW35MM`:
+`PHTGPAZZ1331` giá 270 và `PHTGPAZZ1058002` giá 365; hóa đơn ghi hai dòng 139 × 270 và 70 × 365 → mỗi dòng giữ
+các dòng inbound có `Gross Price` = đơn giá hóa đơn (chỉ khi lọc ra được ít hơn). Ghi chú "đã tách bằng đơn giá".
+
+**T5. Packing list → Invoice Quantity từng dòng.** Dòng packing list:
+`THIEN GIA-TGB0052700 Tag Paper (L100xW70mm) 71423.01 pcs 1,000 1bich# H4 10 00357` → PO · kích thước · mã code ·
+SL (số kiểu Anh `1,000`). Với mỗi dòng hóa đơn lấy các dòng packing list **cùng PO + cùng kích thước** (so theo mm:
+`L23.8xW14.8cm` = `L238xW148MM`; không ghi đơn vị coi là mm), rồi:
+
+> - mỗi dòng inbound nhận tổng các dòng packing list có **mã code** trùng mã trong `Specification`/`Description`
+>   — so theo **giá trị số** vì packing list hay rơi số 0 cuối (`71035.1` = `code 71035.10 - W.26`);
+> - dòng packing list không có mã code (sticker, hanger `Yellow`) chỉ gán khi còn đúng **một** dòng inbound chưa có số;
+> - dòng inbound không có trong packing list (`71360.02` chưa giao) không điền → bị loại khỏi file import;
+> - giao một phần vẫn đúng: `70999.08` PO 6.674, packing list 4.800 + 1.200 = **6.000**.
+
+**T6. Không có packing list.** Hóa đơn gộp nhiều mã code (vd 7.084 = 3.691 + 3.393) mà inbound còn mã chưa giao →
+tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm packing list PDF của Thiên Gia".
+
+**Dữ liệu thật** (HĐ `1C26TTG#00000357`, 12 dòng, 6 PO): 11 `KHỚP`, 1 `THIẾU DÒNG` thật — PO `TGB0053200`
+(`TAG L76xW73MM` 256 × 150 = 38.400 đ) không có trong file inbound. Tiền hàng 29.532.870 = 29.494.470 (inbound) +
+38.400. File INB 17 dòng, `70999.08` = 6.000.
 
 ## Thay đổi khác của v11
 

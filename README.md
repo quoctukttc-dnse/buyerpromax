@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.5 — 6 mẫu riêng + bộ đọc chung + OCR + .xls)
+# Inbound SAP – Đối chiếu hóa đơn (v11.6 — 7 mẫu riêng + bộ đọc chung + OCR + .xls)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -66,6 +66,14 @@ nhiều đơn.
 - **Mã gốc 12 ký tự** (`PSTIPAPR0003`) ghép được với mã SAP đầy đủ có đuôi size (`PSTIPAPR0003011`).
 - **Không cộng trùng:** dòng inbound khớp đủ Material + Size + Spec được chia trước; dòng còn lại chỉ lấy
   phần packing list còn dư cùng Material + Size.
+
+## Thiên Gia — hóa đơn GTGT PDF + packing list PDF (v11.6)
+
+Thả `C26TTG-xxxxxxxx-….pdf` (hóa đơn GTGT ký hiệu 1C26TTG) + `PKL dd-mm_….pdf` (phiếu giao hàng PGH-…) + file inbound.
+Hóa đơn ghi mã hàng là **kích thước** (`TAG PAPER (L100xW70MM) PO TGB0052700`); công cụ dò inbound theo
+**PO + kích thước**, cùng PO trùng kích thước thì tách bằng **đơn giá**; packing list có **mã code** (`71423.01`)
+khớp cột `Specification` (`code 71423.01 - W26`) → điền Invoice Quantity cho **từng dòng** (kể cả giao một phần).
+Không có packing list mà hóa đơn gộp nhiều mã code → báo `LỆCH SL` và nhắc thả kèm packing list.
 
 ## Bộ đọc chung — chủ hàng chưa có mẫu riêng (v11)
 

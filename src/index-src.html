@@ -82,8 +82,8 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.5 · 08.10.2026 · 6 mẫu riêng + bộ đọc chung + OCR + .xls</span></h1>
-  <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls/.doc thì công cụ báo để anh xin file gốc. Mọi xử lý chạy trong trình duyệt.</p>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.6 · 08.10.2026 · 7 mẫu riêng + bộ đọc chung + OCR + .xls</span></h1>
+  <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls/.doc thì công cụ báo để anh xin file gốc. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
     <div class="drop" id="dropall">
@@ -196,6 +196,12 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li>Packing list gộp nhiều <em>Order No</em> mà tổng không bằng hóa đơn → chọn đúng nhóm Order No có tổng bằng hóa đơn
         (vd tổng file 29.742 nhưng hóa đơn 16.988 → lấy nhóm <code>112568 P27</code>), và nói rõ trong ghi chú.</li>
         <li>Mã PO không tra được qua file PO SCAF-SCAX nhưng có sẵn trong cột A của file inbound → dùng luôn mã đó.</li>
+      </ul>
+      <div class="hint" style="margin-top:12px"><b>Thiên Gia</b> — hóa đơn GTGT PDF + packing list PDF (v11.6)</div>
+      <ul class="rules">
+        <li>Hóa đơn ghi mã hàng là <b>kích thước</b>: <code>TAG PAPER (L100xW70MM) PO TGB0052700 PC 3.270 330 1.079.100</code> → dò inbound theo <b>PO + kích thước</b>; cùng PO trùng kích thước thì tách bằng <b>đơn giá</b>.</li>
+        <li>Packing list PDF (phiếu <code>PGH-…</code>, nhiều PO trong một file) có <b>mã code</b> (<code>71423.01</code>) khớp cột <em>Specification</em> (<code>code 71423.01 - W26</code>, so theo số nên <code>71035.1</code> = <code>71035.10</code>) → điền Invoice Quantity cho từng dòng, kể cả giao một phần.</li>
+        <li>Không có packing list mà hóa đơn gộp nhiều mã code → <code>LỆCH SL</code> và nhắc thả kèm packing list.</li>
       </ul>
       <div class="hint" style="margin-top:12px"><b>Bộ đọc chung — chủ hàng chưa có mẫu riêng (v11)</b></div>
       <ul class="rules">

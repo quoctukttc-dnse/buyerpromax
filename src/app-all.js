@@ -126,13 +126,87 @@ function linesFromPages(pages) {
 }
 async function pdfLines(file) { return linesFromPages(await pdfPages(file)); }
 
+/* ================= Thiên Gia (in bao bì, trimming) =================
+   Hóa đơn GTGT: "2 TAG PAPER (L100xW70MM) PO TGB0052700 PC 3.270 330 1.079.100" — mã hàng là KÍCH THƯỚC.
+   Packing list PDF: "THIEN GIA-TGB0052700 Tag Paper (L100xW70mm) 71423.01 pcs 1,000 …" — có mã code
+   (khớp cột Specification "code 71423.01 - W26" của inbound) → điền Invoice Quantity từng dòng. */
+const isTtgText = (t) => /THI[ÊE]N\s*GIA/i.test(t);
+const RE_DIM = /L\s*([\d]+(?:[.,]\d+)?)\s*[x*×]\s*W\s*([\d]+(?:[.,]\d+)?)\s*(MM|CM)?/i;
+/* kích thước quy về mm để so: "L23.8xW14.8CM" = "L238xW148MM"; không ghi đơn vị → coi là mm */
+function dimKey(t) {
+  const m = String(t || '').match(RE_DIM);
+  if (!m) return '';
+  const k = /CM/i.test(m[3] || '') ? 10 : 1;
+  const f = (x) => String(Math.round(parseFloat(String(x).replace(',', '.')) * k * 10) / 10);
+  return f(m[1]) + 'x' + f(m[2]);
+}
+/* mã code dạng 71035.10 → so theo giá trị số (packing list Excel/PDF hay rơi số 0 cuối: 71035.1) */
+const ttgCodes = (t) => (String(t || '').match(/\b\d{4,6}\.\d{1,3}\b/g) || []).map((x) => String(parseFloat(x)));
+const qtyEn = (x) => { const s = String(x).trim(); return /^\d{1,3}(,\d{3})+$/.test(s) ? Number(s.replace(/,/g, '')) : num(s); };
+
+function parseTtgItems(bodyCut) {
+  const RE_Q = /^\s*(\d{1,3})?\s*(.*?)\s*\b(ROL|ROLL|PC|PCS|C[ÁA]I|CU[ỘO]N|SET|B[ỘO]|KG|M|T[ỜO])\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/i;
+  const items = [];
+  let buf = [];
+  for (const L of bodyCut) {
+    if (/6\s*=\s*4\s*x\s*5|\(No\.\)|T[êe]n h[àa]ng h[óo]a/i.test(L)) { buf = []; continue; }
+    const m = L.match(RE_Q);
+    if (m && RE_Q.test(L) && !isNaN(num(m[4]))) {
+      const text = buf.slice(-2).concat([m[2]]).join(' ').trim();
+      const it = { code: '', po: '', text: (text + ' ' + L).trim(), qty: num(m[4]), price: num(m[5]), amount: num(m[6]), unit: m[3].toUpperCase() };
+      const pm = it.text.match(/\bPO\s*[:\-]?\s*([A-Z]{2,6}\d{7})\b/i);
+      if (pm) it.po = pm[1].toUpperCase();
+      const dm = it.text.match(RE_DIM);
+      if (dm) { it.code = dm[0].replace(/\s+/g, ''); it.dim = dimKey(dm[0]); it.exactVars = [norm(it.code)]; }
+      it.type = text.replace(RE_DIM, '').replace(/\bPO\b.*$/i, '').replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim();
+      it.priceNarrow = true; it.ttg = true;
+      items.push(it); buf = [];
+      continue;
+    }
+    const last = items[items.length - 1];
+    const lonePo = L.trim().match(/^(?:PO\s*)?([A-Z]{2,6}\d{7})$/i);
+    if (lonePo && last && !last.po) { last.po = lonePo[1].toUpperCase(); last.text += ' ' + L; continue; }
+    buf.push(L);
+  }
+  return items.filter((x) => x.code);
+}
+
+function readTtgPkl(lines) {
+  const t = lines.join(' ');
+  if (!isTtgText(t) || /H[ÓO]A Đ[ƠO]N GI[ÁA] TR[ỊI] GIA T[ĂA]NG/i.test(t)) return null;
+  if (!lines.some((L) => /\bPO\b.*T[ÊE]N H[ÀA]NG.*Quantity/i.test(L))) return null;
+  const RE = /([A-Z]{2,6}\d{7})\s+(.*?)\s+(Rol|Roll|pcs|pc|c[áa]i|set|kg|m)\s+([\d][\d.,]*)\b/i;
+  const rows = [];
+  for (const L of lines) {
+    const m = L.match(RE);
+    if (!m) continue;
+    const name = m[2];
+    const dm = name.match(RE_DIM);
+    const after = dm ? name.slice(name.indexOf(dm[0]) + dm[0].length).replace(/^\s*\)?\s*/, '').trim() : '';
+    const code = (ttgCodes(after)[0]) || '';
+    const q = qtyEn(m[4]);
+    if (!q || isNaN(q)) continue;
+    const inv = (L.match(/\b(\d{3,8})\s*$/) || [])[1] || '';
+    rows.push({
+      material: '', po: m[1].toUpperCase(), name: name.replace(/\s+/g, ' ').trim(), dim: dimKey(dm ? dm[0] : ''),
+      code, color: code ? '' : after, spec: code, ref: '', size: '', order: '', qty: q, sheet: '', invNo: inv,
+    });
+  }
+  if (!rows.length) return null;
+  const pos = [...new Set(rows.map((r) => r.po))];
+  const no = (t.match(/No\.?\s*:?\s*(PGH-[\w-]+)/i) || [])[1] || '';
+  return { po: pos[0], pos, rows, ttg: true, docNo: no, total: rows.reduce((a, b) => a + b.qty, 0),
+    invNos: [...new Set(rows.map((r) => r.invNo).filter(Boolean))] };
+}
+
 /* ================= Invoice ================= */
 function parseInvoice(lines) {
   const all = lines.join('\n');
   const flat = all.replace(/\s+/g, ' ');
 
   let serial = (flat.match(/K[ýy]\s*hi[ệe]u[^:]*:\s*([A-Z0-9]+)/i) || [])[1] || '';
-  let no = (flat.match(/S[ốo]\s*\(\s*No\.?\s*\)\s*:?\s*(\d+)/i) || flat.match(/\bNo\.?\s*\)\s*:?\s*(\d+)/i)
+  let no = (flat.match(/S[ốo]\s*\(\s*No\.?\s*\)\s*:?\s*(\d+)/i) || flat.match(/Invoice\s*No\.?\s*\)?\s*:?\s*(\d+)\b/i)
+    || flat.match(/\bNo\.?\s*\)\s*:?\s*(\d+)\b/i)
     || flat.match(/S[ốo]\s*:\s*(\d{4,})/i) || [])[1] || '';
 
   let d = null, m = null, y = null;
@@ -170,6 +244,11 @@ function parseInvoice(lines) {
   const RE_POPRE = /\bPO\s*([A-Z]{2,6}\d{4,})/i;
   const endIdx = body.findIndex((L) => /C[ộo]ng ti[ềe]n h[àa]ng|T[ổo]ng s[ốo] l[ưu][ợo]ng|Total amount/i.test(L));
   const bodyCut = endIdx > 0 ? body.slice(0, endIdx) : body;
+  /* ---- Dạng C (Thiên Gia): "TAG PAPER (L100xW70MM) PO TGB0052700 PC 3.270 330 1.079.100" — mã hàng là kích thước */
+  if (isTtgText(flat)) {
+    const its = parseTtgItems(bodyCut);
+    if (its.length) return { serial, no, invNo, invDate, items: its, total, vat, payment, supplier: 'Thiên Gia' };
+  }
   const usePoPre = !bodyCut.some((L) => L.includes('//')) && bodyCut.some((L) => RE_POPRE.test(L));
   if (usePoPre) {
     const codesIn = (t, po) => (String(t).toUpperCase().match(/\b[A-Z]{3,}\d{3,}\b/g) || [])
@@ -511,6 +590,11 @@ async function classify(file) {
         out = { kind: 'scan', score: 0, lines, why: 'OCR lỗi: ' + OCR_FAIL + ' (cần mạng để tải bộ OCR)' }; CACHE.set(file, out); return out;
       }
     }
+    /* packing list PDF của Thiên Gia: PO + kích thước + mã code → dùng như packing list Excel theo PO */
+    if (!ocr) {
+      const tp = readTtgPkl(lines);
+      if (tp) { out = { kind: 'pklx', score: 8, lines, px: tp, pos: tp.pos }; CACHE.set(file, out); return out; }
+    }
     const t = lines.join(' ').toUpperCase();
     const sInv = hits(t, ['HÓA ĐƠN GIÁ TRỊ GIA TĂNG', 'VAT INVOICE', 'KÝ HIỆU', 'TIỀN THUẾ', 'NGƯỜI BÁN HÀNG', 'ĐVT']);
     const sPkl = hits(t, ['PACKING LIST', 'DESPATCH NOTE', 'LABEL REF', 'CTN NO', 'OUR REF', 'DELIVERY METHOD']);
@@ -767,7 +851,7 @@ async function buildGroups() {
   /* packing list Excel: gắn theo số PO xuất hiện trên hóa đơn (một hóa đơn nhiều PO) */
   for (const it of invs) {
     const want = [...new Set(it.inv.items.map((x) => String(x.po || '').toUpperCase()).filter(Boolean))];
-    it.pklx = pxs.filter((p) => p.px && p.px.po && want.some((w) => poSame(w, p.px.po)));
+    it.pklx = pxs.filter((p) => p.px && (p.px.pos || (p.px.po ? [p.px.po] : [])).some((q) => want.some((w) => poSame(w, q))));
     it.pklx.forEach((p) => { p.used = true; });
   }
 
@@ -1019,7 +1103,7 @@ function renderSlots() {
   const n = selectedGroups().length;
   const nFab = g.filter((x) => x.isFab).length;
   const nGen = g.filter((x) => x.isGen).length;
-  $('#count').textContent = `${g.length} hóa đơn (chọn ${n})${nFab - nGen ? ` · ${nFab - nGen} chứng từ vải` : ''}${nGen ? ` · ${nGen} chứng từ (bộ đọc chung)` : ''} · ${g.filter((x) => x.pkl || x.isFab).length} packing list · ${g.filter((x) => x.inb).length} inbound${STATE.po ? ' · có file PO' : ' · chưa có file PO (chỉ cần cho trimming / PO hệ cũ)'}`;
+  $('#count').textContent = `${g.length} hóa đơn (chọn ${n})${nFab - nGen ? ` · ${nFab - nGen} chứng từ vải` : ''}${nGen ? ` · ${nGen} chứng từ (bộ đọc chung)` : ''} · ${g.filter((x) => x.pkl || x.isFab || (x.pklx && x.pklx.length)).length} packing list · ${g.filter((x) => x.inb).length} inbound${STATE.po ? ' · có file PO' : ' · chưa có file PO (chỉ cần cho trimming / PO hệ cũ)'}`;
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   if (!g.length) { $('#groups').innerHTML = ''; return; }
   let h = `<div class="selbar">Chọn hóa đơn để xuất:
@@ -1032,7 +1116,7 @@ function renderSlots() {
       <td><b>${esc(x.inv.inv.invNo || x.inv.file.name)}</b><span class="fn">${esc(x.inv.file.name)}</span></td>
       <td>${esc(x.inv.inv.invDate)}</td><td class="n">${x.inv.inv.items.length}</td>
       <td>${x.isFab ? `<span class="${(x.inv.fab && x.inv.fab.pkl) ? 'ok2' : 'miss'}">${(x.inv.fab && x.inv.fab.pkl) ? '✓' : '–'}</span> <span class="fn">${(x.inv.fab && x.inv.fab.pkl && !(x.inv.fab.pkl.files && x.inv.fab.pkl.files.length)) ? 'trong cùng file · ' : ((x.inv.fab && x.inv.fab.pkl) ? '' : 'không có packing list · ')}${esc(x.fabName || 'vải')}${x.pdfInv ? ' · kèm HĐ GTGT ' + esc(x.pdfInv.file.name) : ''}</span>`
-        : ((x.pklx && x.pklx.length) ? `<span class="ok2">✓</span> <span class="fn">${x.pklx.length} file Excel theo PO: ${esc(x.pklx.map((p) => p.px.po).join(', '))}</span>`
+        : ((x.pklx && x.pklx.length) ? `<span class="ok2">✓</span> <span class="fn">${x.pklx.length} file ${x.pklx.some((p) => p.px.ttg) ? '' : 'Excel '}theo PO: ${esc([...new Set([].concat(...x.pklx.map((p) => p.px.pos || [p.px.po])))].join(', '))}</span>`
           : (x.pkl ? `<span class="ok2">✓</span> <span class="fn">${esc(x.pkl.file.name)}</span>` : '<span class="miss">chưa có</span>'))}</td>
       <td>${x.inb ? `<span class="ok2">✓</span> <span class="fn">${esc(x.inb.file.name)}</span>` : '<span class="miss">chưa có</span>'}</td></tr>`;
   });
@@ -1127,11 +1211,16 @@ function analyze(inv, pkl, rows, po, pklx) {
     it.poScax = rp.scax; it.poVia = rp.via;
     it.po = rp.scax || rp.sap || it.po;
     R.sapPo = rp.sap;
-    R.vars = codeVariants(it.code);
+    R.vars = it.exactVars || codeVariants(it.code);
     R.words = wordsOf(it.code);
     R.inPo = rowsOf(rp.sap);
     R.matchBy = 'mã hàng';
     R.hit = matchByCode(R, R.inPo);
+    /* Thiên Gia: cùng PO có thể có hai mặt hàng trùng kích thước (L100xW35 giá 270 và 365) → tách bằng đơn giá */
+    if (it.priceNarrow && R.hit.length > 1 && !isNaN(it.price)) {
+      const hp = R.hit.filter((x) => x.price === it.price);
+      if (hp.length && hp.length < R.hit.length) { R.hit = hp; R.narrowedByWord = true; R.alt = []; R.byPrice = true; }
+    }
     // mã hàng trên hóa đơn không đủ để phân biệt: inbound còn dòng khác cùng họ mã mà không có
     // từ khóa nào trong mã để tách ra (vd hóa đơn ghi "LB 5731 C/509" trong khi inbound có cả
     // "Main label LB 5731 C/509" lẫn "LB care label 5731 C/509")
@@ -1207,8 +1296,34 @@ function analyze(inv, pkl, rows, po, pklx) {
     }
     /* ---- packing list Excel theo PO (Inkava): có sẵn Material Code + Size + Spec
        nên phân bổ được số lượng vào từng dòng inbound, không cần điền tay ---- */
-    let xRows = null, xNote = '', xOrder = '';
-    if (pklx && pklx.length && sapPo) {
+    let xRows = null, xNote = '', xOrder = '', ttgDone = false, ttgCov = 0, ttgMiss = 0;
+    const ttgFiles = (pklx || []).filter((x) => x.ttg);
+    if (ttgFiles.length && sapPo && it.dim) {
+      /* packing list Thiên Gia: dòng cùng PO + kích thước; chia cho từng dòng inbound theo mã code trong Specification */
+      const rws = [].concat(...ttgFiles.map((x) => x.rows)).filter((rw) => poSame(rw.po, sapPo) && rw.dim === it.dim);
+      if (rws.length) {
+        ttgDone = true;
+        const used = [];
+        hit.forEach((h) => {
+          const cs = ttgCodes(h.spec + ' ' + h.desc);
+          const mine = cs.length ? rws.filter((rw) => rw.code && cs.includes(rw.code) && !used.includes(rw)) : [];
+          if (mine.length) { mine.forEach((rw) => { used.push(rw); rw.size = h.size || '?'; }); h.setQty = mine.reduce((a, b) => a + b.qty, 0); }
+          else h.setQty = null;
+        });
+        /* dòng không ghi mã code (sticker, hanger) → chỉ gán khi còn đúng một dòng inbound chưa có số */
+        const free = rws.filter((rw) => !used.includes(rw) && !rw.code);
+        const open = hit.filter((h) => h.setQty == null);
+        if (free.length && open.length === 1) { free.forEach((rw) => { used.push(rw); rw.size = open[0].size || '?'; }); open[0].setQty = free.reduce((a, b) => a + b.qty, 0); }
+        const extra = rws.filter((rw) => !used.includes(rw));
+        ttgCov = hit.reduce((a, h) => a + (h.setQty || 0), 0);
+        ttgMiss = hit.filter((h) => h.setQty == null).length;
+        xRows = used.length ? used : null;
+        const byCode = used.filter((rw) => rw.code).length;
+        if (extra.length && byCode) xNote += `Packing list còn ${extra.length} dòng cùng PO + kích thước không thuộc dòng hóa đơn này (${extra.map((rw) => (rw.code || rw.color || '?') + ': ' + fmt(rw.qty)).join('; ')}). `;
+        if (ttgMiss && ttgCov > 0) xNote += `${ttgMiss} dòng inbound không có trong packing list đợt này. `;
+      }
+    }
+    if (!ttgDone && pklx && pklx.length && sapPo) {
       const files = pklx.filter((x) => x.po && (x.po.toUpperCase() === sapPo.toUpperCase()
         || x.po.toUpperCase().endsWith(sapPo.toUpperCase()) || sapPo.toUpperCase().endsWith(x.po.toUpperCase())));
       let rws = [];
@@ -1269,7 +1384,7 @@ function analyze(inv, pkl, rows, po, pklx) {
        (PSTIPAPR0003011) → so theo tiền tố */
     const xLens = xRows && xRows.length ? [...new Set(xRows.map((rw) => norm(rw.material).length))] : [];
     const matKeys = (m) => { const n = norm(m); return [n, ...xLens.filter((L) => L < n.length).map((L) => n.slice(0, L))]; };
-    if (xRows && xRows.length) {
+    if (xRows && xRows.length && !ttgDone) {
       xMap = {};
       xRows.forEach((rw) => {
         const k1 = norm(rw.material) + '|' + rw.size + '|' + norm(rw.spec || rw.ref);
@@ -1279,7 +1394,11 @@ function analyze(inv, pkl, rows, po, pklx) {
       });
     }
     let xCov = 0, xMiss = 0;
-    if (xMap) {
+    if (ttgDone) {
+      if (ttgCov > 0) { xMap = {}; xCov = ttgCov; xMiss = ttgMiss; }
+      else { hit.forEach((h) => { h.setQty = null; }); xRows = null; }
+    }
+    if (xMap && !ttgDone) {
       /* nhiều dòng inbound trùng một khoá packing list (khác MO) → chia theo số inbound, không cộng trùng */
       /* lượt 1: khớp đủ Material + Size + Spec; lượt 2: dòng inbound còn lại lấy phần packing list CÒN DƯ
          cùng Material + Size (không cộng lại phần đã chia ở lượt 1) */
@@ -1409,6 +1528,7 @@ function analyze(inv, pkl, rows, po, pklx) {
     } else if (base !== it.qty) {
       status = 'LỆCH SL';
       note = xNote + (xMiss ? `${xMiss} dòng inbound không có trong packing list. ` : '')
+        + (it.ttg && !pklFromX && hit.length > 1 ? `Hóa đơn Thiên Gia ghi gộp ${hit.length} mã code — thả kèm packing list PDF của Thiên Gia để chia đúng từng dòng. ` : '')
         + `Inbound ${fmt(base)} vs hóa đơn ${fmt(it.qty)} (lệch ${fmt(base - it.qty)})` +
         (diffs.length ? ' — size lệch: ' + diffs.map((d) => `${d.size}: inbound ${d.inb} / PKL ${d.pkl}`).join('; ') : '');
     } else if ((pkl || pklFromX) && pklTotal && pklTotal !== it.qty) {
@@ -1423,7 +1543,8 @@ function analyze(inv, pkl, rows, po, pklx) {
         + (R.ambiguous ? `⚠ Mã hàng chưa đủ phân biệt: inbound còn ${R.alt.length} dòng cùng họ mã `
             + `(${[...new Set(R.alt.map((x) => x.desc.trim().slice(0, 40)))].slice(0, 2).join(' · ')}`
             + `, ${fmt(R.alt.reduce((a, x) => a + (x.qty || 0), 0))} pcs) — kiểm tra lại xem có chọn đúng dòng không. ` : '')
-        + (pklFromX ? xNote + `Packing list Excel theo PO — đã điền Invoice Quantity cho ${hit.filter((h) => h.setQty != null).length} dòng theo Material Code + Size` + (xOrder ? ` (Order ${xOrder})` : '') + '. ' : '')
+        + (pklFromX ? xNote + (ttgDone ? `Packing list Thiên Gia — đã điền Invoice Quantity cho ${hit.filter((h) => h.setQty != null).length} dòng theo PO + kích thước + mã code` : `Packing list Excel theo PO — đã điền Invoice Quantity cho ${hit.filter((h) => h.setQty != null).length} dòng theo Material Code + Size`) + (xOrder ? ` (Order ${xOrder})` : '') + '. ' : '')
+        + (R.byPrice ? `Cùng PO có nhiều mặt hàng trùng kích thước — đã tách bằng đơn giá ${fmt(it.price)}. ` : '')
         + (pkl || pklFromX ? '' : 'Không có packing list — chỉ đối chiếu với hóa đơn');
     }
     if (matchBy !== 'mã hàng' && status !== 'KHỚP') note = `Ghép theo ${matchBy}. ` + note;
@@ -1557,7 +1678,7 @@ async function run() {
 
     for (const g of groups) {
       const inv = g.inv.inv;
-      log(`── Hóa đơn ${inv.invNo || g.inv.file.name} (${inv.items.length} dòng)${g.isFab ? ` — ${g.isGen ? '' : 'vải · '}${g.fabName}` : (g.pkl ? '' : ' — không có packing list')}${g.inb ? '' : ' — CHƯA CÓ INBOUND'}`);
+      log(`── Hóa đơn ${inv.invNo || g.inv.file.name} (${inv.items.length} dòng)${g.isFab ? ` — ${g.isGen ? '' : 'vải · '}${g.fabName}` : ((g.pkl || (g.pklx && g.pklx.length)) ? '' : ' — không có packing list')}${g.inb ? '' : ' — CHƯA CÓ INBOUND'}`);
       if (g.isGen && inv.noFrom) log(`  Số hoá đơn "${inv.invNo}" lấy từ ${inv.noFrom} — kiểm lại trước khi import.`, 'warn');
       if (inv.ocr) log('  ⚠ Chứng từ là bản scan, đọc bằng OCR — kiểm tra kỹ số liệu với bản gốc trước khi import.', 'err');
       if (g.isGen && inv.explodedByPkl) log('  Hoá đơn ghi gộp theo mã hàng — đã tách dòng theo packing list (PO/size).', 'ok');
