@@ -159,7 +159,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         Hengyu dùng sheet <code>码单</code> (<code>LOT#</code>), BLAO dùng các sheet lô <code>Y92296…</code>. Báo cáo có sheet <code>CHI TIET LO</code>.</li>
         <li>Thành tiền: Techwork tính <code>SL × đơn giá + phụ phí</code>; BLAO và Hengyu ghi <code>SL × đơn giá</code>, phụ phí là dòng riêng.</li>
       </ul>
-      <div class="hint" style="margin-top:12px"><b>J&amp;H Yubo</b> (v10)</div>
+      <div class="hint" style="margin-top:12px"><b>J&amp;H Yubo</b> (v10–v11.5)</div>
       <ul class="rules">
         <li>Chứng từ là sheet <code>PKL</code> nội bộ: mỗi dòng là một <b>lô</b> của một mã vải + màu. Nhiều dòng cùng
         (<em>SCAVI CODE</em> + màu) được gộp thành một dòng đối chiếu, vì trong inbound chúng là cùng một dòng PO.</li>
@@ -178,13 +178,19 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li>Chia FIFO <b>bỏ qua dòng PO đã giao đủ</b> (<em>Delivered ≥ Quantity</em>), chỉ dùng phần dung sai còn lại của nó
         khi các dòng còn mở không đủ chỗ — tránh ghi một vài kí lẻ vào dòng PO đã xong.</li>
         <li>Cột có chữ <em>comment</em> (vd "Mỹ Ngọc comment 29Sep") chỉ dùng để <b>nhắc</b> khi khác cột Cân nặng, không lấy số.</li>
+        <li><b>Hàng FOC</b> (v11.5): lô có số kg nhưng trống <em>AMOUNT</em> (ghi chú "FOC trong roll 8") vẫn tính vào số lượng nhập,
+        nhưng <b>không tính tiền</b> khi so thành tiền với PO. Trống AMOUNT mà không ghi FOC thì cảnh báo để kiểm lại.</li>
       </ul>
-      <div class="hint" style="margin-top:12px"><b>Inkava</b> — hóa đơn PDF + packing list Excel theo PO (v10)</div>
+      <div class="hint" style="margin-top:12px"><b>Inkava</b> — hóa đơn PDF + packing list Excel theo PO (v10–v11.4)</div>
       <ul class="rules">
         <li>Hóa đơn GTGT dạng khác: PO nằm ở dòng <b>trước</b> dòng số lượng, mã hàng ở dòng <b>sau</b>
         (<code>PODUY0095800- Label L56xW20MM-</code> / <code>1 PCS 16.988,00 100 1.698.800</code> / <code>ALABPRWV0228</code>).
         Nhận ra khi bảng hàng không có dấu <code>//</code> mà có dòng bắt đầu bằng <code>PO&lt;mã&gt;</code>.</li>
-        <li>Packing list là file .xlsx riêng cho <b>từng PO</b> (có <code>PO No:</code> và cột <code>Material Code</code>) — một hóa đơn nhiều PO thì thả nhiều file.</li>
+        <li>Packing list là file .xlsx riêng cho <b>từng PO</b> (cột <code>Material Code</code> + <code>Quantity</code> + Spec/Order No/Size) — một hóa đơn nhiều PO thì thả nhiều file.
+        Số PO lấy từ ô <code>PO No:</code>, hoặc ô ghi trơn <code>DUY0081000</code>, hoặc tên file (v11.4).</li>
+        <li><b>Nhiều sheet</b> (v11.4): sheet <code>Sheet</code> thường là số theo PO, các sheet <code>89-45</code>, <code>51-38</code>, <code>10-15</code>… là số
+        <b>thực giao</b> → với mỗi dòng hóa đơn chọn sheet có tổng khớp (ưu tiên sheet thực giao). Dòng bị lọc ẩn: thử cả "bỏ dòng ẩn" và
+        "mọi dòng", lấy phương án khớp hóa đơn. Mã gốc 12 ký tự (<code>PSTIPAPR0003</code>) ghép với mã SAP đầy đủ (<code>PSTIPAPR0003011</code>).</li>
         <li>Vì packing list có sẵn <em>Material Code + Size + Spec</em>, công cụ <b>điền Invoice Quantity cho từng dòng inbound</b>
         thay vì bắt điền tay.</li>
         <li>Packing list gộp nhiều <em>Order No</em> mà tổng không bằng hóa đơn → chọn đúng nhóm Order No có tổng bằng hóa đơn

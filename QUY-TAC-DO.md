@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.3)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.5)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -431,7 +431,7 @@ giá và thành tiền. Không có hóa đơn riêng.
 | Màu | cột `Color` |
 | Lô | cột `Lot`, số cây ở `Số lượng (ROLL)` |
 | Số lượng | cột **`Cân nặng (KG)`** (đơn vị KG) |
-| Đơn giá / thành tiền | `Đơn giá (Price)` · `AMOUNT` (VND, `SL × đơn giá`) |
+| Đơn giá / thành tiền | `Đơn giá (Price)` · `AMOUNT` (VND, `SL × đơn giá`) — dòng trống AMOUNT xem **Y9** (FOC) |
 | Tổng | dòng `Tổng cộng:` — cột AMOUNT là tiền hàng, cột kế bên là tiền có VAT |
 
 **Gộp dòng:** nhiều lô cùng (SCAVI CODE + màu) được **cộng lại thành một dòng đối chiếu**,
@@ -500,6 +500,20 @@ khớp **+1**, khác nhau **−2**, một bên có một bên không **−1**. N
 các dòng hàng, việc ghép dùng **khóa (SCAVI CODE + màu)** chứ không dò mờ theo màu — nếu dò mờ thì
 `GH0 … Bros B12B` và `GH0 … matching w F25-LCST-004` sẽ gộp lô của nhau và báo `LỆCH PKL` oan.
 
+**Y9. Hàng FOC — có nhận nhưng không tính tiền** (v11.5). Lô ghi số kg nhưng ô `AMOUNT` trống, kèm ghi chú
+`FOC trong roll 8` (hoặc `free of charge` / `miễn phí`):
+
+> - **Số lượng:** vẫn cộng vào dòng đối chiếu và ghi vào `Invoice Quantity` (hàng đã thực nhận, tính vào
+>   dung sai PO).
+> - **Thành tiền:** so `(SL − SL FOC) × đơn giá PO` với tổng `AMOUNT` của chứng từ — không nhân đơn giá
+>   cho phần FOC. Ghi chú dòng nói rõ "Gồm … KG không tính tiền (lô … FOC)".
+> - Dòng trống `AMOUNT` mà **không** có chữ FOC → vẫn loại khỏi phép so tiền nhưng thêm cảnh báo
+>   "không ghi thành tiền — kiểm lại".
+
+Dữ liệu thật: `Test nhap inb - 8Oct` — `MFKNSJSL0520 · 70V FARINE` lô `YB260629057` 183 kg
+(30.316.329 đ) + 6,5 kg FOC. Trước v11.5 công cụ tính 189,5 × 165.663 = 31.393.138,5 đ và báo
+`SAI GIÁ TRỊ` lệch 1.076.809,5 đ (đúng bằng 6,5 kg FOC) — hóa đơn thật ra không sai.
+
 ## I. Inkava — hóa đơn PDF + packing list Excel theo PO
 
 Đây là chủ hàng **trimming** (nhãn), không phải vải: hóa đơn GTGT dạng PDF như ITL, nhưng packing
@@ -520,13 +534,46 @@ ALABPRWV0228                            ← mã hàng ở dòng SAU
 Cũng bổ sung hai cách đọc đầu hóa đơn: `Số: 00000614` (không có chữ "No.") và
 `Ngày29tháng09năm2026` (không có chữ "date").
 
-**I2. Packing list Excel theo PO.** Nhận ra bằng: trong 10 dòng đầu có `PO No:` **và** cột
-`Material Code`. Đọc: `Material Code | Description | Supp. Ref. | Order No | Reference | [Story] |
-Size | Spec. | Quantity`. Một hóa đơn nhiều PO → thả nhiều file, công cụ gắn theo số PO.
+**I2. Packing list Excel theo PO.** Nhận ra bằng dòng tiêu đề (12 dòng đầu) có `Material Code` +
+`Quantity` + ít nhất 2 trong `Spec.` / `Order No` / `Supp. Ref.` / `Size` — tiêu đề bị dính số 0 khi chủ
+hàng sửa tay (`0 Size`, `0 Spec.`, `0 Order No`) vẫn nhận. Đọc: `Material Code | Description | Supp. Ref. |
+Order No | Reference | [Story] | Size | Spec. | Quantity` (cột `Quantity` **đầu tiên**; cột thứ hai thường
+là công thức cộng nhóm). Một hóa đơn nhiều PO → thả nhiều file, công cụ gắn theo số PO.
+
+> **Số PO** (v11.4), theo thứ tự: ô `PO No: DUY…` → ô ghi trơn `DUY0081000` phía trên dòng tiêu đề →
+> tên file (`DUY0081000-sl in thuc te.xlsx`). Trước v11.4 bắt buộc có `PO No:`; file thiếu ô này bị bộ
+> đọc chung hiểu nhầm thành một "hóa đơn" tên `Material Code` và hóa đơn thật mất packing list.
+
+**I2b. Nhiều sheet — sheet nào là số thực giao** (v11.4). File Inkava thường có sheet `Sheet` = danh sách
+**theo PO** (mã SAP đầy đủ) và các sheet đặt tên theo khổ nhãn (`89-45`, `51-38`, `10-15`, `7-10`) = số
+**thực giao**. Công cụ đọc **mọi** sheet có dòng tiêu đề hợp lệ, mỗi dòng nhớ tên sheet; sheet không có
+bảng (`Sheet1` chỉ có mô tả) bị bỏ qua.
+
+> Với từng dòng hóa đơn, gom các dòng packing list cùng mã rồi lần lượt thử từng sheet — **ưu tiên sheet
+> thực giao trước `Sheet`** — lấy sheet đầu tiên có tổng **bằng** SL hóa đơn. Không sheet nào khớp → thử
+> nhóm `Order No` trong từng sheet (luật I4) → vẫn không → dùng sheet gần nhất và cảnh báo ⚠ kèm tổng
+> từng sheet.
+
+Dữ liệu thật (HĐ `1C26TKV#00000636`): `DUY0090300` mã `PSTIPAPR1095` — `Sheet` 791, `51-38` 756 = hóa
+đơn; `DUY0081000` mã `PSTIPAPR0032` — `Sheet` 4.095, `10-15` 3.948 = hóa đơn.
+
+**I2c. Dòng bị lọc ẩn** (v11.4). Dòng ẩn có hai nghĩa: *không giao* (ô `Total:` dùng `SUBTOTAL(9,…)` nên
+không cộng dòng ẩn — sheet `51-38` ẩn 5 dòng size 40C–40G) hoặc chỉ *đang lọc để xem* (`Sheet` của
+`DUY0081000` còn bật lọc `Order No = 90016110`). Không đoán được, nên mỗi sheet có dòng ẩn sinh **hai
+phương án** — "bỏ dòng lọc ẩn" (thử trước) và "mọi dòng" — rồi chọn phương án có tổng khớp hóa đơn như
+I2b, ghi rõ trong ghi chú.
 
 **I3. Điền Invoice Quantity cho TỪNG dòng inbound.** Vì packing list có đủ
 `Material Code + Size + Spec`, công cụ ghép đúng từng dòng inbound và điền số lượng — không phải
 điền tay 30–90 dòng. Khóa ghép: `Material + Size + Specification`, dự phòng `Material + Size`.
+
+> **Mã gốc 12 ký tự** (v11.4): sheet thực giao hay ghi `PSTIPAPR0003` trong khi inbound là
+> `PSTIPAPR0003011` (đuôi size) → so theo **tiền tố** bằng độ dài mã trên packing list.
+>
+> **Không cộng trùng** (v11.4): lượt 1 chia cho các dòng inbound khớp đủ `Material + Size + Spec`
+> (nhiều dòng cùng khóa → lấp theo `Quantity` từng dòng, dòng cuối nhận phần còn lại); lượt 2 các dòng
+> inbound còn lại chỉ lấy **phần còn dư** của packing list cùng `Material + Size`. Trước đây dòng rơi vào
+> khóa dự phòng nhận lại toàn bộ tổng size → `PSTIPAPR0032` ra 4.448 thay vì 3.948.
 Dòng inbound không có trong packing list thì không được điền và bị loại khỏi file import
 (nếu tick "chỉ giữ các dòng thuộc hóa đơn").
 
@@ -843,6 +890,21 @@ tổng 2.178 USD đúng hoá đơn.
   dung sai → `KHỚP (trong dung sai)` với ghi chú "PO … đã giao … chỉ còn … — vượt … nhưng cộng dồn còn
   trong dung sai"; trước đây báo `KHỚP (giao thiếu)` với "còn lại" âm (khó hiểu). `VƯỢT DUNG SAI` không đổi.
 - Kết quả bộ 1808: 4/4 dòng khớp PO J&H0009800, tổng 630.727.350 đ đúng hoá đơn, INB_1C26TYY-00001808.
+
+## Thay đổi của v11.4 (08.10.2026) — packing list Inkava tự soạn / nhiều sheet
+
+- Nhận diện packing list theo dòng tiêu đề, PO lấy từ ô trơn hoặc tên file (I2); đọc mọi sheet và chọn
+  sheet thực giao (I2b); hai phương án cho dòng lọc ẩn (I2c); mã gốc 12 ký tự + chia hai lượt (I3).
+- Kết quả HĐ `1C26TKV#00000636` (3 PO, 3 file packing list): 10/10 dòng `KHỚP`, 16.122.685 đ đúng hóa đơn;
+  535 dòng inbound có `Invoice Quantity` = `Delivered Qty`. Trước đó: 3 KHỚP · 3 LỆCH SL · 4 CHƯA ĐIỀN SL HĐ
+  + một "hóa đơn" ảo tên `Material Code`.
+
+## Thay đổi của v11.5 (08.10.2026) — hàng FOC của Yubo
+
+- Dòng không ghi thành tiền (FOC) vẫn tính vào số lượng nhưng không tính tiền khi so thành tiền (Y9).
+- Kết quả `Test nhap inb - 8Oct` (14 dòng, 5 PO): tổng 1.199.162.787 đ khớp PO (lệch 0,5 đ làm tròn);
+  13 dòng khớp, 1 dòng `VƯỢT DUNG SAI` thật — `MFKNRBSL0144 · GLH FUSHIA` 158 kg trong khi hai PO
+  `J&H0009000` + `J&H0009700` chỉ còn nhận 16,868 + 136,838 = 153,706 kg (thừa 4,294).
 
 ## Thay đổi khác của v11
 
