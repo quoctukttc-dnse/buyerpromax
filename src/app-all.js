@@ -564,14 +564,13 @@ async function classify(file) {
         return out;
       }
     }
-    /* packing list Excel theo PO: có "PO No:" ở đầu và cột "Material Code" */
-    for (const w of wb.worksheets) {
-      let top = '';
-      for (let r = 1; r <= Math.min(10, w.rowCount); r++) top += ' ' + (w.getRow(r).values || []).map((v) => String(v == null ? '' : v)).join(' | ');
-      if (/PO\s*No\s*[:.]/i.test(top) && /Material\s*Code/i.test(top)) {
-        const px = readPklx(w);
-        if (px && px.rows.length) { out = { kind: 'pklx', score: 8, buf, px, pos: px.po ? [px.po] : [] }; CACHE.set(file, out); return out; }
-      }
+    /* packing list Excel theo PO (Inkava): cột "Material Code" + Spec/Order No; số PO ghi "PO No: DUY…"
+       hoặc chỉ ghi trơn "DUY0081000" ở dòng đầu (file chủ hàng tự soạn lại), hoặc lấy từ tên file.
+       Đọc MỌI sheet: sheet "Sheet" thường là số theo PO, các sheet khác ("89-45", "10-15"…) là số thực giao
+       → khi đối chiếu sẽ chọn sheet có tổng khớp hóa đơn. */
+    {
+      const px = readPklxWb(wb, file.name);
+      if (px && px.rows.length) { out = { kind: 'pklx', score: 8, buf, px, pos: px.po ? [px.po] : [] }; CACHE.set(file, out); return out; }
     }
     const ws = wb.worksheets[0];
     let head = '';
@@ -614,38 +613,80 @@ async function classify(file) {
 }
 
 /* Packing list Excel theo PO (Inkava): No. | Material Code | Description | Supp. Ref. |
-   Order No | Reference | [Story] | Size | Spec. | Quantity | Quantity | Thực xuất | … */
-function readPklx(ws) {
+   Order No | Reference | [Story] | Size | Spec. | Quantity | Quantity | Thực xuất | …
+   Tiêu đề có thể bị dính số 0 ("0 Size", "0 Spec.", "0 Order No") khi chủ hàng sửa tay. */
+const PKLX_PO_RE = /^[A-Z]{3}\d{7}$/;   // DUY0081000
+function pklxHeaderRow(ws) {
+  const txt = (r, c) => String(ws.getCell(r, c).text || '').trim();
+  for (let r = 1; r <= Math.min(12, ws.rowCount); r++) {
+    let mat = false, qty = false, extra = 0;
+    for (let c = 1; c <= 25; c++) {
+      const t = txt(r, c);
+      if (/^(0\s*)?Material\s*Code$/i.test(t)) mat = true;
+      else if (/^Quantity$/i.test(t)) qty = true;
+      else if (/^(0\s*)?(Spec\.?|Order\s*No|Supp\.?\s*Ref\.?|Size)$/i.test(t)) extra++;
+    }
+    if (mat && qty && extra >= 2) return r;
+  }
+  return 0;
+}
+function readPklx(ws, fname) {
   const txt = (r, c) => (c ? String(ws.getCell(r, c).text || '').trim() : '');
-  let po = '';
+  const hr = pklxHeaderRow(ws);
+  if (!hr) return null;
+  let po = '', poFrom = '';
   for (let r = 1; r <= Math.min(10, ws.rowCount) && !po; r++) {
-    for (let c = 1; c <= 12; c++) {
-      const m = txt(r, c).match(/PO\s*No\s*[:.]?\s*([A-Z0-9]{5,})/i);
-      if (m) { po = m[1].toUpperCase(); break; }
+    for (let c = 1; c <= 20; c++) {
+      const t = txt(r, c);
+      const m = t.match(/PO\s*No\s*[:.]?\s*([A-Z0-9]{5,})/i);
+      if (m) { po = m[1].toUpperCase(); poFrom = 'tiêu đề'; break; }
+      if (r < hr && PKLX_PO_RE.test(t.toUpperCase())) { po = t.toUpperCase(); poFrom = 'ô đầu sheet'; break; }
     }
   }
-  let hr = 0;
-  for (let r = 1; r <= Math.min(12, ws.rowCount) && !hr; r++) {
-    for (let c = 1; c <= 20; c++) if (/Material\s*Code/i.test(txt(r, c))) { hr = r; break; }
+  if (!po && fname) {
+    const m = String(fname).toUpperCase().match(/(?:^|[^A-Z0-9])([A-Z]{3}\d{7})(?![0-9])/);
+    if (m) { po = m[1]; poFrom = 'tên file'; }
   }
-  if (!hr) return null;
-  const col = (re) => { for (let c = 1; c <= 20; c++) if (re.test(txt(hr, c))) return c; return 0; };
+  const col = (re) => { for (let c = 1; c <= 25; c++) if (re.test(txt(hr, c))) return c; return 0; };
   const C = {
     mat: col(/Material\s*Code/i), desc: col(/Description/i), ref: col(/Reference/i),
-    size: col(/^Size/i), spec: col(/Spec/i), qty: col(/Quantity/i), order: col(/Order\s*No/i),
+    size: col(/^(0\s*)?Size\b/i), spec: col(/^(0\s*)?Spec/i), qty: col(/^Quantity$/i), order: col(/Order\s*No/i),
   };
+  if (!C.mat || !C.qty) return null;
   const rows = [];
+  let hidden = 0;
   for (let r = hr + 1; r <= ws.rowCount; r++) {
-    if (/^total/i.test(txt(r, C.desc || 1)) || /^total/i.test(txt(r, 3))) break;
+    if (/^total/i.test(txt(r, C.desc || 1)) || /^total/i.test(txt(r, 3)) || /^total/i.test(txt(r, 4))) break;
+    /* dòng bị lọc ẩn: có khi là "không giao" (ô Total dùng SUBTOTAL), có khi chỉ là đang lọc để xem
+       → giữ lại, đánh dấu hid để lúc đối chiếu thử cả hai cách tính */
+    const hid = !!ws.getRow(r).hidden;
     const mat = txt(r, C.mat);
     const q = num(ws.getCell(r, C.qty).value);
-    if (!mat || isNaN(q) || q <= 0) continue;
+    if (!mat || !/^[A-Z]{4,}[A-Z0-9]*\d{3,}$/i.test(mat.replace(/\s+/g, '')) || isNaN(q) || q <= 0) continue;
     rows.push({
-      material: mat.toUpperCase(), ref: txt(r, C.ref), spec: txt(r, C.spec),
-      size: txt(r, C.size).replace(/\s+/g, '').toUpperCase(), order: txt(r, C.order), qty: q,
+      material: mat.replace(/\s+/g, '').toUpperCase(), ref: txt(r, C.ref), spec: txt(r, C.spec),
+      size: txt(r, C.size).replace(/\s+/g, '').toUpperCase(), order: txt(r, C.order).trim(), qty: q, sheet: ws.name, hid,
     });
+    if (hid) hidden++;
   }
-  return { po, rows, total: rows.reduce((a, b) => a + b.qty, 0) };
+  return { po, poFrom, rows, hidden, total: rows.reduce((a, b) => a + b.qty, 0) };
+}
+/* gộp mọi sheet packing list trong một file; mỗi dòng nhớ tên sheet để chọn đúng sheet khi đối chiếu */
+function readPklxWb(wb, fname) {
+  const parts = [];
+  for (const w of wb.worksheets) {
+    let px = null;
+    try { px = readPklx(w, fname); } catch (e) { px = null; }
+    if (px && px.rows.length) parts.push(px);
+  }
+  if (!parts.length) return null;
+  const po = (parts.find((x) => x.poFrom === 'tiêu đề') || parts.find((x) => x.po) || {}).po || '';
+  const rows = [].concat(...parts.map((x) => x.rows));
+  return {
+    po, rows, total: rows.reduce((a, b) => a + b.qty, 0),
+    sheets: parts.map((x) => ({ name: x.rows[0].sheet, total: x.total, hidden: x.hidden })),
+    poFrom: (parts.find((x) => x.po === po) || {}).poFrom || '',
+  };
 }
 
 /* đọc cả thư mục khi kéo–thả */
@@ -1173,23 +1214,61 @@ function analyze(inv, pkl, rows, po, pklx) {
       let rws = [];
       files.forEach((x) => x.rows.forEach((rw) => { if (vars.some((v) => norm(rw.material).includes(v))) rws.push(rw); }));
       if (rws.length) {
-        const tot = rws.reduce((a, b) => a + b.qty, 0);
-        if (it.qty && Math.abs(tot - it.qty) > 0.001) {
-          const byOrd = {};
-          rws.forEach((rw) => { byOrd[rw.order || '?'] = (byOrd[rw.order || '?'] || 0) + rw.qty; });
-          const okOrd = Object.keys(byOrd).filter((k) => Math.abs(byOrd[k] - it.qty) < 0.001);
-          if (okOrd.length === 1) {
-            rws = rws.filter((rw) => (rw.order || '?') === okOrd[0]);
-            xOrder = okOrd[0];
-            xNote = `Packing list gộp ${Object.keys(byOrd).length} Order No (tổng ${fmt(tot)}) — đã lấy đúng nhóm ${okOrd[0]} = ${fmt(it.qty)}. `;
-          } else {
-            xNote = `⚠ Packing list tổng ${fmt(tot)} ≠ hóa đơn ${fmt(it.qty)}, không nhóm Order No nào khớp (${Object.entries(byOrd).map(([k, v]) => k + ': ' + fmt(v)).join('; ')}). `;
+        const sum = (a) => a.reduce((x, y) => x + y.qty, 0);
+        const tot = sum(rws);
+        const sheetNames = [...new Set(rws.map((rw) => rw.sheet || ''))];
+        const anyHid = rws.some((rw) => rw.hid);
+        if (it.qty && (Math.abs(tot - it.qty) > 0.001 || sheetNames.length > 1)) {
+          /* file nhiều sheet: sheet "Sheet" = số theo PO, các sheet khác ("89-45", "10-15"…) = số thực giao.
+             Dòng lọc ẩn: thử cả "mọi dòng" và "chỉ dòng đang hiện" → chọn phương án có tổng khớp hóa đơn */
+          const sets = [];
+          const ordered = sheetNames.slice().sort((x, y) => (x === 'Sheet') - (y === 'Sheet'));   // ưu tiên sheet thực giao
+          ordered.forEach((n) => {
+            const all = rws.filter((rw) => (rw.sheet || '') === n);
+            const vis = all.filter((rw) => !rw.hid);
+            if (vis.length && vis.length < all.length) sets.push({ n, lab: `"${n}" (bỏ ${all.length - vis.length} dòng lọc ẩn)`, r: vis });
+            sets.push({ n, lab: `"${n}"`, r: all });
+          });
+          const desc = () => sets.map((x) => `${x.lab}: ${fmt(sum(x.r))}`).join('; ');
+          let done = false;
+          const ok = sets.find((x) => Math.abs(sum(x.r) - it.qty) < 0.001);
+          if (ok) {
+            rws = ok.r; done = true;
+            if (sets.length > 1) xNote = `Packing list có ${sets.length} cách tính cho mã này (${desc()}) — đã lấy ${ok.lab} = ${fmt(it.qty)} khớp hóa đơn. `;
           }
-        }
+          if (!done) {
+            for (const x of sets) {
+              const byOrd = {};
+              x.r.forEach((rw) => { byOrd[rw.order || '?'] = (byOrd[rw.order || '?'] || 0) + rw.qty; });
+              const okOrd = Object.keys(byOrd).filter((k) => Math.abs(byOrd[k] - it.qty) < 0.001);
+              if (okOrd.length === 1) {
+                rws = x.r.filter((rw) => (rw.order || '?') === okOrd[0]);
+                xOrder = okOrd[0]; done = true;
+                xNote = `Packing list${sets.length > 1 ? ` (sheet ${x.lab})` : ''} gộp ${Object.keys(byOrd).length} Order No (tổng ${fmt(sum(x.r))}) — đã lấy đúng nhóm ${okOrd[0]} = ${fmt(it.qty)}. `;
+                break;
+              }
+            }
+          }
+          if (!done) {
+            if (sets.length > 1) {
+              const best = sets.slice().sort((x, y) => Math.abs(sum(x.r) - it.qty) - Math.abs(sum(y.r) - it.qty))[0];
+              rws = best.r;
+              xNote = `⚠ Không cách tính packing list nào khớp hóa đơn ${fmt(it.qty)} (${desc()}) — đang dùng ${best.lab} gần nhất. `;
+            } else {
+              const byOrd = {};
+              rws.forEach((rw) => { byOrd[rw.order || '?'] = (byOrd[rw.order || '?'] || 0) + rw.qty; });
+              xNote = `⚠ Packing list tổng ${fmt(tot)} ≠ hóa đơn ${fmt(it.qty)}, không nhóm Order No nào khớp (${Object.entries(byOrd).map(([k, v]) => k + ': ' + fmt(v)).join('; ')}). `;
+            }
+          }
+        } else if (anyHid && !it.qty) { /* không có SL hóa đơn để chọn → giữ mọi dòng */ }
         xRows = rws;
       }
     }
     let xMap = null;
+    /* mã trong packing list có thể là mã gốc 12 ký tự (PSTIPAPR0003) còn inbound là mã đầy đủ có đuôi size
+       (PSTIPAPR0003011) → so theo tiền tố */
+    const xLens = xRows && xRows.length ? [...new Set(xRows.map((rw) => norm(rw.material).length))] : [];
+    const matKeys = (m) => { const n = norm(m); return [n, ...xLens.filter((L) => L < n.length).map((L) => n.slice(0, L))]; };
     if (xRows && xRows.length) {
       xMap = {};
       xRows.forEach((rw) => {
@@ -1201,12 +1280,39 @@ function analyze(inv, pkl, rows, po, pklx) {
     }
     let xCov = 0, xMiss = 0;
     if (xMap) {
-      hit.forEach((h) => {
-        const sz = String(h.size || '').replace(/\s+/g, '').toUpperCase();
-        const k1 = norm(h.material) + '|' + sz + '|' + norm(h.spec);
-        const v = xMap[k1] != null ? xMap[k1] : xMap['~' + norm(h.material) + '|' + sz];
-        if (v != null) { h.setQty = v; xCov += v; } else h.setQty = null;
+      /* nhiều dòng inbound trùng một khoá packing list (khác MO) → chia theo số inbound, không cộng trùng */
+      /* lượt 1: khớp đủ Material + Size + Spec; lượt 2: dòng inbound còn lại lấy phần packing list CÒN DƯ
+         cùng Material + Size (không cộng lại phần đã chia ở lượt 1) */
+      const sz = (h) => String(h.size || '').replace(/\s+/g, '').toUpperCase();
+      const left = {};
+      Object.keys(xMap).forEach((k) => { if (k[0] !== '~') left[k] = xMap[k]; });
+      const give = (hs, take) => hs.forEach((h, i) => {
+        const cap = isNaN(h.qty) ? 0 : h.qty;
+        const want = i === hs.length - 1 ? Infinity : cap;
+        const v = take(want);
+        h.setQty = v > 0 ? v : null; xCov += Math.max(v, 0);
       });
+      const g1 = {}, rest = [];
+      hit.forEach((h) => {
+        h.setQty = null;
+        const k = matKeys(h.material).map((m) => m + '|' + sz(h) + '|' + norm(h.spec)).find((x) => left[x] != null);
+        if (k) (g1[k] = g1[k] || []).push(h); else rest.push(h);
+      });
+      Object.entries(g1).forEach(([k, hs]) => give(hs, (want) => { const v = Math.min(left[k], want); left[k] -= v; return v; }));
+      const g2 = {};
+      rest.forEach((h) => {
+        const m = matKeys(h.material).find((mm) => Object.keys(left).some((x) => x.startsWith(mm + '|' + sz(h) + '|')));
+        if (m) (g2[m + '|' + sz(h) + '|'] = g2[m + '|' + sz(h) + '|'] || []).push(h);
+      });
+      Object.entries(g2).forEach(([pre, hs]) => give(hs, (want) => {
+        let got = 0;
+        for (const x of Object.keys(left)) {
+          if (!x.startsWith(pre) || left[x] <= 0) continue;
+          const v = Math.min(left[x], want - got); left[x] -= v; got += v;
+          if (got >= want) break;
+        }
+        return got;
+      }));
       if (xCov <= 0) { xMap = null; hit.forEach((h) => { h.setQty = null; }); }
       else xMiss = hit.filter((h) => h.setQty == null).length;
     }

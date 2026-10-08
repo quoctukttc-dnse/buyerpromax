@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.3 — 6 mẫu riêng + bộ đọc chung + OCR + .xls)
+# Inbound SAP – Đối chiếu hóa đơn (v11.4 — 6 mẫu riêng + bộ đọc chung + OCR + .xls)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -48,6 +48,19 @@ Thả `HD xxx.pdf` (hóa đơn GTGT) + các file `DUYxxxxxxx-….xlsx` (một fi
 Vì packing list Excel có sẵn `Material Code + Size + Spec`, công cụ **điền Invoice Quantity cho
 từng dòng inbound** thay vì bắt điền tay, và tự chọn đúng nhóm `Order No` khi packing list gộp
 nhiều đơn.
+
+### Packing list Inkava nhiều sheet / tự soạn lại (v11.4)
+
+- **Nhận diện rộng hơn:** không bắt buộc có ô `PO No:` — chấp nhận số PO ghi trơn ở dòng đầu
+  (`DUY0081000`) hoặc lấy từ tên file; tiêu đề cột bị dính số 0 (`0 Size`, `0 Spec.`, `0 Order No`) vẫn đọc được.
+  Trước đây file kiểu này bị bộ đọc chung hiểu nhầm thành một "hóa đơn" tên `Material Code`.
+- **Đọc mọi sheet:** sheet `Sheet` thường là số theo PO, các sheet `89-45`, `51-38`, `10-15`, `7-10`… là số
+  **thực giao**. Với từng dòng hóa đơn, công cụ chọn sheet có tổng khớp hóa đơn (ưu tiên sheet thực giao).
+- **Dòng lọc ẩn:** thử cả "mọi dòng" và "chỉ dòng đang hiện" (ô Total dùng `SUBTOTAL` bỏ dòng ẩn) —
+  phương án nào khớp hóa đơn thì dùng, ghi rõ trong cột ghi chú.
+- **Mã gốc 12 ký tự** (`PSTIPAPR0003`) ghép được với mã SAP đầy đủ có đuôi size (`PSTIPAPR0003011`).
+- **Không cộng trùng:** dòng inbound khớp đủ Material + Size + Spec được chia trước; dòng còn lại chỉ lấy
+  phần packing list còn dư cùng Material + Size.
 
 ## Bộ đọc chung — chủ hàng chưa có mẫu riêng (v11)
 
