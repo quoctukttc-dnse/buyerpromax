@@ -551,7 +551,16 @@ function readYubo(wb) {
     it.qty = r3(it.qty + q);
     it.qtyByUnit.KG = it.qty;
     const a = N(ws, r, C.amt);
-    if (!isNaN(a)) it.amount = r3((it.amount || 0) + a);
+    if (!isNaN(a) && a > 0) it.amount = r3((it.amount || 0) + a);
+    else {
+      /* dòng không có thành tiền: hàng FOC (miễn phí, "FOC trong roll 8") — vẫn nhận hàng nên vẫn tính
+         vào số lượng, nhưng KHÔNG tính tiền khi so thành tiền hóa đơn ↔ PO */
+      const foc = /\bFOC\b|free\s*of\s*charge|mi[ễe]n\s*ph[íi]/i.test(rowText(ws, r));
+      it.unpaidQty = r3((it.unpaidQty || 0) + q);
+      it.unpaidNote = (it.unpaidNote ? it.unpaidNote + '; ' : '')
+        + `lô ${C.lot ? T(ws, r, C.lot) : 'dòng ' + r} ${q} KG ${foc ? 'FOC (miễn phí)' : 'không ghi thành tiền'}`;
+      if (!foc) it.warn.push(`dòng ${r}: ${q} KG không ghi thành tiền (không có chữ FOC) — kiểm lại`);
+    }
     const px = N(ws, r, C.price);
     if (!isNaN(px) && isNaN(it.price)) it.price = px;
     const lot = C.lot ? T(ws, r, C.lot) : '';
@@ -831,7 +840,9 @@ function analyzeFab(inv, pkl, rows, opts) {
     const overTol = r3(used.reduce((a, h) => a + (isNaN(h.overTol) ? (isNaN(h.qty) ? 0 : h.qty) : h.overTol), 0));
     const hadQty = r3(used.reduce((a, h) => a + (isNaN(h.invQty) ? 0 : h.invQty), 0));
     const unitPrice = inbPrices.length === 1 ? inbPrices[0] : (isNaN(it.price) ? 0 : it.price);
-    const inbAmount = (isNaN(q) ? 0 : q) * unitPrice + (inv.amountInclSur ? surSum : 0);
+    /* hàng FOC / dòng không ghi thành tiền: có nhận (tính vào SL) nhưng không tính tiền */
+    const unpaid = !isNaN(q) && it.unpaidQty > 0 && it.unpaidQty < q + EPS ? it.unpaidQty : 0;
+    const inbAmount = (isNaN(q) ? 0 : q - unpaid) * unitPrice + (inv.amountInclSur ? surSum : 0);
     const priceBad = used.length > 0 && (inbPrices.length > 1
       || (!isNaN(it.price) && inbPrices.length === 1 && Math.abs(inbPrices[0] - it.price) > pTol));
     const amtBad = alloc.length > 0 && !unitBad && !isNaN(it.amount) && !isNaN(q)
@@ -934,6 +945,7 @@ function analyzeFab(inv, pkl, rows, opts) {
       note += ` Đã ghi Invoice Quantity = ` + (split ? alloc.map((x) => `${x.qty} (${x.r.poV})`).join(' + ') : String(q))
         + (hadQty ? ` (file có sẵn ${hadQty})` : '') + '.';
     }
+    if (unpaid) note += ` Gồm ${unpaid} ${inbUnit || 'KG'} không tính tiền (${it.unpaidNote}) — SL nhập vẫn tính phần này, thành tiền so trên ${r3(q - unpaid)} ${inbUnit || 'KG'}.`;
     if (pickedByQty) note += ' Nhiều dòng cùng điểm màu — đã tách bằng số lượng.';
     if (unitNote) note += ' ' + unitNote;
     if (pklSoftNote) note += pklSoftNote;

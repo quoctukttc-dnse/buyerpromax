@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.4 — 6 mẫu riêng + bộ đọc chung + OCR + .xls)
+# Inbound SAP – Đối chiếu hóa đơn (v11.5 — 6 mẫu riêng + bộ đọc chung + OCR + .xls)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -37,6 +37,11 @@ Thả file `.xlsx` chứng từ vải vào cùng chỗ — công cụ tự nhậ
 
 Hóa đơn và packing list nằm trong **cùng một file** nên không cần thả thêm gì ngoài file inbound
 (`ZMME0032….xlsx` hoặc file SAP xuất ra). Một file inbound dùng được cho **nhiều hóa đơn**.
+
+**Hàng FOC (v11.5):** dòng không ghi thành tiền (ví dụ Yubo ghi "FOC trong roll 8") vẫn được tính vào
+số lượng nhập inbound, nhưng **không tính tiền** khi so thành tiền hóa đơn ↔ PO — trước đây phần FOC bị
+nhân đơn giá nên báo nhầm "SAI GIÁ TRỊ". Dòng không có thành tiền mà cũng không ghi chữ FOC thì vẫn được
+nhắc để kiểm lại.
 
 Khác với trimming: khóa dò là **PO + mã article + màu**; số lượng lấy theo **đơn vị của inbound**;
 công cụ **ghi luôn cột `Invoice Quantity`**; lệch thì soi theo **lô / cây vải** thay cho size;
