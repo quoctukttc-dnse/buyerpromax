@@ -33,8 +33,113 @@ function log(msg, cls) {
 
 /* ================= PDF -> visual lines ================= */
 const PDF_PAGES = new Map();
+/* ---------- Word 97-2003 (.doc): lấy chữ ngay trong trình duyệt (CFB của SheetJS + bảng piece của Word) ----------
+   Chứng từ kiểu Chain Guan là chữ dàn cột cố định (font monospace) → dựng thành "trang PDF" giả: mỗi cụm chữ
+   cách nhau ≥ 2 khoảng trắng là một ô, toạ độ x theo số cột ký tự → đưa vào đúng bộ đọc PDF chung. */
+async function docText(buf) {
+  if (typeof window.loadSheetJS !== 'function') throw new Error('thiếu thư viện SheetJS');
+  const X = await window.loadSheetJS();
+  if (!X.CFB) throw new Error('thư viện không có bộ đọc CFB');
+  const cfb = X.CFB.read(new Uint8Array(buf), { type: 'array' });
+  const get = (n) => { const e = X.CFB.find(cfb, n); return e && e.content ? new Uint8Array(e.content) : null; };
+  const wd = get('WordDocument');
+  if (!wd) throw new Error('không phải file Word 97-2003');
+  const dv = new DataView(wd.buffer, wd.byteOffset, wd.byteLength);
+  if (dv.getUint16(0, true) !== 0xA5EC) throw new Error('không phải file Word 97-2003');
+  const flags = dv.getUint16(0x0A, true);
+  if (flags & 0x0100) throw new Error('file Word có mật khẩu');
+  const tbl = get((flags & 0x0200) ? '1Table' : '0Table');
+  if (!tbl) throw new Error('thiếu bảng 0Table/1Table');
+  const fcClx = dv.getUint32(0x01A2, true), lcbClx = dv.getUint32(0x01A6, true);
+  const tv = new DataView(tbl.buffer, tbl.byteOffset, tbl.byteLength);
+  let i = fcClx;
+  while (i < fcClx + lcbClx && tbl[i] === 0x01) i += 3 + tv.getUint16(i + 1, true);   // bỏ Prc
+  if (tbl[i] !== 0x02) throw new Error('không đọc được bảng piece');
+  const lcb = tv.getUint32(i + 1, true), base = i + 5;
+  const n = (lcb - 4) / 12;
+  const cp1252 = new TextDecoder('windows-1252');
+  let out = '';
+  for (let k = 0; k < n; k++) {
+    const cp0 = tv.getUint32(base + k * 4, true), cp1 = tv.getUint32(base + (k + 1) * 4, true);
+    const pcd = base + (n + 1) * 4 + k * 8;
+    const fc = tv.getUint32(pcd + 2, true);
+    const len = cp1 - cp0;
+    if (fc & 0x40000000) { const o = (fc & 0x3FFFFFFF) / 2; out += cp1252.decode(wd.subarray(o, o + len)); }
+    else { let t = ''; for (let j = 0; j < len; j++) t += String.fromCharCode(dv.getUint16(fc + j * 2, true)); out += t; }
+  }
+  /* trường (field): giữ phần kết quả, bỏ mã lệnh; ô bảng / ngắt dòng → khoảng trắng / xuống dòng */
+  out = out.replace(/\x13[^\x14\x15]*\x14([^\x15]*)\x15/g, '$1').replace(/\x13[^\x15]*\x15/g, '')
+    .replace(/\x07/g, '   ').replace(/\x0b/g, '\r');
+  return out;
+}
+/* Packing list chữ dàn cột (Word, kiểu Chain Guan): P/O NO:… → "#634 RIO" (màu) → "LOT NO.1-3" → từng cây
+   "PR18 150YDS 19.70KGS 19.90KGS"; dòng cộng nhóm dưới đường kẻ đã được đánh dấu TOTAL. Trả về dạng gen.pkl. */
+function readMonoPkl(lines, fname) {
+  const t = lines.join(' ');
+  if (!/PACKING\s*LIST/i.test(t) || /COMMERCIAL\s*INVOICE/i.test(t)) return null;
+  let po = '', color = '', lot = '';
+  const groups = [];
+  for (const raw of lines) {
+    const L = raw.trim();
+    let m;
+    if ((m = L.match(/P\/?O\s*NO\.?\s*[:.]?\s*([A-Z][A-Z&]{1,5}\d{7}|CH\d{8})/i))) { po = m[1].toUpperCase(); color = ''; lot = ''; continue; }
+    if ((m = L.match(/^#\s*(\S+)\s+(.+)$/))) { color = (m[1] + ' ' + m[2]).replace(/\s+/g, ' ').trim(); lot = ''; continue; }
+    if ((m = L.match(/^LOT\s*NO\.?\s*[:.]?\s*(\S+)/i))) { lot = m[1]; continue; }
+    if (/^TOTAL\b/i.test(L) || !po || !color) continue;
+    m = L.match(/^(\S+)\s+(\d[\d,]*(?:\.\d+)?)\s*(YDS?|YARDS?|MTRS?|MTS|M|KGS?|PCS)\b/i);
+    if (!m || /ROLLS?$/i.test(m[1])) continue;
+    const unit = /^Y/i.test(m[3]) ? 'YD' : /^K/i.test(m[3]) ? 'KG' : /^P/i.test(m[3]) ? 'PCS' : 'M';
+    const q = Number(m[2].replace(/,/g, ''));
+    if (!q) continue;
+    const key = po + '|' + AZ(color) + '|' + AZ(lot);
+    let g = groups.find((x) => x.key === key);
+    if (!g) { g = { key, po, poRaw: po, article: '', color, lot: lot || '(không ghi lô)', unit, rolls: [], total: 0 }; groups.push(g); }
+    g.rolls.push({ no: m[1], qty: q });
+    g.total = Math.round((g.total + q) * 1000) / 1000;
+  }
+  if (groups.length < 1 || groups.reduce((a, g) => a + g.rolls.length, 0) < 3) return null;
+  const no = (t.match(/INVOICE\s*NO\.?\s*[:.]?\s*([A-Z0-9][A-Z0-9\/-]{3,})/i) || [])[1] || '';
+  return {
+    profile: 'GEN', supplier: supplierNameOf(lines), role: 'pkl', file: fname || '',
+    inv: { no, invNo: no, invDate: '', items: [], currency: '', unitDefault: groups[0].unit, total: NaN, gen: true },
+    pkl: { groups, lots: groups, unit: groups[0].unit, level: 'lot', soft: false },
+    pklOnly: true,
+  };
+}
+
+function textToPages(text) {
+  const pages = [];
+  for (const pg of String(text).split(/\x0c/)) {
+    const items = [];
+    let prev = '';
+    pg.split(/\r\n?|\n/).forEach((line, li) => {
+      /* dòng tổng không ghi chữ TOTAL, kẹp dưới đường kẻ "--------" (chữ dàn cột kiểu Chain Guan):
+         chỉ có số + đơn vị/tiền tệ → đánh dấu TOTAL để bộ đọc chung không coi là mặt hàng */
+      const isTot = /^[\s\-=_]{6,}$/.test(prev) && /\d/.test(line)
+        && !line.replace(/USD|US\$|EUR|VND|RMB|HKD|YARDS?|YDS?|MTRS?|MTS|KGS?|PCS|PRS|ROLLS?|DZ/gi, '').replace(/[\d.,\s]/g, '');
+      if (line.trim()) prev = line;
+      const re = /\S+(?: \S+)*/g;
+      let m, first = true;
+      while ((m = re.exec(line))) {
+        /* số dính đơn vị / tiền tệ: "1,048YDS" → "1,048 YDS", "USD1.10" → "USD 1.10" */
+        const t = m[0].replace(/(\d)(YDS?|YARDS?|MTRS?|MTS|KGS?|PCS|PRS|ROLLS?|DZ)\b/gi, '$1 $2')
+          .replace(/\b(USD|US\$|EUR|VND|RMB|HKD)\s*(?=\d)/gi, '$1 ');
+        items.push({ x: m.index * 6, y: 2000 - li * 12, w: m[0].length * 6, s: (isTot && first ? 'TOTAL ' : '') + t });
+        first = false;
+      }
+    });
+    if (items.length) pages.push(items);
+  }
+  return pages;
+}
+
 async function pdfPages(file) {
   if (PDF_PAGES.has(file)) return PDF_PAGES.get(file);
+  if (/\.doc$/i.test(file.name)) {
+    const pages = textToPages(await docText(await file.arrayBuffer()));
+    PDF_PAGES.set(file, pages);
+    return pages;
+  }
   const data = new Uint8Array(await file.arrayBuffer());
   const pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
   const pages = [];
@@ -72,6 +177,7 @@ async function ocrWorker() {
 /* vẽ từng trang PDF ra canvas → nhận dạng → trả về pages giống pdfPages() (toạ độ pt, gốc trái-dưới) */
 /* ---- Excel 97-2003 (.xls) → .xlsx bằng SheetJS (nhúng sẵn, chỉ nạp khi gặp file .xls) ---- */
 const XLS_CONV = new Set();
+const DOC_CONV = new Set();
 async function xlsToXlsx(buf) {
   if (typeof window.loadSheetJS !== 'function') throw new Error('thiếu thư viện SheetJS');
   const X = await window.loadSheetJS();
@@ -553,6 +659,43 @@ function headerIndex(ws) {
 }
 
 /* tên chủ hàng: dòng đầu có CO., LTD / LIMITED / COMPANY / S.P.A … */
+/* ================= Chủ hàng đã được huấn luyện =================
+   Chứng từ của chủ hàng KHÔNG có trong danh sách này vẫn được bộ đọc chung xử lý, nhưng công cụ cảnh báo và đề
+   nghị buyer liên hệ người phụ trách để bổ sung mẫu. Thêm chủ hàng mới: thêm một dòng vào TRAINED_SUPPLIERS. */
+const CONTACT = { name: 'anh Quốc Tú', email: 'quoctu.nguyen@blaogroup.com' };
+const TRAINED_SUPPLIERS = [
+  ['ITL', /\bITL\b/], ['Inkava', /INKAVA/], ['Thiên Gia', /THIEN\s*GIA/], ['Fujian Techwork', /TECHWORK/],
+  ['New Style – BLAO', /NEW\s*STYLE/], ['Quanzhou Hengyu', /HENGYU/], ['J&H Yubo', /YUBO/],
+  ['Capital', /\bCAPITAL\b/], ['Carvico', /CARVICO/], ['Celeb', /\bCELEB\b/], ['Cheung Hing', /CHEUNG\s*HING/],
+  ['Chuangjie', /CHUANGJIE/], ['Derun', /\bDERUN\b/], ['DJIC', /\bDJIC\b/], ['Dongguan Uwork', /UWORK/],
+  ['Freetex', /FREETEX/], ['Fujian Baikai', /BAIKAI/], ['Fujian Honggang', /HONGGANG/], ['Hing Yip', /HING\s*YIP/],
+  ['Hoa Nghiêm', /HOA\s*NGHIEM/], ['Best Pacific', /BEST\s*PACIFIC/], ['Junye', /\bJUNYE\b/], ['Luen Hing', /LUEN\s*HING/],
+  ['Pioneer', /\bPIONEER\b/], ['PT Winner', /\bWINNER\b/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
+  ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
+  ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
+  ['Vinity', /\bVINITY\b/],
+];
+const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
+function trainedSupplierOf(text) {
+  const f = foldVN(text);
+  const hit = TRAINED_SUPPLIERS.find(([, re]) => re.test(f));
+  return hit ? hit[0] : '';
+}
+const contactHtml = () => `${esc(CONTACT.name)} (<a href="mailto:${esc(CONTACT.email)}">${esc(CONTACT.email)}</a>)`;
+const contactText = () => `${CONTACT.name} (${CONTACT.email})`;
+/* chủ hàng của một bộ chứng từ: mẫu riêng (vải) thì đã huấn luyện; còn lại so tên người bán trên chứng từ
+   + Partner Name trong file inbound với danh sách */
+function supplierCheck(g, cInb) {
+  if (g.isFab && !g.isGen) return { trained: g.fabName || 'mẫu riêng', name: g.fabName || '' };
+  const c = CACHE.get(g.inv.file) || {};
+  const docLines = (c.lines || []).slice(0, 30);
+  const parts = (cInb && cInb.partners) || [];
+  const name = (g.inv.fab && g.inv.fab.supplier) || supplierNameOf(docLines) || parts[0] || '';
+  const fromDoc = trainedSupplierOf([g.fabName, g.inv.fab && g.inv.fab.supplier, docLines.join(' ')].join(' '));
+  const fromInb = trainedSupplierOf(parts.join(' '));
+  return { trained: fromDoc || fromInb, name: name || parts[0] || g.inv.file.name };
+}
+
 function supplierNameOf(lines) {
   const L = (lines || []).slice(0, 12).map((x) => String(x).trim()).filter(Boolean);
   const notUs = (x) => !/SCAVI|B'?LAO|BLAO SPORT/i.test(x);
@@ -571,11 +714,19 @@ async function classify(file) {
   if (CACHE.has(file)) return CACHE.get(file);
   const name = (file.name || '').toLowerCase();
   let out;
-  if (/\.pdf$/.test(name)) {
-    let pages = await pdfPages(file);
+  if (/\.(pdf|doc)$/.test(name)) {
+    let pages;
+    try { pages = await pdfPages(file); }
+    catch (e) { if (/\.doc$/.test(name)) { out = { kind: 'doc', score: 0, why: e && e.message ? e.message : String(e) }; CACHE.set(file, out); return out; } throw e; }
+    if (/\.doc$/.test(name)) {
+      DOC_CONV.add(file);
+      const mp = readMonoPkl(linesFromPages(pages), file.name);
+      if (mp) { out = { kind: 'genpkl', score: 5, gen: mp, lines: linesFromPages(pages), pos: [...new Set(mp.pkl.groups.map((g) => g.po))] }; CACHE.set(file, out); return out; }
+    }
     let lines = linesFromPages(pages);
     const nChars = pages.reduce((a, p) => a + p.reduce((b, i) => b + i.s.length, 0), 0);
     let ocr = false;
+    if (nChars < 40 && /\.doc$/.test(name)) { out = { kind: 'doc', score: 0, why: 'file Word không có chữ' }; CACHE.set(file, out); return out; }
     if (nChars < 40) {
       const want = $('#ocr') ? $('#ocr').checked : true;
       if (!want) { out = { kind: 'scan', score: 0, lines, why: 'đã tắt OCR' }; CACHE.set(file, out); return out; }
@@ -690,7 +841,7 @@ async function classify(file) {
         out = { kind: 'genpkl', score: 5, buf, gen, pos: [...new Set(gen.pkl.groups.map((x) => x.po).filter(Boolean))] };
       } else out = { kind: '', score: 0, buf };
     }
-  } else if (/\.docx?$/.test(name)) out = { kind: 'doc', score: 0 };
+  } else if (/\.docx$/.test(name)) out = { kind: 'doc', score: 0, why: 'Word .docx chưa hỗ trợ' };
   else out = { kind: '', score: 0 };
   CACHE.set(file, out);
   return out;
@@ -807,7 +958,8 @@ async function acceptFiles(fileList) {
     if (c.kind === 'scan') { notices.push(`${f.name}: PDF dạng ảnh (scan)${c.why ? ' — ' + c.why : ''} — cần file Excel/PDF gốc hoặc nhập tay`); continue; }
     if (c.kind === 'xls') { notices.push(`${f.name}: Excel 97-2003 (.xls) không chuyển được (${c.why || ''}) — mở bằng Excel rồi Lưu dưới dạng .xlsx`); continue; }
     if (XLS_CONV.has(f)) notices.push(`${f.name}: Excel 97-2003 — đã tự chuyển sang .xlsx để đọc`);
-    if (c.kind === 'doc') { notices.push(`${f.name}: file Word — chưa hỗ trợ, cần Excel/PDF`); continue; }
+    if (DOC_CONV.has(f) && c.kind && c.kind !== 'doc') notices.push(`${f.name}: Word 97-2003 — đã đọc chữ trong file`);
+    if (c.kind === 'doc') { notices.push(`${f.name}: file Word — không đọc được${c.why ? ' (' + c.why + ')' : ''}, cần Excel/PDF`); continue; }
     if (c.kind === 'proforma') { notices.push(`${f.name}: proforma invoice — bỏ qua`); continue; }
     if (!c.kind) { unknown.push(f.name); continue; }
     if (c.kind === 'po') { STATE.po = f; continue; }
@@ -816,7 +968,8 @@ async function acceptFiles(fileList) {
     STATE.items.push({ file: f, kind: c.kind, dir: dirOf(f), key });
     fresh.add(key);
   }
-  $('#detect').textContent = (unknown.length ? 'Không nhận diện được: ' + unknown.join(', ') : '') + (notices.length ? (unknown.length ? ' · ' : '') + notices.join(' · ') : '');
+  $('#detect').textContent = (unknown.length ? 'Không nhận diện được: ' + unknown.join(', ') : '') + (notices.length ? (unknown.length ? ' · ' : '') + notices.join(' · ') : '')
+    + (unknown.length || notices.some((n) => /không đọc được|chưa hỗ trợ|scan/i.test(n)) ? ` · Nếu đây là chứng từ của chủ hàng mới, vui lòng liên hệ ${contactText()} để được bổ sung.` : '');
   await buildGroups();
   // chỉ chọn sẵn các hóa đơn vừa được bổ sung file (thêm inbound cho hóa đơn nào thì chạy hóa đơn đó)
   const touched = STATE.groups.filter((g) => [g.inv, g.pkl, g.inb].some((x) => x && fresh.has(x.key)));
@@ -1699,7 +1852,9 @@ async function run() {
         else rows = readInbRows(wsSap, H);
       }
       const { lines, VAL } = doAnalyze(rows);
-      all.push({ g, inv, lines, VAL });
+      const sup = supplierCheck(g, cInb);
+      all.push({ g, inv, lines, VAL, newSup: sup.trained ? '' : sup.name });
+      if (!sup.trained) log(`  ⚠ Chủ hàng "${sup.name}" chưa được huấn luyện trong công cụ — kết quả đọc bằng bộ đọc chung, cần kiểm tra kỹ. Vui lòng liên hệ ${contactText()} và gửi kèm bộ chứng từ để được bổ sung.`, 'err');
 
       const bad = lines.filter((l) => !isOk(l.status));
       if (VAL.valueBad) log(`  ⚠ SAI GIÁ TRỊ — lệch ${fmt(VAL.valueDiff)}: ` + VAL.valueLines.map((l) => `${l.it.code}/${l.it.po}`).join(', '), 'err');
@@ -2016,7 +2171,7 @@ function buildSummaryWorkbook(wb, all) {
       (a.VAL.docQty == null || isNaN(a.VAL.docQty)) ? '' : a.VAL.docQty,
       a.VAL.wroteQty == null ? '' : a.VAL.wroteQty,
       (a.VAL.docQty == null || isNaN(a.VAL.docQty)) ? '' : Math.round((a.VAL.wroteQty - a.VAL.docQty) * 1000) / 1000,
-      concl, a.g.inv.file.name]);
+      (a.newSup ? `CHỦ HÀNG MỚI (${a.newSup}) — liên hệ ${contactText()} · ` : '') + concl, a.g.inv.file.name]);
     paint(s, a.VAL.valueBad ? 'FFFFC7CE' : (bad.length || !a.VAL.hasInb ? 'FFFFF2CC' : null));
   }
 
@@ -2116,10 +2271,11 @@ function renderAll(all) {
   for (const a of all) {
     const bad = a.lines.filter((l) => !isOk(l.status));
     const cls = a.VAL.valueBad ? 'bad' : (bad.length || !a.VAL.hasInb ? 'warn' : 'ok');
-    h += `<details class="inv ${cls}" ${a.VAL.valueBad || bad.length ? 'open' : ''}>
+    h += `<details class="inv ${cls}" ${a.VAL.valueBad || bad.length || a.newSup ? 'open' : ''}>
       <summary><b>${esc(a.inv.invNo)}</b> · ${esc(a.inv.invDate)} · ${a.lines.length} dòng ·
       ${a.VAL.hasInb ? '' : '<span class="tag bad">CHƯA CÓ INBOUND</span> '}
       ${a.g.isFab ? `<span class="tag via">vải · ${esc(a.g.fabName || '')}</span> ` : ''}
+      ${a.newSup ? '<span class="tag bad">chủ hàng mới — chưa huấn luyện</span> ' : ''}
       ${(a.g.pkl || a.g.isFab || (a.g.pklx && a.g.pklx.length)) ? '' : '<span class="tag warnt">không có packing list</span> '}
       ${a.VAL.noInvoiceNo ? '<span class="tag warnt">chưa có số HĐ</span> ' : ''}
       ${a.VAL.noFrom ? `<span class="tag warnt">số HĐ lấy từ ${esc(a.VAL.noFrom)}</span> ` : ''}
@@ -2130,6 +2286,7 @@ function renderAll(all) {
       ${a.VAL.qtyBad ? `<span class="tag bad">lệch tổng SL ${fmt(a.VAL.wroteQty - a.VAL.docQty)}</span> ` : ''}
       ${a.VAL.valueBad ? '<span class="tag bad">SAI GIÁ TRỊ</span> ' : (bad.length ? `<span class="tag warnt">${bad.length} dòng lệch</span> ` : '<span class="tag good">khớp</span> ')}
       <span class="mono">${fmt(a.VAL.invTotal)}</span></summary>`;
+    if (a.newSup) h += `<div class="newsup">⚠ Chủ hàng <b>${esc(a.newSup)}</b> chưa được huấn luyện trong công cụ. Kết quả dưới đây do bộ đọc chung tự dò nên có thể sai — <b>kiểm tra kỹ trước khi import</b>, và vui lòng liên hệ ${contactHtml()} kèm bộ chứng từ để được bổ sung vào công cụ.</div>`;
     if (a.VAL.valueBad) {
       h += `<div class="alert"><div class="ttl">⚠ HÓA ĐƠN NÀY SAI GIÁ TRỊ — CẦN KIỂM TRA LẠI</div>
         <div class="lines"><span>Tiền hàng HĐ: <b>${fmt(a.VAL.invTotal)}</b></span><span>Theo inbound: <b>${fmt(a.VAL.inbTotal)}</b></span><span>Lệch: <b>${a.VAL.totalDiff > 0 ? '+' : ''}${fmt(a.VAL.totalDiff)}</b></span></div>

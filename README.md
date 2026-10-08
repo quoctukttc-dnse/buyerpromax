@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.6 — 7 mẫu riêng + bộ đọc chung + OCR + .xls)
+# Inbound SAP – Đối chiếu hóa đơn (v11.7 — 7 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -74,6 +74,19 @@ Hóa đơn ghi mã hàng là **kích thước** (`TAG PAPER (L100xW70MM) PO TGB0
 **PO + kích thước**, cùng PO trùng kích thước thì tách bằng **đơn giá**; packing list có **mã code** (`71423.01`)
 khớp cột `Specification` (`code 71423.01 - W26`) → điền Invoice Quantity cho **từng dòng** (kể cả giao một phần).
 Không có packing list mà hóa đơn gộp nhiều mã code → báo `LỆCH SL` và nhắc thả kèm packing list.
+
+## Chủ hàng chưa huấn luyện → đề nghị liên hệ (v11.7)
+
+Mỗi bộ chứng từ được so tên người bán trên chứng từ và cột `Partner Name` của file inbound với danh sách
+`TRAINED_SUPPLIERS` (đầu `src/app-all.js`). Chủ hàng không có trong danh sách vẫn được bộ đọc chung xử lý, nhưng:
+nhãn đỏ **chủ hàng mới — chưa huấn luyện** + khung nhắc trên thẻ hóa đơn (tự mở), dòng cảnh báo trong nhật ký, và
+cột Kết luận của `BAOCAO_TONGHOP` ghi "CHỦ HÀNG MỚI … — liên hệ …". File không nhận diện / không đọc được cũng kèm lời
+nhắc. Người liên hệ đặt ở hằng `CONTACT`. Huấn luyện xong chủ hàng nào thì thêm một dòng vào `TRAINED_SUPPLIERS`.
+
+## Word 97-2003 `.doc` (v11.7)
+
+Đọc chữ ngay trong trình duyệt (CFB của SheetJS + bảng piece của Word) rồi xử lý như PDF. Chứng từ chữ dàn cột cố định
+(Chain Guan `CG-BLAO-5704IV.DOC` / `…PLB.DOC`) được tách cột theo khoảng trắng; `.docx` chưa hỗ trợ.
 
 ## Bộ đọc chung — chủ hàng chưa có mẫu riêng (v11)
 

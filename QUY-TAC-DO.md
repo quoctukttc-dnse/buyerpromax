@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.6)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.7)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -952,6 +952,39 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 **Dữ liệu thật** (HĐ `1C26TTG#00000357`, 12 dòng, 6 PO): 11 `KHỚP`, 1 `THIẾU DÒNG` thật — PO `TGB0053200`
 (`TAG L76xW73MM` 256 × 150 = 38.400 đ) không có trong file inbound. Tiền hàng 29.532.870 = 29.494.470 (inbound) +
 38.400. File INB 17 dòng, `70999.08` = 6.000.
+
+## G11. Word 97-2003 (`.doc`) — đọc ngay trong trình duyệt (từ v11.7, 08.10.2026)
+
+- **Lấy chữ:** mở file bằng bộ đọc CFB của SheetJS (đã nhúng cho `.xls`), đọc FIB của luồng `WordDocument`
+  (`fcClx`/`lcbClx` ở 0x1A2/0x1A6, bit `fWhichTblStm` chọn `0Table`/`1Table`), duyệt bảng piece: piece nén = 1 byte
+  windows-1252, không nén = UTF-16LE. Trường (field) giữ phần kết quả; ô bảng → khoảng trắng; ngắt trang `\x0c` → trang mới.
+  File có mật khẩu / không có chữ → báo "file Word — không đọc được (lý do)". `.docx` chưa hỗ trợ.
+- **Thành "trang PDF" giả:** mỗi cụm chữ cách nhau ≥ 2 khoảng trắng là một ô, toạ độ x = số cột ký tự → đưa vào đúng bộ đọc
+  PDF chung (G3), nên mọi luật G3–G7 áp dụng như với PDF.
+- **Chữ dàn cột cố định** (Chain Guan): số dính đơn vị/tiền tệ được tách (`1,048YDS` → `1,048 YDS`, `USD1.10` → `USD 1.10`);
+  dòng chỉ có số + đơn vị/tiền tệ nằm ngay dưới đường kẻ `--------` được đánh dấu **TOTAL** (dòng cộng không ghi chữ TOTAL —
+  trước đó `6,618YDS USD6,783.47` bị đọc thành một mặt hàng và báo `VƯỢT DUNG SAI` oan).
+- **Packing list chữ dàn cột:** `P/O NO:KNE0000500` → `#634 RIO` (màu) → `LOT NO.1-3` → từng cây `PR18 150YDS 19.70KGS …`
+  → nhóm theo **PO + màu + lô**, số cây giữ nguyên tên cuộn; dòng cộng (đã đánh dấu TOTAL) bỏ qua. Không còn "chỉ tham khảo"
+  như packing list PDF của bộ đọc chung vì cấu trúc rõ ràng.
+- **Dữ liệu thật** (Chain Guan `CG-261008`, 3 PO KNE0000500/700/800, YD, USD): 6/6 dòng `KHỚP`, packing list khớp từng màu
+  (1.048 · 111 · 1.193 · 1.982 · 1.982 · 302), tổng USD 6.783,47 = PO.
+
+## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
+
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 7 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+  Hengyu, Yubo) + các chủ hàng đã chạy thử bằng bộ đọc chung (Capital, Carvico, Celeb, Cheung Hing, Chuangjie, Derun, DJIC,
+  Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
+  Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
+  không phân biệt hoa/thường. **Không** dùng chữ "BLAO"/"SCAVI" làm dấu hiệu vì đó là tên người mua.
+- **Cách xét:** chứng từ vải mẫu riêng → đã huấn luyện. Còn lại: tên người bán (30 dòng đầu chứng từ / tên chủ hàng bộ đọc chung
+  nhận ra) **hoặc** `Partner Name` của file inbound khớp một mục trong danh sách → đã huấn luyện.
+- **Khi chưa huấn luyện:** vẫn xử lý bằng bộ đọc chung (không chặn), nhưng nhãn đỏ *chủ hàng mới — chưa huấn luyện* + khung nhắc
+  trên thẻ hóa đơn (thẻ tự mở dù mọi dòng khớp), dòng đỏ trong nhật ký, cột Kết luận của báo cáo tổng hợp ghi
+  "CHỦ HÀNG MỚI (tên) — liên hệ …". Lời nhắc: kiểm tra kỹ trước khi import và liên hệ người phụ trách (`CONTACT`) kèm bộ chứng từ.
+- File **không nhận diện được** / Word không đọc được / scan không ra bảng → dòng nhận diện thêm "Nếu đây là chứng từ của chủ hàng
+  mới, vui lòng liên hệ …".
+- Bổ sung chủ hàng sau khi huấn luyện: thêm một dòng `['Tên', /TỪ KHÓA/]` vào `TRAINED_SUPPLIERS`.
 
 ## Thay đổi khác của v11
 
