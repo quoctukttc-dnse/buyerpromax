@@ -223,6 +223,7 @@ function fabProfile(wb) {
   if (/11\.\s*PO NUMBER/.test(t) && /QUANTITY\s*\/\s*UNIT/.test(t)) return 'BLAO';
   if (/MARKS\s*&\s*NOS/.test(t) && /INV\.?\s*NO/.test(t)) return 'HYU';
   if (/SCAVI\s*CODE/.test(t) && /PACKING LIST/.test(t)) return 'YUBO';
+  if (/CELEB\s*TEXTILES/.test(t) && /INVOICE\s*NO/.test(t) && /PO\s*NO\./.test(t) && /DESCRIPTION OF GOODS/.test(t)) return 'CELEB';
   return '';
 }
 
@@ -855,12 +856,121 @@ function readCarvicoPkl(lines, fname) {
   };
 }
 
+/* =====================  SUZHOU CELEB (Trung Quốc) — hóa đơn Excel + packing list Excel rời  =====================
+   Hóa đơn (sheet " INVOICE"): "INVOICE NO : CELEB260807-3" · "DATE: 7th,Agu,2026" (tháng viết sai chính tả) ·
+     bảng PO NO. | DESCRIPTION OF GOODS | Color | QUANTITY (Y) | UNIT PRICE | AMOUNT:
+     "CEL0010900 | RC031 Solid Fab REC PE30 PE62 SP8, 105G | Jet Black 19-0303 | 693 | 2.41 | 1670.13"
+     dòng "surcharge | 1 | 150 | 150" đứng ngay dưới dòng hàng → phụ phí của dòng đó (inbound: cột Surcharge Item = 150).
+   Packing list (mỗi file một màu, sheet 发货码单): Lot No. | Roll No. | PO Number | Color | Name | Comp | Q'ty(Y) | N.W | G.W
+     màu viết khác nhau: "True Red（19-1664 TCX）" / "Jet Black （19-0303 TCX）" / "Pink-a-boo 13-2801 TCX".
+   Inbound: Supplier Ref "RC031 Solid", Color "JET BLACK 19-0303 TCX", Lapdip "ML221111-04D1"; PO CEL0010900 ghi sẵn trên hóa đơn.
+   Khóa ghép hóa đơn ↔ packing list: PO | article (RC031) | màu rút gọn (bỏ ngoặc, TCX, dấu): JETBLACK190303. */
+const celebColorKey = (t) => AZ(String(t == null ? '' : t).toUpperCase().replace(/[（）()]/g, ' ').replace(/\bTCX\b/g, ' '));
+const celebArticle = (t) => (String(t == null ? '' : t).trim().match(/^[A-Z]{1,4}\d{2,5}[A-Z0-9-]*/i) || [''])[0].toUpperCase();
+function readCeleb(wb) {
+  const wi = wb.worksheets.find((w) => /invoice/i.test(String(w.name))) || wb.worksheets[0];
+  let no = '', invDate = '';
+  for (let r = 1; r <= Math.min(20, wi.rowCount); r++) for (let c = 1; c <= 12; c++) {
+    const t = T(wi, r, c);
+    let m;
+    if (!no && (m = t.match(/INVOICE\s*NO\.?\s*:?\s*([A-Z0-9][A-Z0-9\/-]{3,})/i))) no = m[1];
+    if (!invDate && (m = t.match(/\bDATE\s*:?\s*(.+)$/i))) {
+      const u = m[1].toUpperCase().replace(/\s+/g, ' ').trim();
+      const d = u.match(/(\d{1,2})\s*(?:ST|ND|RD|TH)?\s*[,.\s]+\s*([A-Z]{3,9})\s*[,.\s]+\s*(\d{4})/);   // 7th,Agu,2026
+      if (d) {
+        const FIX = { AGU: 'AUG', SEPT: 'SEP', JUL: 'JUL' };
+        const mon = FIX[d[2]] || d[2];
+        const mi = MONTHS.findIndex((x) => mon.startsWith(x) || x.startsWith(mon.slice(0, 3)));
+        if (mi >= 0) invDate = dmy(d[1], mi + 1, d[3]);
+      }
+      if (!invDate) invDate = parseDateCell(m[1]) || '';
+    }
+  }
+  const hr = findRow(wi, /PO\s*NO\..*DESCRIPTION/i) || findRow(wi, /DESCRIPTION OF GOODS/i);
+  if (!hr) return null;
+  const C = { po: colBy(wi, hr, /^PO\s*NO/i) || 1, desc: colBy(wi, hr, /DESCRIPTION/i) || 2, color: colBy(wi, hr, /^COLOU?R/i) || 3,
+    qty: colBy(wi, hr, /QUANTITY/i) || 4, price: colBy(wi, hr, /UNIT\s*PRICE/i) || 5, amt: colBy(wi, hr, /AMOUNT/i) || 6 };
+  const unit = unitKey((rowText(wi, hr) + rowText(wi, hr + 1)).match(/\(\s*(Y|YD|YDS|M|MT|KG)\s*\)/i) ? (rowText(wi, hr) + rowText(wi, hr + 1)).match(/\(\s*(Y|YD|YDS|M|MT|KG)\s*\)/i)[1] : 'YD');
+  const items = [];
+  let total = NaN, totalQty = NaN, nSur = 0;
+  for (let r = hr + 1; r <= wi.rowCount; r++) {
+    const po = T(wi, r, C.po), desc = T(wi, r, C.desc);
+    if (/^TOTAL/i.test(po) || /^TOTAL/i.test(desc)) { total = N(wi, r, C.amt); totalQty = N(wi, r, C.qty); break; }
+    if (/surcharge|phụ phí|extra charge/i.test(desc) && items.length) {
+      const a = N(wi, r, C.amt);
+      if (!isNaN(a)) { const last = items[items.length - 1]; last.surcharge = r3((last.surcharge || 0) + a); last.amount = r3(last.amount + a); nSur++; }
+      continue;
+    }
+    const qty = N(wi, r, C.qty);
+    if (!po || isNaN(qty) || qty <= 0) continue;
+    const color = T(wi, r, C.color).replace(/\s+/g, ' ').trim();
+    const article = celebArticle(desc);
+    const poS = poSap(po);
+    items.push({
+      poRaw: po, po: poS, article, colorText: color, colorCode: (color.match(/\d{2}-\d{4}/) || [''])[0], colorShort: color,
+      desc: [article, color, desc.replace(/\s+/g, ' ')].filter(Boolean).join(' · '),
+      qtyByUnit: { [unit]: qty }, unit, qty, price: N(wi, r, C.price), surcharge: 0, amount: N(wi, r, C.amt),
+      code: article + ' · ' + color, pklKey: poS + '|' + AZ(article) + '|' + celebColorKey(color),
+    });
+  }
+  if (!items.length) return null;
+  /* dòng TOTAL cộng cả "số lượng" 1 của mỗi dòng phụ phí → trừ ra để so với tổng Invoice Quantity */
+  if (!isNaN(totalQty) && nSur) totalQty = r3(totalQty - nSur);
+  return {
+    profile: 'CELEB', supplier: 'Suzhou Celeb',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: unit, surchargeHeader: 0, total, totalQty, amountInclSur: true },
+    pkl: null,
+  };
+}
+function readCelebPkl(wb, fname) {
+  let head = '';
+  for (const w of wb.worksheets) for (let r = 1; r <= Math.min(10, w.rowCount); r++) head += rowText(w, r);
+  if (!/CELEB/i.test(head)) return null;
+  const groups = [];
+  let unit = 'YD';
+  for (const ws of wb.worksheets) {
+    const hr = findRow(ws, /LOT\s*NO\..*ROLL\s*NO\..*PO\s*NUMBER/i, 15);
+    if (!hr) continue;
+    const C = { lot: colBy(ws, hr, /^LOT\s*NO/i), roll: colBy(ws, hr, /^ROLL\s*NO/i), po: colBy(ws, hr, /^PO\s*NUMBER/i), color: colBy(ws, hr, /^COLOU?R/i),
+      name: colBy(ws, hr, /^NAME/i), qty: colBy(ws, hr, /Q'?TY/i), nw: colBy(ws, hr, /NET\s*WEIGHT/i), gw: colBy(ws, hr, /GROSS\s*WEIGHT/i) };
+    if (!C.po || !C.qty) continue;
+    const um = T(ws, hr, C.qty).match(/\(\s*(Y|YD|YDS|M|MT|KG)\s*\)/i);
+    if (um) unit = unitKey(um[1]);
+    let lot = '', po = '', color = '', name = '';
+    for (let r = hr + 1; r <= ws.rowCount; r++) {
+      if (/^TOTAL/i.test(T(ws, r, C.po)) || /^TOTAL/i.test(T(ws, r, 1))) break;
+      const q = N(ws, r, C.qty);
+      if (isNaN(q) || q <= 0) continue;
+      lot = T(ws, r, C.lot) || lot; po = T(ws, r, C.po) || po; color = T(ws, r, C.color).replace(/\s+/g, ' ').trim() || color; name = (C.name ? T(ws, r, C.name) : '') || name;
+      if (!po) continue;
+      const article = celebArticle(name) || name.toUpperCase();
+      const itemKey = poSap(po) + '|' + AZ(article) + '|' + celebColorKey(color);
+      const key = itemKey + '|' + AZ(lot);
+      let g = groups.find((x) => x.key === key);
+      if (!g) {
+        g = { key, itemKey, po: poSap(po), poRaw: po, article, color: color.replace(/[（）()]/g, ' ').replace(/\s+/g, ' ').trim(), lot: lot ? 'Lô ' + lot : '(không ghi lô)', unit, rolls: [], total: 0 };
+        groups.push(g);
+      }
+      g.rolls.push({ no: C.roll ? T(ws, r, C.roll) : String(g.rolls.length + 1), qty: q, nw: C.nw ? N(ws, r, C.nw) : NaN, gw: C.gw ? N(ws, r, C.gw) : NaN });
+      g.total = r3(g.total + q);
+    }
+  }
+  if (!groups.length) return null;
+  return {
+    profile: 'CELEB', supplier: 'Suzhou Celeb', role: 'pkl', file: fname || '',
+    inv: { no: '', invNo: '', invDate: '', items: [], currency: 'USD', unitDefault: unit, total: NaN },
+    pkl: { groups, unit, level: 'lot', soft: false },
+    pklOnly: true,
+  };
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);
   if (p === 'BLAO') return readBlao(wb);
   if (p === 'HYU') return readHyu(wb);
   if (p === 'YUBO') return readYubo(wb);
+  if (p === 'CELEB') return readCeleb(wb);
   return null;
 }
 
@@ -1024,7 +1134,7 @@ function analyzeFab(inv, pkl, rows, opts) {
       const qAny = it.qtyByUnit[unitKey(hit[0].unit)] != null ? it.qtyByUnit[unitKey(hit[0].unit)] : it.qty;
       if (!isNaN(qAny)) {
         const exact = hit.filter((r) => Math.abs((isNaN(r.qty) ? -1 : r.qty) - qAny) <= EPS);
-        const fits = hit.filter((r) => qAny <= (isNaN(r.overTol) ? (isNaN(r.qty) ? 0 : r.qty) : r.overTol) - (isNaN(r.deliv) ? 0 : r.deliv) + EPS);
+        const fits = hit.filter((r) => r.unltd || qAny <= (isNaN(r.overTol) ? (isNaN(r.qty) ? 0 : r.qty) : r.overTol) - (isNaN(r.deliv) ? 0 : r.deliv) + EPS);
         if (exact.length === 1) { hit = exact; pickedByQty = true; }
         else if (fits.length === 1) { hit = fits; pickedByQty = true; }
       }
@@ -1057,8 +1167,9 @@ function analyzeFab(inv, pkl, rows, opts) {
        Cùng một mã vải + màu có thể nằm trong nhiều PO với số Material y hệt nhau
        (Yubo). Không có cách nào đọc ra PO đúng, nên chia theo PO cũ trước (FIFO):
        lấp đầy phần còn nhận được của PO số nhỏ nhất, thừa thì tràn sang PO kế tiếp. */
-    const roomOf = (r) => (isNaN(r.overTol) ? (isNaN(r.qty) ? 0 : r.qty) : r.overTol)
-      - (isNaN(r.deliv) ? 0 : r.deliv) - (consumed.get(r) || 0);
+    /* PO đánh dấu Unltd Overdelivery = X → SAP cho giao vượt không giới hạn, không có mức dung sai */
+    const roomOf = (r) => (r.unltd ? Infinity : (isNaN(r.overTol) ? (isNaN(r.qty) ? 0 : r.qty) : r.overTol)
+      - (isNaN(r.deliv) ? 0 : r.deliv) - (consumed.get(r) || 0));
     const alloc = [];
     let overflow = 0;
     if (hit.length && !unitBad && !isNaN(q) && !ambiguousMat) {
@@ -1110,8 +1221,11 @@ function analyzeFab(inv, pkl, rows, opts) {
       || (!isNaN(it.price) && inbPrices.length === 1 && Math.abs(inbPrices[0] - it.price) > pTol));
     const amtBad = alloc.length > 0 && !unitBad && !isNaN(it.amount) && !isNaN(q)
       && Math.abs(inbAmount - it.amount) > aTol;
-    const room = r3(overTol - delivered);
+    const unltd = used.some((h) => h.unltd);
+    const room = unltd ? Infinity : r3(overTol - delivered);
     const overBad = overflow > EPS;
+    /* Delivered Qty đã đúng bằng SL hóa đơn → hàng đã nhập kho trước khi đối chiếu hóa đơn (chỉ ghi chú) */
+    const grDone = used.length === 1 && !isNaN(q) && delivered > EPS && Math.abs(delivered - q) <= EPS;
 
     /* ---- 5. packing list: lô / cây ---- */
     const gsOf = (arr) => {
@@ -1191,6 +1305,9 @@ function analyzeFab(inv, pkl, rows, opts) {
       status = 'KHỚP (chia nhiều PO)';
       note += `Mã + màu này có ở ${hit.length} PO với cùng số Material — đã chia theo PO cũ trước: `
         + alloc.map((x) => `${x.r.poV} ${x.qty}`).join(' + ') + `. Kiểm lại nếu thứ tự PO khác.`;
+    } else if (q > qtyPo + EPS && unltd) {
+      status = 'KHỚP (trong dung sai)';
+      note += `Giao ${q} ${inbUnit} vượt PO ${qtyPo} — PO cho phép giao vượt không giới hạn (Unltd Overdelivery = X).`;
     } else if (q > qtyPo + EPS) {
       status = 'KHỚP (trong dung sai)';
       note += `Giao ${q} ${inbUnit} vượt PO ${qtyPo} nhưng còn trong dung sai (tối đa ${overTol}).`;
@@ -1204,6 +1321,7 @@ function analyzeFab(inv, pkl, rows, opts) {
     } else {
       status = 'KHỚP';
     }
+    if (grDone && String(status).indexOf('KHỚP') === 0) note += ` Delivered Qty ${delivered} đã bằng SL hóa đơn — hàng đã nhập kho trước, chỉ cần ghi số/ngày hóa đơn.`;
     if (alloc.length && !unitBad && !isNaN(q) && Math.abs(hadQty - q) > EPS) {
       note += ` Đã ghi Invoice Quantity = ` + (split ? alloc.map((x) => `${x.qty} (${x.r.poV})`).join(' + ') : String(q))
         + (hadQty ? ` (file có sẵn ${hadQty})` : '') + '.';

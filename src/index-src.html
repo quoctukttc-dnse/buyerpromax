@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.10 · 09.10.2026 · 9 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.11 · 09.10.2026 · 10 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -157,6 +157,11 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         (<code>PKL_851853_-_INV_28493.pdf</code>). Nhóm hàng <code>00851853 000825 160070 SYDNEY ECO</code> = số PKL · article; mỗi màu một dòng
         <code>WONDERLAND 1E 03261 MT 632,50 5,45 3.447,13</code>. Inbound chọn theo <em>Partner Name</em>, dòng dò theo article + tên màu;
         hai dòng cùng màu ở hai PKL cộng vào một dòng inbound. Packing list ghép bằng số PKL + article + mã màu, lô = số 6 chữ số ở cây đầu lô.</li>
+        <li><b>Suzhou Celeb</b> (v11.11) — hóa đơn Excel (<code>INVOICE NO : CELEB260807-3</code>, bảng <code>PO NO. | DESCRIPTION | Color | QUANTITY (Y)…</code>);
+        dòng <code>surcharge | 1 | 150</code> dưới dòng hàng là phụ phí của dòng đó (so với <em>Surcharge Item</em>). Packing list Excel mỗi file một màu/lô
+        (<code>Lot No. | Roll No. | PO Number | Color | Name | Q'ty(Y)</code>), màu có ngoặc toàn góc / TCX vẫn ghép đúng.</li>
+        <li><b>PO giao vượt không giới hạn</b> (v11.11): inbound có <em>Unltd Overdelivery</em> = <code>X</code> → không kiểm dung sai, giao vượt PO là
+        <b>KHỚP (trong dung sai)</b> kèm ghi chú; <em>Delivered Qty</em> đã bằng SL hóa đơn (hàng nhập kho trước) → ghi chú, vẫn điền Invoice Quantity.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;

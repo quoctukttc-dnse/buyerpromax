@@ -654,6 +654,7 @@ function headerIndex(ws) {
     invNo: pick('invoice number'), invDate: pick('invoice date'),
     supRef: pick('supplier ref', 'supplier mat. no.', 'supplier material number', 'supplier material no.', 'supplier mat no'), color: pick('color', 'colour'), lapdip: pick('lapdip color'),
     overTol: pick('over tolerance qty'), unit: pick('base unit of measure'), cur: pick('currency'),
+    unltd: pick('unltd overdelivery', 'unlimited overdelivery'),
     last: Math.max(...Object.values(H), 1),
   };
 }
@@ -825,6 +826,12 @@ async function classify(file) {
         CACHE.set(file, out);
         return out;
       }
+    }
+    /* packing list Excel của Suzhou Celeb (sheet 发货码单: Lot No. | Roll No. | PO Number | Color | Name | Q'ty(Y)) */
+    {
+      let cpk = null;
+      try { cpk = readCelebPkl(wb, file.name); } catch (e) { cpk = null; }
+      if (cpk) { out = { kind: 'genpkl', score: 6, buf, gen: cpk, pos: [...new Set(cpk.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* packing list Excel theo PO (Inkava): cột "Material Code" + Spec/Order No; số PO ghi "PO No: DUY…"
        hoặc chỉ ghi trơn "DUY0081000" ở dòng đầu (file chủ hàng tự soạn lại), hoặc lấy từ tên file.
@@ -1835,6 +1842,7 @@ function readInbRows(ws, H) {
       size: H.size ? row.getCell(H.size).text.replace(/\s+/g, '').toUpperCase() : '',
       qty: num(row.getCell(H.qty).value),
       deliv: H.deliv ? num(row.getCell(H.deliv).value) : 0,
+      unltd: H.unltd ? /^x$/i.test(row.getCell(H.unltd).text.trim()) : false,   // PO cho phép giao vượt không giới hạn
       invQty: H.invQty ? num(row.getCell(H.invQty).value) : NaN,
       price: H.price ? num(row.getCell(H.price).value) : NaN,
       sur: H.sur ? num(row.getCell(H.sur).value) : 0,

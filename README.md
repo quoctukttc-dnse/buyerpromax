@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.10 — 9 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.11 — 10 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -36,6 +36,7 @@ Thả file `.xlsx` chứng từ vải vào cùng chỗ — công cụ tự nhậ
 | J&H Yubo | `PKL SCAVI ….xlsx` (sheet `PKL`/`PKL Bulk`, mỗi dòng một lô) + (tùy chọn) file PDF hóa đơn GTGT | KG |
 | Capital Tricot (Thái Lan) | `INVOICE_SCAVI_…_CT-26-xxxT_PO.CAP…pdf` — **PDF**: trang INVOICE + các trang PACKING LIST theo kiện (v11.9) | YD |
 | Carvico S.p.A. (Ý) | `INV_28493.pdf` (FATTURA/INVOICE) + `PKL_851853_-_INV_28493.pdf`… (một PDF cho mỗi packing list) (v11.10) | M |
+| Suzhou Celeb (Trung Quốc) | `INV.xlsx` (sheet `INVOICE`, dòng `surcharge` riêng) + `PKL_1.xlsx`… (sheet `发货码单`, mỗi file một màu/lô) (v11.11) | YD |
 
 Hóa đơn và packing list nằm trong **cùng một file** nên không cần thả thêm gì ngoài file inbound
 (`ZMME0032….xlsx` hoặc file SAP xuất ra). Một file inbound dùng được cho **nhiều hóa đơn**.
@@ -111,6 +112,19 @@ số kiểu Ý). Số/ngày hóa đơn ở dòng dưới `DOCUMENT No` (`28493 2
 - Kiểm thử bộ `28493` (1 PO `CAR0000700`, 8 dòng hóa đơn → 7 dòng inbound, 2 packing list, 108 cây, 7.043,8 m): khớp toàn bộ,
   packing list khớp từng dòng, file `INB_…` trùng 100 % với inbound buyer đã điền.
 
+## Suzhou Celeb — hóa đơn Excel + packing list Excel theo lô (v11.11)
+
+Hóa đơn `INVOICE NO : CELEB260807-3`, `DATE: 7th,Agu,2026` (tháng viết sai cũng đọc được), bảng `PO NO. | DESCRIPTION OF GOODS | Color |
+QUANTITY (Y) | UNIT PRICE | AMOUNT`; dòng **`surcharge | 1 | 150 | 150`** đứng dưới dòng hàng là phụ phí của dòng đó → cộng vào thành
+tiền dòng và so với cột `Surcharge Item` của inbound (tổng 4.603,53 khớp). Dòng `TOTAL` cộng cả "số lượng 1" của mỗi dòng phụ phí nên
+công cụ trừ ra trước khi so tổng số lượng. Packing list mỗi file một màu (`Lot No. | Roll No. | PO Number | Color | Name | Q'ty(Y)`),
+màu viết lẫn ngoặc toàn góc / `TCX` (`True Red（19-1664 TCX）`) → so bằng khóa rút gọn `PO | RC031 | TRUERED191664`; lô = `Lot No.`.
+
+**PO cho phép giao vượt không giới hạn (`Unltd Overdelivery = X`, v11.11):** SAP không đặt mức dung sai cho PO này
+(`Over Tolerance Qty` = `Quantity`), nên giao vượt PO không còn báo `VƯỢT DUNG SAI` mà là `KHỚP (trong dung sai)` kèm ghi chú.
+Khi `Delivered Qty` đã **đúng bằng** số lượng hóa đơn (hàng nhập kho trước khi đối chiếu hóa đơn, cột `Invoice Quantity` SAP xuất ra
+âm) công cụ ghi chú "hàng đã nhập kho trước, chỉ cần ghi số/ngày hóa đơn" và vẫn điền Invoice Quantity = số lượng hóa đơn.
+
 ## Chủ hàng chưa huấn luyện → đề nghị liên hệ (v11.7, cột "Chủ hàng" v11.10)
 
 Ngay sau khi thả file, bảng hóa đơn có cột **Chủ hàng**: tên chủ hàng + `mẫu riêng` / `bộ đọc chung`, hoặc nhãn đỏ
@@ -130,7 +144,7 @@ nhắc. Người liên hệ đặt ở hằng `CONTACT`. Huấn luyện xong ch�
 
 ## Bộ đọc chung — chủ hàng chưa có mẫu riêng (v11)
 
-Mọi file Excel/PDF khác (Celeb, Cheung Hing, Derun, DJIC, Dongguan Uwork, Freetex,
+Mọi file Excel/PDF khác (Cheung Hing, Derun, DJIC, Dongguan Uwork, Freetex,
 Fujian Baikai, Fujian Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer,
 PT Winner, S&M, Seamless, Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan…) được đọc bằng
 bộ đọc chung: tìm bảng hàng bằng từ khoá tiêu đề, lấy số lượng/đơn vị/giá/PO/mã/màu/size/lô, rồi dò

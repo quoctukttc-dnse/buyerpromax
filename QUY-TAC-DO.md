@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.10)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.11)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,8 +972,8 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 9 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
-  Hengyu, Yubo, Capital Tricot, Carvico) + các chủ hàng đã chạy thử bằng bộ đọc chung (Celeb, Cheung Hing, Chuangjie, Derun, DJIC,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 10 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+  Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb) + các chủ hàng đã chạy thử bằng bộ đọc chung (Cheung Hing, Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
   không phân biệt hoa/thường. **Không** dùng chữ "BLAO"/"SCAVI" làm dấu hiệu vì đó là tên người mua.
@@ -1077,6 +1077,51 @@ BLACK 852928 = lô 742573 (29 cây) = 1.909,4; lệch ở Carvico là lệch th�
 38.388,73 USD (inbound 38.388,71 — lệch 0,02 do Carvico làm tròn từng dòng, trong sai số). 8/8 `KHỚP (giao thiếu / trong dung sai)`,
 packing list khớp từng dòng, file `INB_28493_22.07.2026.xlsx` trùng 100 % với inbound buyer đã điền; chạy chung với bộ Capital
 `CT-26-314T` không ảnh hưởng nhau.
+
+## S. Suzhou Celeb — hóa đơn Excel + packing list Excel theo lô (từ v11.11, 09.10.2026)
+
+Chủ hàng vải Trung Quốc. Trước v11.11 đi qua bộ đọc chung: 3/3 dòng điền đúng số lượng nhưng (1) hai dòng `surcharge` bị bỏ nên
+tổng hóa đơn 4.603,53 ≠ tổng inbound 4.303,53; (2) packing list chỉ khớp 1/3 màu (màu có ngoặc toàn góc `（19-1664 TCX）` không dò ra);
+(3) cả 3 dòng bị `VƯỢT DUNG SAI` dù PO cho phép giao vượt. Nay có mẫu riêng `readCeleb` + `readCelebPkl` (`src/fab.js`, `profile: 'CELEB'`).
+
+**S1. Nhận diện.** Hóa đơn: Excel có `CELEB TEXTILES` + `INVOICE NO` + tiêu đề `PO NO.` / `DESCRIPTION OF GOODS` (`fabProfile`).
+Packing list: Excel có `CELEB` trong 10 dòng đầu + hàng tiêu đề `Lot No. | Roll No. | PO Number` (`readCelebPkl`, kind `genpkl`,
+móc trong `classify` trước packing list Inkava).
+
+**S2. Hóa đơn.** `INVOICE NO : CELEB260807-3` → Invoice Number ghi nguyên văn. `DATE: 7th,Agu,2026` → `(\d+)(st|nd|rd|th)? , (tên tháng) , (năm)`,
+tháng so theo 3 chữ đầu với bảng sửa lỗi chính tả (`AGU` → `AUG`) → `07.08.2026`. Bảng hàng: cột theo tiêu đề; đơn vị lấy từ `(Y)` dưới
+QUANTITY → YD. Dòng có PO + số lượng → dòng hàng: article = mã đầu mô tả (`RC031`), màu nguyên văn (`Jet Black 19-0303`),
+`pklKey = PO | RC031 | màu rút gọn`. Dòng `surcharge` (không PO, số lượng 1) → **phụ phí của dòng hàng ngay trên**: `surcharge += 150`,
+`amount += 150`; `amountInclSur: true` nên thành tiền so với `SL × Gross Price + Surcharge Item` của inbound. Dòng `TOTAL`: tổng tiền
+4.603,53; tổng số lượng 1.838 trừ số dòng phụ phí (2) = 1.836 để so với tổng Invoice Quantity.
+
+**S3. Dò inbound.** Luật vải V4: PO `CEL0010900` + article `RC031` (⊂ `Supplier Ref` "RC031 Solid" / Material Description) + màu
+(`Jet Black 19-0303` ↔ `JET BLACK 19-0303 TCX`: một bên là tiền tố của bên kia; `Pink-a-boo 13-2801 TCX` ↔ `PINK A BOO 13-2801 TCX`:
+bằng nhau sau khi bỏ dấu).
+
+**S4. Packing list.** Mỗi file một màu / một lô: cột `Lot No.` (0145), `Roll No.`, `PO Number`, `Color`, `Name` (RC031), `Q'ty(Y)`.
+Màu rút gọn `celebColorKey`: bỏ `（）()`, bỏ `TCX`, AZ → `TRUERED191664` — khớp cả `True Red（19-1664 TCX）`, `Jet Black （19-0303 TCX）`,
+`Pink-a-boo 13-2801 TCX` với màu trên hóa đơn. Nhóm = PO | article | màu | lô (`Lô 0145`), đơn vị YD, `soft: false`. Gắn vào hóa đơn
+theo profile `CELEB` + trùng PO + cùng chủ hàng (R3). Đối chiếu bằng `pklKey` chính xác: 694 / 693 / 449 ✓.
+
+**S5. PO cho phép giao vượt — cột `Unltd Overdelivery` (mới).** Inbound của bộ này: `Quantity` = `Over Tolerance Qty` (679),
+`Delivered Qty` 693 (đã nhập kho), `Remain` và `Invoice Quantity` SAP xuất = −14, `Unltd Overdelivery` = `X`. Trước đây công thức
+`Delivered + SL hóa đơn ≤ Over Tolerance` cho ra `VƯỢT DUNG SAI` (thừa 707) — sai, vì SAP đã nhận 693 và PO không giới hạn giao vượt.
+Nay `headerIndex` đọc cột `Unltd Overdelivery`, `readInbRows` gắn `unltd = true` khi ô là `X`; trong `analyzeFab`:
+`roomOf(r)` = ∞ (không tràn, không `VƯỢT DUNG SAI`), dòng `fits` khi tách ứng viên theo số lượng luôn đạt; trạng thái khi giao vượt PO
+→ `KHỚP (trong dung sai)` với ghi chú "PO cho phép giao vượt không giới hạn (Unltd Overdelivery = X)". Thêm ghi chú `grDone`: khi chỉ
+có một dòng inbound và `Delivered Qty` **đúng bằng** SL hóa đơn → "hàng đã nhập kho trước, chỉ cần ghi số/ngày hóa đơn" (chỉ ghi chú,
+vẫn điền Invoice Quantity = SL hóa đơn vì file SAP đang để số âm).
+
+**S6. Kiểm thử** bộ `CELEB260807-3` (07.08.2026): PO `CEL0010900`, 3 dòng, 3 PKL (12 cây, 1.836 YD), 4.603,53 USD. File inbound buyer
+gửi là bản SAP xuất **chưa điền** (Invoice Quantity −14/−9/−14, không có số HĐ) nên đáp án dựng từ hóa đơn: Invoice Quantity 693 / 449 / 694,
+`CELEB260807-3`, `07.08.2026` → file `INB_…` trùng 100 %; 3/3 `KHỚP (trong dung sai)`, packing list khớp từng dòng, tổng tiền
+4.603,53 = inbound (kể cả phụ phí). Chạy chung với Capital + Carvico không ảnh hưởng nhau.
+
+## Thay đổi của v11.11 (09.10.2026) — mẫu riêng Suzhou Celeb + PO giao vượt không giới hạn
+
+- Mẫu riêng Suzhou Celeb (mục S): hóa đơn Excel có dòng phụ phí riêng, packing list Excel theo lô, ngày tháng viết sai chính tả.
+- Cột `Unltd Overdelivery = X` của inbound → bỏ kiểm dung sai cho dòng đó (S5); ghi chú khi `Delivered Qty` đã bằng SL hóa đơn.
 
 ## Thay đổi của v11.10 (09.10.2026) — mẫu riêng Carvico + cột "Chủ hàng" + Partner Name theo PO
 
