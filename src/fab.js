@@ -741,6 +741,120 @@ function readCapital(lines) {
   };
 }
 
+/* =====================  CARVICO (Ý) — hóa đơn FATTURA/INVOICE PDF + packing list PDF rời  =====================
+   Hóa đơn: không ghi PO SAP (chỉ "Order 579"), mỗi nhóm hàng mở đầu bằng dòng
+     "00851853 000825 160070 SYDNEY ECO [1]"  → số packing list 851853 · mã article 000825 · tên "SYDNEY ECO"
+   rồi mỗi màu một dòng: "WIDTH 160CM G/M2 170 WONDERLAND 1E 03261 MT 632,50 5,45 3.447,13 N1"
+     → màu WONDERLAND · mã màu 03261 · MT (mét) · 632,50 · 5,45 · 3.447,13 (số kiểu Ý: chấm nghìn, phẩy lẻ).
+   Số/ngày: dòng dưới "NR.DOCUMENTO / DOCUMENT No": "6014 00E BANK TRANSFER 90 DAYS 28493 22/07/26".
+   Inbound: Material Description "825 SYDNEY ECO Solid Fab PE100, 170GM2 160CM BLACK #9164" → article "825 SYDNEY ECO",
+   Color "BLACK #9164" / "WONDERLAND 03261" / "MYSTIC BLUE # 6063" (mã màu bỏ 0 đầu, có khi giữ) → so màu theo TÊN,
+   mã màu để trong desc. Hai dòng hóa đơn cùng màu (BLACK ở 2 packing list) cộng vào cùng một dòng inbound.
+   Packing list (file riêng "PKL_851853_-_INV_28493.pdf"): mỗi màu một mục
+     "872470 000825 160070 SYDNEY ECO 003261 WONDERLAND" rồi từng cây "074178902 1E 741789 CM016902M 70,20 20,50 [lỗi]"
+     (741789 = số lô/batch, chỉ ghi ở cây đầu của lô), "Tot Rolls / batch :" và "Tot Rolls / colour:" là dòng cộng.
+   Khóa ghép hóa đơn ↔ packing list: số PKL | article | mã màu (bỏ 0 đầu). */
+const isCarvicoText = (t) => /CARVICO/i.test(t);
+const itNum = (s) => { const t = String(s == null ? '' : s).trim().replace(/\./g, '').replace(',', '.'); const n = Number(t); return t && !isNaN(n) ? n : NaN; };
+const carvArticle = (code, name) => (String(Number(code) || code) + ' ' + String(name || '').replace(/\[\d\]\s*$/, '').trim()).trim();
+const stripZero = (s) => String(s == null ? '' : s).trim().replace(/^0+(?=\d)/, '');
+function readCarvico(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isCarvicoText(t) || !/FATTURA|NR\.?\s*DOCUMENTO/i.test(t)) return null;
+  let no = '', invDate = '';
+  for (let i = 0; i < all.length && !no; i++) {
+    if (!/DOCUMENT\s*No/i.test(all[i])) continue;
+    for (let j = i + 1; j <= Math.min(all.length - 1, i + 2); j++) {
+      const m = all[j].match(/\b(\d{4,7})\s+(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*$/);
+      if (m) { no = m[1]; const y = m[4].length === 2 ? '20' + m[4] : m[4]; invDate = dmy(m[2], m[3], y); break; }
+    }
+  }
+  const RE_HEAD = /^(\d{6,9})\s+(\d{6})\s+(\d{6})\s+([A-Z][A-Z0-9 .\/-]*?)\s*(?:\[\d\])?$/;
+  const RE_ITEM = /^(.*?)\s*\b(\S{1,3})\s+(\d{4,6})\s+(MT|MTS|M|KG|KGS|YD|YDS|PCS)\s+([\d.]+,\d+)\s+([\d.]+,\d+)\s+([\d.]+,\d+)(?:\s+\S{1,3})?$/i;
+  const items = [];
+  let pklNo = '', artCode = '', artName = '', total = NaN, totalQty = NaN;
+  for (const L of all) {
+    let m;
+    if ((m = L.match(RE_HEAD))) { pklNo = stripZero(m[1]); artCode = m[2]; artName = m[4]; continue; }
+    if (/^TOTAL\b/i.test(L)) { const mq = L.match(/\b(MT|MTS|M|KG|KGS|YD|YDS|PCS)\s+([\d.]+,\d+)/i); if (mq && isNaN(totalQty)) totalQty = itNum(mq[2]); continue; }
+    if ((m = L.match(/^\d{8}\s+[\d.]+,\d+\s+[\d.]+,\d+\s+\d+\s+([\d.]+,\d+)$/))) { if (isNaN(total)) total = itNum(m[1]); continue; }   // bảng mã HS: … PACK NO AMOUNT USD
+    if (!pklNo) continue;
+    m = L.match(RE_ITEM);
+    if (!m) continue;
+    const color = m[1].replace(/^.*?G\/M2\s*\d+\s*/i, '').replace(/^WIDTH\s*\d+\s*CM\s*/i, '').trim();
+    if (!color || !/[A-Z]/i.test(color)) continue;
+    const unit = unitKey(m[4]);
+    const qty = itNum(m[5]), price = itNum(m[6]), amount = itNum(m[7]);
+    if (isNaN(qty) || qty <= 0) continue;
+    const article = carvArticle(artCode, artName);
+    const codeS = stripZero(m[3]);
+    items.push({
+      poRaw: '', po: '', article, colorText: color, colorCode: m[3], colorShort: color,
+      desc: [article, color + ' ' + codeS, 'PKL ' + pklNo].join(' · '),
+      qtyByUnit: { [unit]: qty }, unit, qty, price, surcharge: 0, amount,
+      code: article + ' · ' + color, pklNo, colorKey: codeS,
+      pklKey: pklNo + '|' + AZ(article) + '|' + codeS,
+    });
+  }
+  if (!items.length) return null;
+  return {
+    profile: 'CARVICO', supplier: 'Carvico', noPo: true,
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: items[0].unit, surchargeHeader: 0, total, totalQty, amountInclSur: true, hasSapPo: false },
+    pkl: null,
+  };
+}
+/* packing list rời của Carvico → dạng gen.pkl (kind 'genpkl'), gắn vào hóa đơn Carvico cùng số PKL */
+function readCarvicoPkl(lines, fname) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isCarvicoText(t) || !/PACKING\s*LIST/i.test(t) || /FATTURA|NR\.?\s*DOCUMENTO/i.test(t)) return null;
+  let pklNo = '', date = '';
+  for (const L of all) {
+    const m = L.match(/^(\d{5,8})\s+(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/);
+    if (m) { pklNo = stripZero(m[1]); date = dmy(m[2], m[3], m[4].length === 2 ? '20' + m[4] : m[4]); break; }
+  }
+  const RE_SEC = /^(\d{6,9})\s+(\d{6})\s+(\d{6})\s+([A-Z][A-Z0-9 .\/-]*?)\s+(\d{5,7})\s+([A-Z][A-Z ]*[A-Z])$/;
+  const RE_ROLL = /^(\d{8,10})\s+(\S{1,3})\s+(?:(\d{6})\s+)?([A-Z]{2}\d{5,7}[A-Z]?)\s+([\d.]+,\d+)\s+([\d.]+,\d+)(?:\s+\d+)?$/;
+  const groups = [];
+  let sec = null, batch = '';
+  for (const L of all) {
+    let m;
+    if ((m = L.match(RE_SEC))) {
+      /* tiêu đề mục lặp lại ở đầu trang mới (cùng màu, chưa gặp "Tot Rolls / colour") → vẫn là lô đang đọc */
+      const same = sec && sec.artCode === m[2] && sec.colorCode === m[5];
+      sec = { confirm: m[1], artCode: m[2], artName: m[4], colorCode: m[5], color: m[6].trim() };
+      if (!same) batch = '';
+      continue;
+    }
+    if (!sec) continue;
+    if (/^Tot\s*Rolls\s*\/\s*colou?r/i.test(L)) { sec = null; continue; }
+    m = L.match(RE_ROLL);
+    if (!m) continue;
+    if (m[3]) batch = m[3];
+    const q = itNum(m[5]);
+    if (isNaN(q) || q <= 0) continue;
+    const article = carvArticle(sec.artCode, sec.artName);
+    const codeS = stripZero(sec.colorCode);
+    const itemKey = pklNo + '|' + AZ(article) + '|' + codeS;
+    const key = itemKey + '|' + AZ(batch);
+    let g = groups.find((x) => x.key === key);
+    if (!g) {
+      g = { key, itemKey, po: '', poRaw: '', article, color: sec.color, colorCode: sec.colorCode, lot: batch ? 'Lô ' + batch : '(không ghi lô)', unit: 'M', rolls: [], total: 0, pklNo };
+      groups.push(g);
+    }
+    g.rolls.push({ no: m[1], qty: q, nw: itNum(m[6]), lotCode: m[4] });
+    g.total = r3(g.total + q);
+  }
+  if (!groups.length) return null;
+  return {
+    profile: 'CARVICO', supplier: 'Carvico', role: 'pkl', file: fname || '', pklNo,
+    inv: { no: pklNo, invNo: '', invDate: date, items: [], currency: 'USD', unitDefault: 'M', total: NaN },
+    pkl: { groups, unit: 'M', level: 'lot', soft: false },
+    pklOnly: true,
+  };
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);
@@ -824,7 +938,8 @@ function analyzeFab(inv, pkl, rows, opts) {
       }
     }
     /* bộ đọc chung: chứng từ không ghi PO SAP (hoặc ghi mã riêng của chủ hàng) */
-    if (rows && !poRows.length && it.gen) {
+    /* …hoặc mẫu riêng mà chứng từ hoàn toàn không ghi PO (Carvico) */
+    if (rows && !poRows.length && (it.gen || !String(it.poRaw || it.po || '').trim())) {
       const distinct = [...new Set(rows.map((r) => poSap(r.poV)))];
       const rawPo = String(it.poRaw || it.po || '').trim();
       if (!rawPo && inv.hasSapPo) {

@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.9 — 8 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.10 — 9 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -35,6 +35,7 @@ Thả file `.xlsx` chứng từ vải vào cùng chỗ — công cụ tự nhậ
 | Quanzhou Hengyu | `x.xxHYUxxxxxxx.xlsx` (sheet `invoice`, `packing list`, `码单`) | YD |
 | J&H Yubo | `PKL SCAVI ….xlsx` (sheet `PKL`/`PKL Bulk`, mỗi dòng một lô) + (tùy chọn) file PDF hóa đơn GTGT | KG |
 | Capital Tricot (Thái Lan) | `INVOICE_SCAVI_…_CT-26-xxxT_PO.CAP…pdf` — **PDF**: trang INVOICE + các trang PACKING LIST theo kiện (v11.9) | YD |
+| Carvico S.p.A. (Ý) | `INV_28493.pdf` (FATTURA/INVOICE) + `PKL_851853_-_INV_28493.pdf`… (một PDF cho mỗi packing list) (v11.10) | M |
 
 Hóa đơn và packing list nằm trong **cùng một file** nên không cần thả thêm gì ngoài file inbound
 (`ZMME0032….xlsx` hoặc file SAP xuất ra). Một file inbound dùng được cho **nhiều hóa đơn**.
@@ -94,7 +95,27 @@ Công cụ nhận ra theo tên `CAPITAL TRICOT` trong chứng từ và đọc b�
 - Kiểm thử với bộ `CT-26-314T` (6 PO, 8 dòng, 9 kiện, 34 cây, 3.297 YD, 7.353,04 USD): 8/8 dòng khớp, packing list khớp
   từng dòng, file `INB_…` xuất ra **trùng 100 %** với file inbound đã điền tay của buyer.
 
-## Chủ hàng chưa huấn luyện → đề nghị liên hệ (v11.7)
+## Carvico — hóa đơn FATTURA PDF + packing list PDF rời (v11.10)
+
+Hóa đơn **không ghi PO SAP** (chỉ `Order 579`); mỗi nhóm hàng mở đầu bằng `00851853 000825 160070 SYDNEY ECO` (số packing list ·
+mã article · tên vải), rồi mỗi màu một dòng `WONDERLAND 1E 03261 MT 632,50 5,45 3.447,13` (màu · mã màu · mét · đơn giá · thành tiền,
+số kiểu Ý). Số/ngày hóa đơn ở dòng dưới `DOCUMENT No` (`28493 22/07/26`). Công cụ:
+
+- Chọn file inbound theo **Partner Name** (`CARVICO S.P.A.`) vì chứng từ không có PO; dò dòng inbound theo article
+  (`825 SYDNEY ECO` ⊂ *Material Description*) + **tên màu** (`WONDERLAND 03261`, `BLACK #9164`, `MYSTIC BLUE # 6063` — mã màu trên
+  inbound lúc bỏ 0 đầu lúc không nên chỉ để cộng điểm). Hai dòng hóa đơn cùng màu ở hai packing list (BLACK 3.386,3 + 1.909,4)
+  **cộng vào cùng một dòng inbound** (5.295,7).
+- Packing list rời: mỗi màu một mục `872470 000825 160070 SYDNEY ECO 003261 WONDERLAND`, từng cây `074178902 1E 741789 CM016902M 70,20 20,50`
+  (741789 = số **lô**, chỉ ghi ở cây đầu lô, giữ cho các cây sau kể cả sang trang). Ghép với hóa đơn bằng khóa **số PKL + article + mã màu**
+  nên không lẫn hai dòng BLACK; sheet `CHI TIET LO` liệt kê từng lô với số cây (BLACK 851853 = lô 742045: 25 cây 1.686,3 + lô 905704: 27 cây 1.700).
+- Kiểm thử bộ `28493` (1 PO `CAR0000700`, 8 dòng hóa đơn → 7 dòng inbound, 2 packing list, 108 cây, 7.043,8 m): khớp toàn bộ,
+  packing list khớp từng dòng, file `INB_…` trùng 100 % với inbound buyer đã điền.
+
+## Chủ hàng chưa huấn luyện → đề nghị liên hệ (v11.7, cột "Chủ hàng" v11.10)
+
+Ngay sau khi thả file, bảng hóa đơn có cột **Chủ hàng**: tên chủ hàng + `mẫu riêng` / `bộ đọc chung`, hoặc nhãn đỏ
+**chưa huấn luyện**; dòng đếm phía trên ghi "… · n chủ hàng chưa huấn luyện". Từ v11.10 Partner Name của inbound chỉ được xét
+trên **đúng các PO của hóa đơn** (file SAP xuất chung nhiều chủ hàng không còn làm tắt cảnh báo).
 
 Mỗi bộ chứng từ được so tên người bán trên chứng từ và cột `Partner Name` của file inbound với danh sách
 `TRAINED_SUPPLIERS` (đầu `src/app-all.js`). Chủ hàng không có trong danh sách vẫn được bộ đọc chung xử lý, nhưng:
@@ -109,7 +130,7 @@ nhắc. Người liên hệ đặt ở hằng `CONTACT`. Huấn luyện xong ch�
 
 ## Bộ đọc chung — chủ hàng chưa có mẫu riêng (v11)
 
-Mọi file Excel/PDF khác (Carvico, Celeb, Cheung Hing, Derun, DJIC, Dongguan Uwork, Freetex,
+Mọi file Excel/PDF khác (Celeb, Cheung Hing, Derun, DJIC, Dongguan Uwork, Freetex,
 Fujian Baikai, Fujian Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer,
 PT Winner, S&M, Seamless, Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan…) được đọc bằng
 bộ đọc chung: tìm bảng hàng bằng từ khoá tiêu đề, lấy số lượng/đơn vị/giá/PO/mã/màu/size/lô, rồi dò

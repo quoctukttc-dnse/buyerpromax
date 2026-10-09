@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.9)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.10)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,13 +972,18 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 8 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
-  Hengyu, Yubo, Capital Tricot) + các chủ hàng đã chạy thử bằng bộ đọc chung (Carvico, Celeb, Cheung Hing, Chuangjie, Derun, DJIC,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 9 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+  Hengyu, Yubo, Capital Tricot, Carvico) + các chủ hàng đã chạy thử bằng bộ đọc chung (Celeb, Cheung Hing, Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
   không phân biệt hoa/thường. **Không** dùng chữ "BLAO"/"SCAVI" làm dấu hiệu vì đó là tên người mua.
 - **Cách xét:** chứng từ vải mẫu riêng → đã huấn luyện. Còn lại: tên người bán (30 dòng đầu chứng từ / tên chủ hàng bộ đọc chung
-  nhận ra) **hoặc** `Partner Name` của file inbound khớp một mục trong danh sách → đã huấn luyện.
+  nhận ra) **hoặc** `Partner Name` của file inbound khớp một mục trong danh sách → đã huấn luyện. Từ v11.10 Partner Name chỉ lấy ở
+  **các dòng inbound thuộc PO của hóa đơn** (`partnerByPo`); chứng từ không ghi PO thì xét toàn file, và nếu file có **nhiều** Partner
+  Name khác nhau thì không kết luận từ inbound (tránh file SAP xuất chung làm tắt cảnh báo của chủ hàng mới).
+- **Hiển thị:** tính ngay khi ghép bộ (`buildGroups` → `g.supName / g.supTrained / g.supKind`), bảng hóa đơn có cột **Chủ hàng**
+  (tên + `mẫu riêng` / `bộ đọc chung`, hoặc nhãn đỏ *chưa huấn luyện*), dòng đếm ghi số chủ hàng chưa huấn luyện; `run()` dùng lại.
+  Tên người bán của bộ đọc chung được cắt ở ` * ` / sau hậu tố công ty (`Carvico S.p.A. * Sede legale…` → `Carvico S.p.A.`).
 - **Khi chưa huấn luyện:** vẫn xử lý bằng bộ đọc chung (không chặn), nhưng nhãn đỏ *chủ hàng mới — chưa huấn luyện* + khung nhắc
   trên thẻ hóa đơn (thẻ tự mở dù mọi dòng khớp), dòng đỏ trong nhật ký, cột Kết luận của báo cáo tổng hợp ghi
   "CHỦ HÀNG MỚI (tên) — liên hệ …". Lời nhắc: kiểm tra kỹ trước khi import và liên hệ người phụ trách (`CONTACT`) kèm bộ chứng từ.
@@ -1037,6 +1042,47 @@ nhưng packing list đọc **lệch** (209 thay vì 309, 100 thay vì 515…) v�
 file `INB_CT-26-314T_19.08.2026.xlsx` trùng 100 % (PO, Material, Invoice Quantity, Invoice Number, Invoice date) với file
 inbound đã điền tay. Từ khóa nhận diện trong `TRAINED_SUPPLIERS` đổi từ `CAPITAL` (bắt nhầm "Capital Tower" trong địa chỉ)
 thành `CAPITAL TRICOT`.
+
+## R. Carvico — hóa đơn FATTURA PDF + packing list PDF rời (từ v11.10, 09.10.2026)
+
+Chủ hàng vải Ý. Trước v11.10 đi qua bộ đọc chung: 7/7 dòng inbound vẫn điền đúng (nhờ Partner Name + màu), nhưng packing list đọc sai
+hoàn toàn (nhóm theo mã cây `CM016902M`, màu dính cả phần đầu trang) và tên chủ hàng hiện là `Carvico S.p.A. * Sede legale Via Don
+Pedrinelli`. Nay có mẫu riêng `readCarvico` + `readCarvicoPkl` (`src/fab.js`, `profile: 'CARVICO'`), nhận ra theo chữ `CARVICO`:
+có `FATTURA` / `NR.DOCUMENTO` → hóa đơn; có `PACKING LIST` + `ORDER CONFIRM.` mà không có FATTURA → packing list rời.
+
+**R1. Hóa đơn.** Số/ngày: dòng ngay dưới `NR.DOCUMENTO /DOCUMENT No`: `6014 00E BANK TRANSFER 90 DAYS 28493 22/07/26` → `28493`,
+`22.07.2026` (Invoice Number ghi vào SAP là `28493`). Nhóm hàng mở đầu `00851853 000825 160070 SYDNEY ECO [1]` → số PKL `851853`
+(bỏ 0 đầu), article `825 SYDNEY ECO` (mã bỏ 0 đầu + tên). Dòng màu: `[WIDTH 160CM G/M2 170] <MÀU> 1E <mã màu> MT <SL> <đơn giá>
+<thành tiền> N1` — bỏ phần `WIDTH … G/M2 170` dính ở dòng đầu; số kiểu Ý (`3.386,30` → 3386.30); `MT` → M. **Không có PO**:
+`po = ''`, `inv.hasSapPo = false`. Tổng: `TOTAL MT 7.043,80` (số lượng) và dòng bảng HS `60053700 2.144,91 2.069,31 108 38.388,73`
+(tiền). Mỗi dòng mang `pklKey = <số PKL>|<article>|<mã màu bỏ 0 đầu>`.
+
+**R2. Dò inbound.** Chọn file inbound theo Partner Name (luật G7, `supKey` = 6 ký tự đầu tên chủ hàng → `CARVIC`). Luật "chứng từ
+không ghi PO → dò trên toàn bộ PO của inbound" (trước chỉ cho bộ đọc chung) nay áp dụng cho **mọi dòng không có PO**. Article
+`825SYDNEYECO` ⊂ *Material Description*; màu so theo **tên** (`WONDERLAND` ↔ `WONDERLAND 03261`, `BLACK` ↔ `BLACK #9164`,
+`MYSTIC BLUE` ↔ `MYSTIC BLUE # 6063`) vì mã màu trên inbound lúc bỏ 0 đầu (`#9164`) lúc giữ (`03261`); mã màu nằm trong `desc`
+để cộng điểm. Hai dòng BLACK (hai PKL) cùng trỏ về một dòng inbound → `consumed` cộng dồn, Invoice Quantity = 5.295,7.
+
+**R3. Packing list rời.** Số PKL ở dòng `851853 22/07/26 6014 00E`. Mục màu: `872470 000825 160070 SYDNEY ECO 003261 WONDERLAND`
+(xác nhận đơn · article · … · mã màu · tên màu). Dòng cây: `<số cây 9 chữ số> 1E [<lô 6 chữ số>] <mã cây CM016902M> <mét> <kg> [lỗi]`
+— số lô chỉ ghi ở cây đầu của lô, **giữ** cho các cây sau; tiêu đề mục lặp lại ở đầu trang mới (cùng màu, chưa gặp `Tot Rolls / colour`)
+vẫn là lô đang đọc. Bỏ dòng `Mt. 48,75 Difetto/Fault`, `Tot Rolls / batch`, `Tot Rolls / colour` (dòng này đóng mục). Nhóm = số PKL |
+article | mã màu | lô (`key = itemKey|lô`), `lot = Lô 741789`, đơn vị M, `soft: false`.
+Gắn vào hóa đơn: packing list của mẫu riêng chỉ xét chứng từ **cùng profile**; số PKL trên hóa đơn trùng số PKL của file → +8 điểm
+(ngoài cùng thư mục / tên file chứa số HĐ `PKL_851853_-_INV_28493`). Không chạy `genFromDocsRefresh` cho mẫu riêng.
+Đối chiếu: `gsOf` ghép **chính xác** theo `pklKey` → BLACK 851853 = lô 742045 (25 cây, 1.686,3) + lô 905704 (27 cây, 1.700) = 3.386,3;
+BLACK 852928 = lô 742573 (29 cây) = 1.909,4; lệch ở Carvico là lệch thật (`LỆCH PKL`).
+
+**R4. Kiểm thử** bộ `28493` (22.07.2026): PO `CAR0000700`, 8 dòng hóa đơn / 7 dòng inbound, 2 PKL, 11 nhóm lô, 108 cây, 7.043,8 m,
+38.388,73 USD (inbound 38.388,71 — lệch 0,02 do Carvico làm tròn từng dòng, trong sai số). 8/8 `KHỚP (giao thiếu / trong dung sai)`,
+packing list khớp từng dòng, file `INB_28493_22.07.2026.xlsx` trùng 100 % với inbound buyer đã điền; chạy chung với bộ Capital
+`CT-26-314T` không ảnh hưởng nhau.
+
+## Thay đổi của v11.10 (09.10.2026) — mẫu riêng Carvico + cột "Chủ hàng" + Partner Name theo PO
+
+- Mẫu riêng Carvico (mục R). Luật dò không PO mở rộng cho mẫu riêng; packing list rời của mẫu riêng gắn theo profile + số PKL.
+- Bảng hóa đơn thêm cột **Chủ hàng** (tên + mẫu riêng / bộ đọc chung / *chưa huấn luyện*), tính ngay khi ghép bộ (G12).
+- Partner Name chỉ xét theo PO của hóa đơn; nhiều partner trong file → không kết luận (G12). Tên người bán bộ đọc chung cắt gọn.
 
 ## Thay đổi của v11.9 (09.10.2026) — mẫu riêng Capital Tricot
 

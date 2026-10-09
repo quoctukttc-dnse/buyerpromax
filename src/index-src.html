@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.9 · 09.10.2026 · 8 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.10 · 09.10.2026 · 9 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -140,6 +140,8 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li><b>Đối chiếu tổng số lượng độc lập</b>: so dòng <em>Tổng cộng</em> trên chứng từ với tổng
         <em>Invoice Quantity</em> đã ghi vào file inbound — lệch là cảnh báo đỏ, có cột riêng trong sheet <code>TONG HOP</code>.</li>
         <li>Chỉ các hóa đơn được <b>tick ở cột đầu bảng</b> mới được xuất. Khi bạn thả thêm file, công cụ tự chọn sẵn đúng hóa đơn vừa thêm.</li>
+        <li>Cột <b>Chủ hàng</b> (v11.10) hiện ngay sau khi thả file: tên chủ hàng + <em>mẫu riêng</em> / <em>bộ đọc chung</em>, hoặc nhãn đỏ
+        <em>chưa huấn luyện</em> — chủ hàng chưa huấn luyện vẫn được xử lý nhưng cần kiểm kỹ và báo người phụ trách để bổ sung mẫu.</li>
       </ul>
       <div class="hint" style="margin-top:12px"><b>Riêng chủ hàng vải</b></div>
       <ul class="rules">
@@ -151,6 +153,10 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         dòng dưới không ghi PO thì lấy PO dòng trên. Packing list: PO / L/D / design ghi rải ở các dòng đầu kiện nên công cụ gom đủ cây
         rồi mới chốt thuộc tính kiện; kiện không ghi gì kế thừa kiện trước; các kiện cùng PO + design + màu + L/D cộng lại để so với hóa đơn
         (sheet <code>CHI TIET LO</code> liệt kê từng kiện).</li>
+        <li><b>Carvico</b> (v11.10) — hóa đơn <code>INV_28493.pdf</code> (FATTURA, không ghi PO) + mỗi packing list một PDF
+        (<code>PKL_851853_-_INV_28493.pdf</code>). Nhóm hàng <code>00851853 000825 160070 SYDNEY ECO</code> = số PKL · article; mỗi màu một dòng
+        <code>WONDERLAND 1E 03261 MT 632,50 5,45 3.447,13</code>. Inbound chọn theo <em>Partner Name</em>, dòng dò theo article + tên màu;
+        hai dòng cùng màu ở hai PKL cộng vào một dòng inbound. Packing list ghép bằng số PKL + article + mã màu, lô = số 6 chữ số ở cây đầu lô.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
