@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.8 — 7 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.9 — 8 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -34,6 +34,7 @@ Thả file `.xlsx` chứng từ vải vào cùng chỗ — công cụ tự nhậ
 | New Style Vietnam / BLAO | `CHUNG TU - BLAO dd.mm.yyyy.xlsx` (sheet `INV`, `PACKING`, các sheet lô `Y…`) | KG |
 | Quanzhou Hengyu | `x.xxHYUxxxxxxx.xlsx` (sheet `invoice`, `packing list`, `码单`) | YD |
 | J&H Yubo | `PKL SCAVI ….xlsx` (sheet `PKL`/`PKL Bulk`, mỗi dòng một lô) + (tùy chọn) file PDF hóa đơn GTGT | KG |
+| Capital Tricot (Thái Lan) | `INVOICE_SCAVI_…_CT-26-xxxT_PO.CAP…pdf` — **PDF**: trang INVOICE + các trang PACKING LIST theo kiện (v11.9) | YD |
 
 Hóa đơn và packing list nằm trong **cùng một file** nên không cần thả thêm gì ngoài file inbound
 (`ZMME0032….xlsx` hoặc file SAP xuất ra). Một file inbound dùng được cho **nhiều hóa đơn**.
@@ -75,6 +76,24 @@ Hóa đơn ghi mã hàng là **kích thước** (`TAG PAPER (L100xW70MM) PO TGB0
 khớp cột `Specification` (`code 71423.01 - W26`) → điền Invoice Quantity cho **từng dòng** (kể cả giao một phần).
 Không có packing list mà hóa đơn gộp nhiều mã code → báo `LỆCH SL` và nhắc thả kèm packing list.
 
+## Capital Tricot — hóa đơn + packing list PDF theo kiện (v11.9)
+
+Một file PDF duy nhất: trang đầu là **INVOICE**, các trang sau là **PACKING LIST** ghi theo kiện (bale), mỗi dòng một cây.
+Công cụ nhận ra theo tên `CAPITAL TRICOT` trong chứng từ và đọc bằng mẫu riêng (không qua bộ đọc chung nữa):
+
+- **Hóa đơn:** mỗi dòng `PO.CAP0022700 N.295/207/73 Usable width 60"/… (44GSM) MISTY ROSE 131/24I 309 YDS. 2.81 USD/YD USD 868.29`
+  → PO · design (`N.295/207/73`, `N.295L W SOFT`, `N.295L`) · màu · mã L/D · số yard · đơn giá · thành tiền. Dòng kế tiếp
+  không ghi lại PO thì thuộc PO của dòng trên. Số và ngày hóa đơn lấy ở ô `INVOICE NO. / DATE` (`CT-26-314T · AUGUST 19, 2026`).
+- **Dò inbound:** PO + design (khớp `Supplier Mat. No.` / `Material Description`: `N.295/207/73 Solid`) + màu (`Color`);
+  mã L/D so với `Lapdip Color` để cộng điểm. Số lượng ghi theo YD; giao vượt PO nhưng trong `Over Tolerance Qty` →
+  `KHỚP (trong dung sai)`.
+- **Packing list theo kiện:** design / PO / L/D của một kiện có thể ghi ở dòng 2–3 (sau cây số 1), kiện sau không ghi gì
+  thì kế thừa kiện trước (kiện 6 tiếp kiện 5; kiện 9 lấy design của kiện 8), kiện có thể tràn sang trang sau. Công cụ gom
+  đủ các cây rồi mới chốt thuộc tính kiện, cộng các kiện cùng PO + design + màu + L/D để so với dòng hóa đơn
+  (kiện 5 + kiện 6 = 300 + 304 = 604). Sheet `CHI TIET LO` liệt kê từng kiện với số cây.
+- Kiểm thử với bộ `CT-26-314T` (6 PO, 8 dòng, 9 kiện, 34 cây, 3.297 YD, 7.353,04 USD): 8/8 dòng khớp, packing list khớp
+  từng dòng, file `INB_…` xuất ra **trùng 100 %** với file inbound đã điền tay của buyer.
+
 ## Chủ hàng chưa huấn luyện → đề nghị liên hệ (v11.7)
 
 Mỗi bộ chứng từ được so tên người bán trên chứng từ và cột `Partner Name` của file inbound với danh sách
@@ -90,7 +109,7 @@ nhắc. Người liên hệ đặt ở hằng `CONTACT`. Huấn luyện xong ch�
 
 ## Bộ đọc chung — chủ hàng chưa có mẫu riêng (v11)
 
-Mọi file Excel/PDF khác (Capital, Carvico, Celeb, Cheung Hing, Derun, DJIC, Dongguan Uwork, Freetex,
+Mọi file Excel/PDF khác (Carvico, Celeb, Cheung Hing, Derun, DJIC, Dongguan Uwork, Freetex,
 Fujian Baikai, Fujian Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer,
 PT Winner, S&M, Seamless, Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan…) được đọc bằng
 bộ đọc chung: tìm bảng hàng bằng từ khoá tiêu đề, lấy số lượng/đơn vị/giá/PO/mã/màu/size/lô, rồi dò
@@ -178,7 +197,7 @@ Rồi vào **Settings → Pages** → Source `Deploy from a branch` → Branch `
 
 ## Giới hạn
 
-- PDF scan đọc bằng OCR nên có thể sai số/sai chữ — luôn kiểm bản gốc; ảnh mờ hoặc có con dấu đè lên bảng (Vanessa) không đọc được. `.doc` chưa hỗ trợ; `.xls` chuyển tự động nhưng file `.xls` hỏng thì phải mở bằng Excel rồi lưu lại `.xlsx`.
+- PDF scan đọc bằng OCR nên có thể sai số/sai chữ — luôn kiểm bản gốc; ảnh mờ hoặc có con dấu đè lên bảng (Vanessa) không đọc được. `.docx` chưa hỗ trợ (`.doc` 97-2003 đọc được từ v11.7); `.xls` chuyển tự động nhưng file `.xls` hỏng thì phải mở bằng Excel rồi lưu lại `.xlsx`.
 - Bộ đọc chung không biết bố cục trước, nên với chứng từ lạ hãy xem kỹ cột *Cách dò* và ghi chú trong báo cáo;
   dòng không chắc sẽ là CẦN KIỂM TAY / THIẾU DÒNG và **không được điền**.
 - Cột trong file inbound tìm theo **tên tiêu đề dòng 1**, nên đổi thứ tự cột vẫn chạy đúng.

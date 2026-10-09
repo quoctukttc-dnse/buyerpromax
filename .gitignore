@@ -1,0 +1,3 @@
+# thư viện nhúng và bản build trung gian — dựng lại bằng src/extract.py / src/build.py
+src/vendor/
+src/site/

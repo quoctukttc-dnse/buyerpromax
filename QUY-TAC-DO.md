@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.8)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.9)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,8 +972,8 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 7 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
-  Hengyu, Yubo) + các chủ hàng đã chạy thử bằng bộ đọc chung (Capital, Carvico, Celeb, Cheung Hing, Chuangjie, Derun, DJIC,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 8 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+  Hengyu, Yubo, Capital Tricot) + các chủ hàng đã chạy thử bằng bộ đọc chung (Carvico, Celeb, Cheung Hing, Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
   không phân biệt hoa/thường. **Không** dùng chữ "BLAO"/"SCAVI" làm dấu hiệu vì đó là tên người mua.
@@ -998,6 +998,52 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 - HĐ GTGT của **J&H Yubo đứng một mình** (chưa có file PKL Excel) → khung nhắc đỏ trên thẻ + dòng nhật ký "thả thêm file PKL".
 - Kiểm thử thả nhiều lượt: Yubo 1827 (PDF → PKL → inbound) 13 dòng, 1.033.861.587 khớp PO, 1 `VƯỢT DUNG SAI` thật
   (GLH FUSHIA 158 kg > 153,706); Chain Guan và Thiên Gia thả 2 lượt cho kết quả y như thả một lần.
+
+## C. Capital Tricot — hóa đơn + packing list PDF theo kiện (từ v11.9, 09.10.2026)
+
+Chủ hàng vải Thái Lan. Trước v11.9 chứng từ đi qua bộ đọc chung: 8/8 dòng vẫn điền đúng inbound (dò theo PO + chữ trong mô tả)
+nhưng packing list đọc **lệch** (209 thay vì 309, 100 thay vì 515…) vì mỗi dòng cây mang một mẩu khác nhau của cột
+"Design No." (design / `PO.` / `L/D`) nên bị tách thành nhiều nhóm rời. Nay có mẫu riêng (`readCapital` trong `src/fab.js`,
+`profile: 'CAPITAL'`), nhận ra theo chữ `CAPITAL TRICOT` + `INVOICE` trong PDF có lớp chữ (bản scan OCR vẫn đi bộ đọc chung).
+
+**C1. Hóa đơn (trang đầu, trước chữ PACKING LIST).** Dòng hàng khớp mẫu
+`[PO.<mã PO>] <mô tả> <SL> YDS. <đơn giá> USD/YD USD <thành tiền>`:
+- `PO.CAP0022700` đứng đầu dòng; dòng kế tiếp không ghi PO thì **lấy PO của dòng trên** (một PO nhiều design).
+- Mô tả tách tại `Usable width` / `(44GSM)`: phần trước = **design** (`N.295/207/73`, `N.295L W SOFT`, `N.295L`), phần sau dấu
+  `(…GSM)` = **màu + mã L/D** (`MISTY ROSE 131/24I`, `CAMEO ROSE 1118/25A`): mã L/D là cụm `số/số[chữ]` cuối, còn lại là màu.
+- `TOTAL 3,297 YDS. USD 7,353.04` → tổng số lượng và tổng tiền để so với inbound.
+- Số/ngày hóa đơn: dòng ngay dưới `INVOICE NO. DATE` → `CT-26-314T` + `AUGUST 19, 2026` → `19.08.2026`. Invoice Number ghi
+  vào SAP đúng chữ `CT-26-314T` (không có ký hiệu HĐ GTGT).
+
+**C2. Dò inbound.** Dùng luật vải V4: PO + article (= design, so trong `Supplier Mat. No.` / `Material Description`:
+`N.295/207/73` ⊂ `N.295/207/73 Solid`; `N.295L` không nằm trong `N29520773` nên không lẫn) + màu (`Color`), L/D ↔
+`Lapdip Color` (`131/24I` ↔ `LD131/24 I`) và đơn giá cộng điểm. Số lượng YD; dung sai theo V6.
+
+**C3. Packing list theo kiện (các trang sau).** Dòng cây khớp `… <màu> <số cây> <yard> X 1 <N.W.> <G.W.>`.
+- Cột "Design No." ghi **rải trên các dòng đầu của kiện**: dòng 1 `1 N.295/207/73 60"`, dòng 2 `PO.CAP0022700`, dòng 3
+  `L/D 131/24I`; design có thể đứng **riêng một dòng** trước số kiện (`N.295L w soft 72"` rồi `2 MISTY ROSE 1 99.00 …`).
+  → Gom hết các cây của kiện vào bộ đệm, chỉ **chốt thuộc tính khi kiện kết thúc** (dòng cộng kiện `309.00 20.81 22.22`
+  hoặc `GRAND TOTAL`). Nếu chốt từng dòng thì cây số 1 bị gán PO cũ, cây số 2 chưa có L/D… (lỗi của bộ đọc chung).
+- Kiện không ghi gì **kế thừa** PO / L/D / design của kiện trước (kiện 6 tiếp kiện 5 — cùng dòng hóa đơn 604 YD); kiện ghi PO
+  mới nhưng không ghi design thì lấy design kiện trước (kiện 9 `PO.CAP0023400` dùng `N.295/207/73` của kiện 8); PO mới mà
+  không ghi L/D thì **không** kế thừa L/D cũ. Kiện tràn sang trang sau (tiêu đề trang lặp lại) vẫn là cùng kiện.
+- Khổ vải (`60"`, `72"`) bỏ khỏi design; `w soft` viết thường → `W SOFT`; `L/D1118/25 A` → `1118/25A`.
+- Nhóm = PO | design | màu | L/D | **kiện**; lô báo cáo = `Kiện n`. Dòng hóa đơn mang `pklKey` = PO | design | màu | L/D
+  → ghép **chính xác** với các kiện cùng khóa (không dò mờ theo màu), cộng lại để so: kiện 5 + 6 = 300 + 304 = 604 ✓.
+  Lệch packing list ở Capital là lệch **thật** (`LỆCH PKL`), không còn ghi chú "chỉ để tham khảo" như PDF của bộ đọc chung.
+
+**C4. Kiểm thử** với bộ `CT-26-314T` (19.08.2026): 6 PO `CAP0022700…CAP0023400`, 8 dòng, 9 kiện, 34 cây, 3.297 YD,
+7.353,04 USD. Kết quả: 8/8 `KHỚP` / `KHỚP (trong dung sai)`, packing list khớp từng dòng, tổng tiền 7.353,04 = inbound;
+file `INB_CT-26-314T_19.08.2026.xlsx` trùng 100 % (PO, Material, Invoice Quantity, Invoice Number, Invoice date) với file
+inbound đã điền tay. Từ khóa nhận diện trong `TRAINED_SUPPLIERS` đổi từ `CAPITAL` (bắt nhầm "Capital Tower" trong địa chỉ)
+thành `CAPITAL TRICOT`.
+
+## Thay đổi của v11.9 (09.10.2026) — mẫu riêng Capital Tricot
+
+- Thêm mẫu riêng Capital Tricot (mục C). Chủ hàng vải PDF đầu tiên có mẫu riêng; móc nối trong `classify` đứng trước
+  Thiên Gia và bộ đọc chung, chỉ áp dụng cho PDF có lớp chữ.
+- Huấn luyện lại theo từng bộ chứng từ buyer gửi (hóa đơn + file inbound đã điền tay làm đáp án); các chủ hàng khác sẽ
+  bổ sung dần theo cùng cách.
 
 ## Thay đổi khác của v11
 

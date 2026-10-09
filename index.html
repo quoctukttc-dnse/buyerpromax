@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.8 · 09.10.2026 · 7 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.9 · 09.10.2026 · 8 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -146,6 +146,11 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li>Nhận diện chủ hàng theo nội dung: <em>Techwork</em> (sheet <code>Invoice</code> + <code>Packing List</code>, cột <code>QTY/M</code>) ·
         <em>New Style / BLAO</em> (sheet <code>INV</code>, cột <code>11. PO Number</code>) ·
         <em>Quanzhou Hengyu</em> (sheet <code>invoice</code> + <code>码单</code>, <code>Marks &amp; Nos.</code>). Hóa đơn và packing list nằm trong cùng một file.</li>
+        <li><b>Capital Tricot</b> (v11.9) — một file <b>PDF</b>: trang INVOICE + các trang PACKING LIST theo <b>kiện</b>. Dòng hóa đơn
+        <code>PO.CAP0022700 N.295/207/73 … (44GSM) MISTY ROSE 131/24I 309 YDS. 2.81 USD/YD USD 868.29</code> → PO · design · màu · mã L/D;
+        dòng dưới không ghi PO thì lấy PO dòng trên. Packing list: PO / L/D / design ghi rải ở các dòng đầu kiện nên công cụ gom đủ cây
+        rồi mới chốt thuộc tính kiện; kiện không ghi gì kế thừa kiện trước; các kiện cùng PO + design + màu + L/D cộng lại để so với hóa đơn
+        (sheet <code>CHI TIET LO</code> liệt kê từng kiện).</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
@@ -878,6 +883,154 @@ function readYubo(wb) {
       noSerial: !!no && /^\d{1,8}$/.test(String(no).trim()),
     },
     pkl: { groups, lots, unit: 'KG', level: 'lot' },
+  };
+}
+
+/* =====================  CAPITAL TRICOT (Thái Lan) — chứng từ PDF  =====================
+   Một file PDF: trang đầu INVOICE, các trang sau PACKING LIST ghi theo KIỆN (bale), mỗi dòng một cây.
+   Hóa đơn (mỗi dòng một PO + design + màu + mã L/D):
+     "PO.CAP0022700 N.295/207/73 Usable width 60"/Full width:62" (44GSM) MISTY ROSE 131/24I 309 YDS. 2.81 USD/YD USD 868.29"
+     dòng kế tiếp cùng PO không ghi lại PO: "N.295L W SOFT Usable width 72"/… (43GSM) MISTY ROSE 298/24C 515 YDS. 1.75 USD/YD USD 901.25"
+   Packing list (design / PO / L/D ghi một lần ở các dòng đầu kiện rồi GIỮ cho các cây kế tiếp, kể cả sang kiện / trang sau):
+     "1 N.295/207/73 60" MISTY ROSE 1 80.00 X 1 5.40 5.87"  ·  "PO.CAP0022700 MISTY ROSE 2 100.00 X 1 6.75 7.22"
+     "L/D 131/24I MISTY ROSE 3 129.00 X 1 8.66 9.13"         ·  "309.00 20.81 22.22" (dòng cộng kiện — bỏ)
+   Khớp inbound: PO + design (Supplier Mat. No. "N.295/207/73 Solid") + màu (Color) ; L/D ↔ Lapdip Color.
+   Nhóm packing list = PO | design | màu | L/D | kiện → nhiều kiện của cùng một dòng hóa đơn (kiện 5 + 6 = 300 + 304) cộng lại. */
+const isCapitalText = (t) => /CAPITAL\s*TRICOT/i.test(t);
+/* "N.295L w soft 72"" → "N.295L W SOFT" (bỏ khổ vải) */
+const capDesign = (t) => String(t == null ? '' : t).toUpperCase().replace(/\d+(?:\.\d+)?\s*"/g, ' ').replace(/\s+/g, ' ').trim();
+const capLd = (t) => String(t == null ? '' : t).toUpperCase().replace(/\s+/g, '');
+function readCapital(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isCapitalText(t) || !/INVOICE/i.test(t)) return null;
+  /* số + ngày hóa đơn: "DELIVERY TO : CT-26-314T AUGUST 19, 2026" (dòng ngay dưới "INVOICE NO. DATE") */
+  let no = '', invDate = '';
+  for (let i = 0; i < all.length; i++) {
+    if (!/INVOICE\s*NO\.?\s+DATE/i.test(all[i])) continue;
+    for (let j = i + 1; j <= Math.min(all.length - 1, i + 3) && !no; j++) {
+      const m = all[j].match(/\b([A-Z]{1,4}-\d{2}-\d{2,6}[A-Z]?)\b\s*(.*)$/);
+      if (m) { no = m[1]; invDate = parseDateCell(m[2]) || ''; }
+    }
+    if (no) break;
+  }
+  if (!no) { const m = t.match(/\b([A-Z]{1,4}-\d{2}-\d{2,6}[A-Z]?)\b/); if (m) no = m[1]; }
+
+  /* ---- dòng hàng trên hóa đơn ---- */
+  const RE_ITEM = /^(?:PO\.?\s*([A-Z][A-Z&]{1,5}\s*-?\s*\d{5,})\s+)?(.*?)\s+([\d,]+(?:\.\d+)?)\s*(YDS?|YARDS?|MTRS?|M|KGS?|PCS)\.?\s+([\d,]*\.?\d+)\s*(?:USD|US\$)\s*\/\s*(?:YD|M|KG|PC)S?\.?\s+(?:USD|US\$)\s*([\d,]+(?:\.\d+)?)\s*$/i;
+  const items = [];
+  let lastPo = '', total = NaN, totalQty = NaN, inPkl = false;
+  for (let i = 0; i < all.length; i++) {
+    const L = all[i];
+    if (/^PACKING\s*LIST\b/i.test(L)) { inPkl = true; break; }
+    if (/^TOTAL\b/i.test(L) && items.length && isNaN(total)) {
+      const mq = L.match(/([\d,]+(?:\.\d+)?)\s*(?:YDS?|YARDS?|MTRS?|M|KGS?|PCS)\b/i);
+      const ma = L.match(/(?:USD|US\$)\s*([\d,]+(?:\.\d+)?)\s*$/i);
+      if (mq) totalQty = Number(mq[1].replace(/,/g, ''));
+      if (ma) total = Number(ma[1].replace(/,/g, ''));
+      continue;
+    }
+    const m = L.match(RE_ITEM);
+    if (!m) continue;
+    if (m[1]) lastPo = m[1].replace(/\s+/g, '');
+    if (!lastPo) continue;
+    const unit = unitKey(m[4]);
+    const qty = Number(m[3].replace(/,/g, ''));
+    const price = Number(m[5].replace(/,/g, ''));
+    const amount = Number(m[6].replace(/,/g, ''));
+    /* phần mô tả: "<design> Usable width 60"/Full width:62" (44GSM) <MÀU> <L/D>" */
+    let body = m[2];
+    let design = body, tail = '';
+    const w = body.search(/\b(?:USABLE|FULL)\s*WIDTH\b|\(\s*\d+\s*GSM\s*\)/i);
+    if (w >= 0) {
+      design = body.slice(0, w);
+      const after = body.slice(w);
+      const g = after.match(/\(\s*\d+\s*GSM\s*\)\s*(.*)$/i);
+      tail = g ? g[1] : after.replace(/^.*?"\s*/g, '');
+    }
+    tail = tail.trim();
+    let ld = '', color = tail;
+    const ml = tail.match(/^(.*?)\s+(\d{2,5}\s*\/\s*\d{2}\s*[A-Z]?)$/);
+    if (ml) { color = ml[1].trim(); ld = capLd(ml[2]); }
+    else { const m2 = tail.match(/^(.*?)\s+(\S*\d\S*)$/); if (m2 && /^[A-Z ]+$/.test(m2[1])) { color = m2[1].trim(); ld = capLd(m2[2]); } }
+    design = capDesign(design);
+    const po = poSap(lastPo);
+    items.push({
+      poRaw: lastPo, po, article: design, colorText: color, colorCode: ld, colorShort: color,
+      desc: [design, color, ld ? 'L/D ' + ld : '', body].filter(Boolean).join(' · '),
+      qtyByUnit: { [unit]: qty }, unit, qty, price, surcharge: 0, amount,
+      code: design || color, lapdip: ld,
+      pklKey: po + '|' + AZ(design) + '|' + AZ(color) + '|' + AZ(ld),
+    });
+  }
+  if (!items.length) return null;
+  const unit = items[0].unit || 'YD';
+
+  /* ---- packing list theo kiện ----
+     PO / L/D / design của một kiện có thể ghi ở dòng thứ 2-3 (sau cây số 1) → gom hết các cây của kiện rồi mới
+     chốt thuộc tính; kiện không ghi gì thì kế thừa kiện trước (kiện 6 tiếp kiện 5, kiện 9 tiếp design của kiện 8).
+     Kiện kết thúc ở dòng cộng kiện ("309.00 20.81 22.22") hoặc GRAND TOTAL; sang trang vẫn là cùng kiện. */
+  const groups = [];
+  if (inPkl) {
+    const RE_ROLL = /^(.*?)\s*(\d{1,3})\s+([\d,]+\.\d{1,2})\s+X\s*(\d+)\s+([\d.]+)\s+([\d.]+)\s*$/;
+    let prev = { po: '', ld: '', design: '' };
+    let cur = null;
+    const open = () => { if (!cur) cur = { bale: '', po: '', ld: '', design: '', rolls: [] }; return cur; };
+    const flush = () => {
+      if (!cur) return;
+      const po = cur.po || prev.po, ld = cur.ld || (cur.po ? '' : prev.ld), design = cur.design || prev.design;
+      for (const r of cur.rolls) {
+        const itemKey = po + '|' + AZ(design) + '|' + AZ(r.color) + '|' + AZ(ld);
+        const key = itemKey + '|' + AZ(cur.bale);
+        let g = groups.find((x) => x.key === key);
+        if (!g) {
+          g = { key, itemKey, po, poRaw: po, article: design, color: r.color, ld, lot: cur.bale ? 'Kiện ' + cur.bale : '(không ghi kiện)', unit, rolls: [], total: 0 };
+          groups.push(g);
+        }
+        g.rolls.push({ no: r.no, qty: r.qty, nw: r.nw, gw: r.gw });
+        g.total = r3(g.total + r.qty);
+      }
+      if (cur.rolls.length) prev = { po, ld, design };
+      cur = null;
+    };
+    let started = false;
+    for (const L of all) {
+      if (!started) { started = /^PACKING\s*LIST\b/i.test(L); continue; }
+      if (/^GRAND\s*TOTAL/i.test(L)) { flush(); break; }
+      if (/^(?:BALE|NO\.)\b.*(?:DESIGN|YDS)/i.test(L)) continue;         // tiêu đề bảng
+      if (/^[\d.,\s]+$/.test(L) && /\./.test(L)) { flush(); continue; }   // dòng cộng kiện
+      const m = L.match(RE_ROLL);
+      let head = m ? m[1] : L;
+      const mb = head.match(/^(\d{1,2})\b\s*(.*)$/);
+      let bale = '';
+      if (mb && (m || /PO\.|L\s*\/\s*D|^[A-Z]\.?\d/i.test(mb[2]))) { bale = mb[1]; head = mb[2]; }
+      let color = '';
+      if (m) {
+        const mc = head.match(/((?:\b[A-Z]{2,}\b\s*)+)$/);
+        if (mc) { color = mc[1].trim(); head = head.slice(0, head.length - mc[0].length).trim(); }
+      }
+      let mp, po = '', ld = '';
+      if ((mp = head.match(/PO\.?\s*([A-Z][A-Z&]{1,5}\s*-?\s*\d{5,})/i))) { po = poSap(mp[1].replace(/\s+/g, '')); head = head.replace(mp[0], ' '); }
+      if ((mp = head.match(/L\s*\/\s*D\s*[:.]?\s*(\d{2,5}\s*\/\s*\d{2}\s*[A-Z]?)\b/i))) { ld = capLd(mp[1]); head = head.replace(mp[0], ' '); }
+      const d = capDesign(head.replace(/\bX\b/g, ' '));
+      const design = d && /^[A-Z]\.?\d/i.test(d) ? d : '';
+      if (!m && !bale && !po && !ld && !design) continue;                 // dòng địa chỉ / tiêu đề trang
+      const c = open();
+      if (bale) c.bale = bale;
+      if (po) c.po = po;
+      if (ld) c.ld = ld;
+      if (design) c.design = design;
+      if (!m) continue;
+      const q = Number(m[3].replace(/,/g, ''));
+      if (!q || isNaN(q) || !color) continue;
+      c.rolls.push({ no: m[2], qty: q, nw: Number(m[5]), gw: Number(m[6]), color });
+    }
+    flush();
+  }
+  return {
+    profile: 'CAPITAL', supplier: 'Capital Tricot',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: unit, surchargeHeader: 0, total, totalQty, amountInclSur: true },
+    pkl: groups.length ? { groups, unit, level: 'lot' } : null,
   };
 }
 
@@ -3039,7 +3192,7 @@ const CONTACT = { name: 'anh Quốc Tú', email: 'quoctu.nguyen@blaogroup.com' }
 const TRAINED_SUPPLIERS = [
   ['ITL', /\bITL\b/], ['Inkava', /INKAVA/], ['Thiên Gia', /THIEN\s*GIA/], ['Fujian Techwork', /TECHWORK/],
   ['New Style – BLAO', /NEW\s*STYLE/], ['Quanzhou Hengyu', /HENGYU/], ['J&H Yubo', /YUBO/],
-  ['Capital', /\bCAPITAL\b/], ['Carvico', /CARVICO/], ['Celeb', /\bCELEB\b/], ['Cheung Hing', /CHEUNG\s*HING/],
+  ['Capital Tricot', /CAPITAL\s*TRICOT/], ['Carvico', /CARVICO/], ['Celeb', /\bCELEB\b/], ['Cheung Hing', /CHEUNG\s*HING/],
   ['Chuangjie', /CHUANGJIE/], ['Derun', /\bDERUN\b/], ['DJIC', /\bDJIC\b/], ['Dongguan Uwork', /UWORK/],
   ['Freetex', /FREETEX/], ['Fujian Baikai', /BAIKAI/], ['Fujian Honggang', /HONGGANG/], ['Hing Yip', /HING\s*YIP/],
   ['Hoa Nghiêm', /HOA\s*NGHIEM/], ['Best Pacific', /BEST\s*PACIFIC/], ['Junye', /\bJUNYE\b/], ['Luen Hing', /LUEN\s*HING/],
@@ -3112,6 +3265,15 @@ async function classify(file) {
         OCR_FAIL = e && e.message ? e.message : String(e);
         ocrStatus('');
         out = { kind: 'scan', score: 0, lines, why: 'OCR lỗi: ' + OCR_FAIL + ' (cần mạng để tải bộ OCR)' }; CACHE.set(file, out); return out;
+      }
+    }
+    /* Capital Tricot (vải, Thái Lan): INVOICE + PACKING LIST theo kiện trong cùng một PDF → mẫu riêng (fab.js) */
+    if (!ocr && isCapitalText(lines.join(' '))) {
+      let cap = null;
+      try { cap = readCapital(lines); } catch (e) { cap = null; }
+      if (cap && cap.inv && cap.inv.items.length) {
+        out = { kind: 'fab', score: 9, fab: cap, lines, pos: [...new Set(cap.inv.items.map((x) => x.po).filter(Boolean))] };
+        CACHE.set(file, out); return out;
       }
     }
     /* packing list PDF của Thiên Gia: PO + kích thước + mã code → dùng như packing list Excel theo PO */

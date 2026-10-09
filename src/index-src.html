@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.8 · 09.10.2026 · 7 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.9 · 09.10.2026 · 8 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -146,6 +146,11 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li>Nhận diện chủ hàng theo nội dung: <em>Techwork</em> (sheet <code>Invoice</code> + <code>Packing List</code>, cột <code>QTY/M</code>) ·
         <em>New Style / BLAO</em> (sheet <code>INV</code>, cột <code>11. PO Number</code>) ·
         <em>Quanzhou Hengyu</em> (sheet <code>invoice</code> + <code>码单</code>, <code>Marks &amp; Nos.</code>). Hóa đơn và packing list nằm trong cùng một file.</li>
+        <li><b>Capital Tricot</b> (v11.9) — một file <b>PDF</b>: trang INVOICE + các trang PACKING LIST theo <b>kiện</b>. Dòng hóa đơn
+        <code>PO.CAP0022700 N.295/207/73 … (44GSM) MISTY ROSE 131/24I 309 YDS. 2.81 USD/YD USD 868.29</code> → PO · design · màu · mã L/D;
+        dòng dưới không ghi PO thì lấy PO dòng trên. Packing list: PO / L/D / design ghi rải ở các dòng đầu kiện nên công cụ gom đủ cây
+        rồi mới chốt thuộc tính kiện; kiện không ghi gì kế thừa kiện trước; các kiện cùng PO + design + màu + L/D cộng lại để so với hóa đơn
+        (sheet <code>CHI TIET LO</code> liệt kê từng kiện).</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;

@@ -666,7 +666,7 @@ const CONTACT = { name: 'anh Quốc Tú', email: 'quoctu.nguyen@blaogroup.com' }
 const TRAINED_SUPPLIERS = [
   ['ITL', /\bITL\b/], ['Inkava', /INKAVA/], ['Thiên Gia', /THIEN\s*GIA/], ['Fujian Techwork', /TECHWORK/],
   ['New Style – BLAO', /NEW\s*STYLE/], ['Quanzhou Hengyu', /HENGYU/], ['J&H Yubo', /YUBO/],
-  ['Capital', /\bCAPITAL\b/], ['Carvico', /CARVICO/], ['Celeb', /\bCELEB\b/], ['Cheung Hing', /CHEUNG\s*HING/],
+  ['Capital Tricot', /CAPITAL\s*TRICOT/], ['Carvico', /CARVICO/], ['Celeb', /\bCELEB\b/], ['Cheung Hing', /CHEUNG\s*HING/],
   ['Chuangjie', /CHUANGJIE/], ['Derun', /\bDERUN\b/], ['DJIC', /\bDJIC\b/], ['Dongguan Uwork', /UWORK/],
   ['Freetex', /FREETEX/], ['Fujian Baikai', /BAIKAI/], ['Fujian Honggang', /HONGGANG/], ['Hing Yip', /HING\s*YIP/],
   ['Hoa Nghiêm', /HOA\s*NGHIEM/], ['Best Pacific', /BEST\s*PACIFIC/], ['Junye', /\bJUNYE\b/], ['Luen Hing', /LUEN\s*HING/],
@@ -739,6 +739,15 @@ async function classify(file) {
         OCR_FAIL = e && e.message ? e.message : String(e);
         ocrStatus('');
         out = { kind: 'scan', score: 0, lines, why: 'OCR lỗi: ' + OCR_FAIL + ' (cần mạng để tải bộ OCR)' }; CACHE.set(file, out); return out;
+      }
+    }
+    /* Capital Tricot (vải, Thái Lan): INVOICE + PACKING LIST theo kiện trong cùng một PDF → mẫu riêng (fab.js) */
+    if (!ocr && isCapitalText(lines.join(' '))) {
+      let cap = null;
+      try { cap = readCapital(lines); } catch (e) { cap = null; }
+      if (cap && cap.inv && cap.inv.items.length) {
+        out = { kind: 'fab', score: 9, fab: cap, lines, pos: [...new Set(cap.inv.items.map((x) => x.po).filter(Boolean))] };
+        CACHE.set(file, out); return out;
       }
     }
     /* packing list PDF của Thiên Gia: PO + kích thước + mã code → dùng như packing list Excel theo PO */
