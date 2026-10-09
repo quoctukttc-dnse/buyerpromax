@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.7)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.8)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -985,6 +985,19 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 - File **không nhận diện được** / Word không đọc được / scan không ra bảng → dòng nhận diện thêm "Nếu đây là chứng từ của chủ hàng
   mới, vui lòng liên hệ …".
 - Bổ sung chủ hàng sau khi huấn luyện: thêm một dòng `['Tên', /TỪ KHÓA/]` vào `TRAINED_SUPPLIERS`.
+
+## Thay đổi của v11.8 (09.10.2026) — thả file thành nhiều lượt
+
+- **Lỗi:** thả HĐ GTGT PDF trước rồi thả file PKL + inbound sau → lượt 2 lỗi ngầm `Cannot read properties of undefined
+  (reading 'inv')`, màn hình giữ kết quả lượt 1 (HĐ Yubo `1C26TYY#00001827` đứng một mình, "bộ đọc chung", 0 inbound).
+  Nguyên nhân: lần ghép trước đổi hẳn loại file (HĐ GTGT / packing list rời → `fab`) và sửa thẳng vào dữ liệu trong CACHE.
+- **Sửa:** mỗi lần ghép bộ làm lại từ loại **gốc** của từng file (`origKind`), xoá kết quả ghép cũ; chứng từ đọc từ CACHE được
+  **sao chép** trước khi ghép (không cộng đôi nhóm lô packing list, không mang số HĐ của lần trước).
+- File thả vào khi công cụ **đang nhận diện / đang chạy** trước đây bị bỏ qua không báo → nay **xếp hàng** ("… file vừa thả sẽ
+  được thêm ngay sau khi xong, không cần thả lại") và tự xử lý khi lượt trước xong.
+- HĐ GTGT của **J&H Yubo đứng một mình** (chưa có file PKL Excel) → khung nhắc đỏ trên thẻ + dòng nhật ký "thả thêm file PKL".
+- Kiểm thử thả nhiều lượt: Yubo 1827 (PDF → PKL → inbound) 13 dòng, 1.033.861.587 khớp PO, 1 `VƯỢT DUNG SAI` thật
+  (GLH FUSHIA 158 kg > 153,706); Chain Guan và Thiên Gia thả 2 lượt cho kết quả y như thả một lần.
 
 ## Thay đổi khác của v11
 

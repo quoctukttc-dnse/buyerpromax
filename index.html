@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.7 · 08.10.2026 · 7 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.8 · 09.10.2026 · 7 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -3321,9 +3321,28 @@ async function filesFromDataTransfer(dt) {
   return out;
 }
 
+/* File thả vào trong lúc đang nhận diện / đang chạy lượt trước: trước đây bị bỏ qua mà không báo
+   (thả HĐ GTGT PDF rồi thả ngay file PKL + inbound → chỉ còn PDF). Nay xếp hàng, chạy xong lượt trước thì tự thêm. */
+const FILE_QUEUE = [];
+let ACCEPTING = false;
+function flushQueue() {
+  if (!FILE_QUEUE.length || STATE.busy || ACCEPTING) return;
+  const q = FILE_QUEUE.splice(0);
+  setTimeout(() => acceptFiles(q), 0);
+}
 async function acceptFiles(fileList) {
   const list = [...fileList].filter(Boolean);
-  if (!list.length || STATE.busy) return;
+  if (!list.length) return;
+  if (STATE.busy || ACCEPTING) {
+    FILE_QUEUE.push(...list);
+    $('#detect').textContent = `Đang xử lý lượt trước — ${FILE_QUEUE.length} file vừa thả sẽ được thêm ngay sau khi xong, không cần thả lại.`;
+    return;
+  }
+  ACCEPTING = true;
+  try { await acceptFilesNow(list); } finally { ACCEPTING = false; }
+  flushQueue();
+}
+async function acceptFilesNow(list) {
   $('#detect').textContent = `Đang nhận diện ${list.length} file…`;
   const unknown = [], fresh = new Set(), notices = [];
   for (const f of list) {
@@ -3353,11 +3372,23 @@ async function acceptFiles(fileList) {
       + `Đã chọn sẵn ${touched.length} hóa đơn vừa thêm file — tick thêm ở cột đầu nếu muốn xuất lại hóa đơn khác.`;
   }
   renderSlots();
-  if (!STATE.busy) return run();
+  if (!STATE.busy) { ACCEPTING = false; return run(); }
 }
 
+/* bản sao để việc ghép (gắn PKL, điền số HĐ GTGT, tách dòng theo PKL) không sửa vào dữ liệu đã đọc trong CACHE —
+   nếu không, ghép lại lần nữa (thả thêm file) sẽ cộng đôi nhóm lô / mang số HĐ của lần trước */
+const cloneFab = (f) => f && Object.assign({}, f, {
+  inv: f.inv && Object.assign({}, f.inv, { items: (f.inv.items || []).map((x) => Object.assign({}, x)) }),
+  pkl: f.pkl && Object.assign({}, f.pkl, { groups: (f.pkl.groups || []).slice(), files: (f.pkl.files || []).slice() }),
+});
 /* Ghép hóa đơn ↔ packing list ↔ inbound */
 async function buildGroups() {
+  /* mỗi lần ghép (kể cả khi thả thêm file lượt sau) làm lại từ loại GỐC của từng file: lần ghép trước có thể đã
+     đổi HĐ GTGT / packing list rời thành "chứng từ" (kind 'fab') — giữ lại thì lượt sau lỗi "reading 'inv'" */
+  for (const x of STATE.items) {
+    if (x.origKind) x.kind = x.origKind;
+    for (const k of ['fab', 'inv', 'isFab', 'isGen', 'pdfInv', 'fabOwner', 'used', 'pklx', 'tag', 'sapPos', 'px', 'gen', 'note']) delete x[k];
+  }
   const invs = STATE.items.filter((x) => x.kind === 'inv');
   const fabs = STATE.items.filter((x) => x.kind === 'fab');
   const pkls = STATE.items.filter((x) => x.kind === 'pkl');
@@ -3423,7 +3454,7 @@ async function buildGroups() {
        inbound có thể dùng cho nhiều hóa đơn (SAP xuất chung nhiều PO) ---- */
   for (const it of fabs) {
     const c = await classify(it.file);
-    it.fab = c.fab; it.inv = c.fab.inv; it.isFab = true; it.pdfInv = null; it.isGen = !!c.gen;
+    it.fab = cloneFab(c.fab); it.inv = it.fab.inv; it.isFab = true; it.pdfInv = null; it.isGen = !!c.gen;
     it.tag = it.inv.no || '';
     it.sapPos = [...new Set(it.inv.items.map((x) => x.po).filter(Boolean))];
     if (it.isGen && it.fab.pkl && it.fab.pkl.groups) it.fab.pkl = { groups: it.fab.pkl.groups.slice(), unit: it.fab.pkl.unit, level: 'lot', soft: !!it.fab.pkl.soft, files: [] };
@@ -3492,7 +3523,7 @@ async function buildGroups() {
     if (it.fabOwner || it.inv.items.length) continue;
     const c = CACHE.get(it.file);
     if (!c || !c.genFallback) continue;
-    it.fab = c.genFallback; it.inv = c.genFallback.inv; it.isFab = true; it.isGen = true; it.pdfInv = null; it.kind = 'fab';
+    it.fab = cloneFab(c.genFallback); it.inv = it.fab.inv; it.isFab = true; it.isGen = true; it.pdfInv = null; it.origKind = it.origKind || it.kind; it.kind = 'fab';
     it.tag = it.inv.no || '';
     it.sapPos = [...new Set(it.inv.items.map((x) => x.po).filter(Boolean))];
     if (it.fab.pkl && it.fab.pkl.groups) it.fab.pkl = { groups: it.fab.pkl.groups.slice(), unit: it.fab.pkl.unit, level: 'lot', soft: !!it.fab.pkl.soft, files: [] };
@@ -3505,7 +3536,7 @@ async function buildGroups() {
   /* ---- packing list rời (Excel/PDF) của chủ hàng dùng bộ đọc chung: gắn vào chứng từ cùng thư mục,
        hoặc có số hoá đơn / PO trùng. Một hoá đơn có thể có nhiều file packing list (CELEB PKL (1)(2)(3)). ---- */
   const gpks = STATE.items.filter((x) => x.kind === 'genpkl');
-  for (const p of gpks) { p.gen = (await classify(p.file)).gen; p.used = false; }
+  for (const p of gpks) { p.gen = cloneFab((await classify(p.file)).gen); p.used = false; }
   const genFabs = fabs.filter((x) => x.isGen);
   for (const p of gpks) {
     let best = null, bs = 0;
@@ -3540,7 +3571,7 @@ async function buildGroups() {
   /* packing list rời không có hoá đơn (hoá đơn là bản scan): dùng chính packing list làm chứng từ */
   for (const p of gpks) {
     if (p.used || !p.gen || !p.gen.inv || !p.gen.inv.items.length) continue;
-    p.fab = p.gen; p.inv = p.gen.inv; p.isFab = true; p.isGen = true; p.pdfInv = null; p.kind = 'fab';
+    p.fab = cloneFab(p.gen); p.inv = p.fab.inv; p.isFab = true; p.isGen = true; p.pdfInv = null; p.origKind = p.origKind || p.kind; p.kind = 'fab';
     p.inv.noInvoiceNo = !p.inv.invNo;
     p.tag = p.inv.no || '';
     p.sapPos = [...new Set(p.inv.items.map((x) => x.po).filter(Boolean))];
@@ -4226,7 +4257,8 @@ async function run() {
       }
       const { lines, VAL } = doAnalyze(rows);
       const sup = supplierCheck(g, cInb);
-      all.push({ g, inv, lines, VAL, newSup: sup.trained ? '' : sup.name });
+      all.push({ g, inv, lines, VAL, newSup: sup.trained ? '' : sup.name, yuboAlone: g.isGen && sup.trained === 'J&H Yubo' });
+      if (g.isGen && sup.trained === 'J&H Yubo') log(`  ⚠ Đây là hóa đơn GTGT của J&H Yubo nhưng chưa có file PKL Excel đi kèm (PKL SCAVI… / file nhập inbound của Yubo) — thả thêm file PKL để công cụ đọc theo lô, chia PO và điền đúng Invoice Quantity.`, 'err');
       if (!sup.trained) log(`  ⚠ Chủ hàng "${sup.name}" chưa được huấn luyện trong công cụ — kết quả đọc bằng bộ đọc chung, cần kiểm tra kỹ. Vui lòng liên hệ ${contactText()} và gửi kèm bộ chứng từ để được bổ sung.`, 'err');
 
       const bad = lines.filter((l) => !isOk(l.status));
@@ -4270,6 +4302,7 @@ async function run() {
     console.error(e);
   } finally {
     STATE.busy = false; $('#run').disabled = false; $('#runpo').disabled = false;
+    flushQueue();
   }
 }
 
@@ -4340,6 +4373,7 @@ async function runPoList() {
     console.error(e);
   } finally {
     STATE.busy = false; $('#runpo').disabled = false;
+    flushQueue();
   }
 }
 
@@ -4644,7 +4678,7 @@ function renderAll(all) {
   for (const a of all) {
     const bad = a.lines.filter((l) => !isOk(l.status));
     const cls = a.VAL.valueBad ? 'bad' : (bad.length || !a.VAL.hasInb ? 'warn' : 'ok');
-    h += `<details class="inv ${cls}" ${a.VAL.valueBad || bad.length || a.newSup ? 'open' : ''}>
+    h += `<details class="inv ${cls}" ${a.VAL.valueBad || bad.length || a.newSup || a.yuboAlone ? 'open' : ''}>
       <summary><b>${esc(a.inv.invNo)}</b> · ${esc(a.inv.invDate)} · ${a.lines.length} dòng ·
       ${a.VAL.hasInb ? '' : '<span class="tag bad">CHƯA CÓ INBOUND</span> '}
       ${a.g.isFab ? `<span class="tag via">vải · ${esc(a.g.fabName || '')}</span> ` : ''}
@@ -4659,6 +4693,7 @@ function renderAll(all) {
       ${a.VAL.qtyBad ? `<span class="tag bad">lệch tổng SL ${fmt(a.VAL.wroteQty - a.VAL.docQty)}</span> ` : ''}
       ${a.VAL.valueBad ? '<span class="tag bad">SAI GIÁ TRỊ</span> ' : (bad.length ? `<span class="tag warnt">${bad.length} dòng lệch</span> ` : '<span class="tag good">khớp</span> ')}
       <span class="mono">${fmt(a.VAL.invTotal)}</span></summary>`;
+    if (a.g.isGen && a.yuboAlone) h += `<div class="newsup">⚠ Hóa đơn GTGT của <b>J&amp;H Yubo</b> đang đứng một mình — thả thêm <b>file PKL Excel</b> của Yubo (và file inbound) để công cụ đọc theo lô, chia PO và điền đúng Invoice Quantity.</div>`;
     if (a.newSup) h += `<div class="newsup">⚠ Chủ hàng <b>${esc(a.newSup)}</b> chưa được huấn luyện trong công cụ. Kết quả dưới đây do bộ đọc chung tự dò nên có thể sai — <b>kiểm tra kỹ trước khi import</b>, và vui lòng liên hệ ${contactHtml()} kèm bộ chứng từ để được bổ sung vào công cụ.</div>`;
     if (a.VAL.valueBad) {
       h += `<div class="alert"><div class="ttl">⚠ HÓA ĐƠN NÀY SAI GIÁ TRỊ — CẦN KIỂM TRA LẠI</div>
@@ -4714,7 +4749,7 @@ document.addEventListener('drop', onDrop);
 $('#run').addEventListener('click', run);
 $('#runpo').addEventListener('click', runPoList);
 $('#clear').addEventListener('click', () => {
-  STATE.busy = false;
+  STATE.busy = false; FILE_QUEUE.length = 0;
   STATE.items = []; STATE.groups = []; STATE.po = null; STATE.poIdx = null;
   OUTPUTS.length = 0;
   $('#report').innerHTML = ''; $('#log').innerHTML = ''; $('#dls').innerHTML = ''; $('#groups').innerHTML = ''; $('#detect').textContent = '';
