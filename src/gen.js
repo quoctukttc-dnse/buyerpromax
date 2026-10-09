@@ -735,6 +735,7 @@ function valueBelow(lines, labelRe, ok) {
 function pdfInvNo(lines) {
   const txt = lines.map((l) => l.text).join('\n');
   const tries = [
+    /INVOICE\s*(?:NO|NUMBER)\.?\s*[:：]?\s*([A-Z]{1,3}\s\d{4,})\b/i,   // "INVOICE NO. E 26162" (Prestige / TPCS, bản scan)
     /INVOICE\s*(?:NO|NUMBER|#|№)\.?\s*(?:&\s*DATE)?\s*[:：]?\s*\n?\s*([A-Z0-9][A-Z0-9\-\/().]{3,})/i,
     /\bINVOICE\s*[:：]\s*([A-Z0-9][A-Z0-9\-\/().]{3,})/i,
     /\bINV\.?\s*(?:NO|#)\.?\s*[:：]?\s*([A-Z0-9][A-Z0-9\-\/().]{3,})/i,

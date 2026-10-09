@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.12 — 11 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.13 — 15 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -38,6 +38,10 @@ Thả file `.xlsx` chứng từ vải vào cùng chỗ — công cụ tự nhậ
 | Carvico S.p.A. (Ý) | `INV_28493.pdf` (FATTURA/INVOICE) + `PKL_851853_-_INV_28493.pdf`… (một PDF cho mỗi packing list) (v11.10) | M |
 | Suzhou Celeb (Trung Quốc) | `INV.xlsx` (sheet `INVOICE`, dòng `surcharge` riêng) + `PKL_1.xlsx`… (sheet `发货码单`, mỗi file một màu/lô) (v11.11) | YD |
 | Cheung Hing (Hồng Kông, phụ liệu) | `Invoice_to_Scavi_….xlsx` (hangtag / sticker / label, pc · set · doz) + `PACKING_LIST_to_Scavi_….xlsx` theo thùng (v11.12) | PC / SET / DZ |
+| Chuangjie (Trung Quốc) | `… INV&PKL CJSQTxxxxxxxx.xlsx` (sheet `Invoice` + `Packing List` kiểu Techwork, dòng `Surcharge of Additional Qty` riêng) (v11.13) | M |
+| Yibei (Trung Quốc, mould cup) | `… YIB0004500 ….xlsx` (sheet `IV` + `PL`, size M/L trong mô tả, thùng = CTNS × Qty/CTN) (v11.13) | PAA |
+| Luen Hing (Hồng Kông, phụ liệu) | `I 2609-00159.pdf` + `P 2609-00159.pdf` (mỗi thùng một dòng, gộp theo PO + article + lapdip) (v11.13) | M |
+| Hoa Nghiêm Vina | `1C26THN_….pdf` (hóa đơn GTGT VND, mã hàng tách 3 dòng) + `PKL ….pdf` (phiếu đóng hàng) (v11.13) | M |
 
 Hóa đơn và packing list nằm trong **cùng một file** nên không cần thả thêm gì ngoài file inbound
 (`ZMME0032….xlsx` hoặc file SAP xuất ra). Một file inbound dùng được cho **nhiều hóa đơn**.
@@ -144,6 +148,33 @@ cột Style (`Panache-PAN3ST` → `PAN3ST`, `Envy-7283` → `7283`, `Sculptresse
 - Kiểm thử bộ `20260908` (18 PO, 28 dòng hóa đơn, 233 dòng inbound): 26/28 dòng khớp (219 dòng inbound tự điền trùng 100 % với file buyer
   đã điền), 2 dòng giao thiếu theo size (`11434` sticker 390/394, nhãn 58/73) → `CẦN KIỂM TAY`, 14 dòng giữ lại để điền tay.
 
+## Lô huấn luyện 07.10.2026 — 32 bộ chứng từ của 28 chủ hàng (v11.13)
+
+Buyer gửi một thư mục gồm 32 bộ (hóa đơn + packing list + inbound). Công cụ chạy lần lượt từng bộ, so file `INB_…` xuất ra với inbound
+buyer đã điền theo khóa PO + Material + Size + Spec. Kết quả sau v11.13: **20/32 bộ trùng 100 %**; 9 bộ inbound gửi kèm là bản SAP xuất
+thô (chưa điền) nên chỉ kiểm tra tính hợp lý; 3 bộ còn vướng ở dữ liệu (xem bảng).
+
+| Chủ hàng | Kết quả | Ghi chú |
+|---|---|---|
+| Capital, Carvico, Cheung Hing, Celeb* | 100 % | mẫu riêng từ v11.9–v11.12 (*Celeb inbound thô) |
+| Chuangjie* | hợp lý | mẫu riêng mới; trước bị nhận nhầm là Techwork; 3 dòng `VƯỢT DUNG SAI` thật (827 > 819…) buyer vẫn điền |
+| Derun*, AIM High*, Pioneer*, Fujian Honggang*, S&M*, Vinity*, Seamless* | hợp lý | inbound thô; Derun/AIM hết báo đỏ nhờ luật "hàng đã nhập kho trước" |
+| DJIC, Dongguan Uwork, Freetex†, Fujian Baikai, Hing Yip, Best Pacific, Junye, Paddies (OCR), Prestige (OCR), Stretchline ×2, Brugnoli (OCR), Chain Guan, PT Winner ×2‡ | 100 % | bộ đọc chung; †Freetex chỉ khác cách ghi số HĐ (`1C26TFT#878` ↔ `1C26TFT#00000878`); ‡PT Winner 115 file đáp án ghi năm 2025, hóa đơn in 2026 |
+| Yibei, Luen Hing, Hoa Nghiêm | 100 % | mẫu riêng mới |
+| SunPo | không so được | inbound gửi kèm thuộc hóa đơn CI80007160 (10.09), chứng từ là CI80007172 (17.09) — cần đúng bộ |
+| Vanessa | không đọc được | PDF scan mờ, OCR không ra bảng hàng — cần file gốc Excel/PDF có chữ |
+
+**Luật chung bổ sung trong v11.13** (áp dụng mọi chủ hàng):
+
+- **Hàng đã nhập kho trước khi đối chiếu:** `Delivered Qty` đúng bằng số lượng hóa đơn → không cộng lô này lần nữa khi tính dung sai
+  (Derun, AIM High, Celeb hết báo `VƯỢT DUNG SAI` sai).
+- **Dòng cùng màu không đủ chỗ** mà có đúng một dòng khác cùng mã + size có số PO bằng đúng số lượng hóa đơn → dùng dòng đó, ghi chú
+  kiểm lại màu (Dongguan Uwork: ô màu gộp nhiều dòng).
+- **PO hệ cũ không tra được** (`PT.WINNER1-0667`) hoặc dòng không ghi PO: dò mã + màu + còn chỗ trên mọi PO của inbound, ưu tiên PO
+  không xuất hiện trên hóa đơn; chỉ nhận khi còn đúng một PO.
+- Cột **Chủ hàng** lấy `Partner Name` của inbound (tên chuẩn SAP) thay vì dòng địa chỉ đọc từ chứng từ; từ khóa `WINNER` bắt được
+  `WINNERSUMBIRI`; số hóa đơn bản scan dạng `E 26162` giữ đủ chữ cái.
+
 ## Chủ hàng chưa huấn luyện → đề nghị liên hệ (v11.7, cột "Chủ hàng" v11.10)
 
 Ngay sau khi thả file, bảng hóa đơn có cột **Chủ hàng**: tên chủ hàng + `mẫu riêng` / `bộ đọc chung`, hoặc nhãn đỏ
@@ -164,7 +195,7 @@ nhắc. Người liên hệ đặt ở hằng `CONTACT`. Huấn luyện xong ch�
 ## Bộ đọc chung — chủ hàng chưa có mẫu riêng (v11)
 
 Mọi file Excel/PDF khác (Derun, DJIC, Dongguan Uwork, Freetex,
-Fujian Baikai, Fujian Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer,
+Fujian Baikai, Fujian Honggang, Hing Yip, Best Pacific, Junye, Pioneer,
 PT Winner, S&M, Seamless, Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan…) được đọc bằng
 bộ đọc chung: tìm bảng hàng bằng từ khoá tiêu đề, lấy số lượng/đơn vị/giá/PO/mã/màu/size/lô, rồi dò
 dòng inbound theo thứ tự **Material SAP → PO → mã hàng → màu/spec/lapdip → size**. Packing list rời

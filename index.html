@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.12 · 09.10.2026 · 11 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.13 · 09.10.2026 · 15 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -167,6 +167,11 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         cùng mã khác đơn vị thì lọc theo đơn vị; sticker/nhãn nhiều size: tổng PO = SL hóa đơn → <b>chia theo size</b>, khác → <b>CẦN KIỂM TAY</b>.
         Phí ngân hàng (dòng riêng) so với cột <em>Surcharge Item</em> ở mức tổng.</li>
         <li><b>Dòng CẦN KIỂM TAY</b> (v11.12) không còn bị cắt khỏi file <code>INB_…</code>: giữ nguyên, ghi sẵn số/ngày hóa đơn, <em>Invoice Quantity</em> để trống/giữ số SAP cho buyer điền tay.</li>
+        <li><b>Mẫu riêng v11.13:</b> <em>Chuangjie</em> (Excel, phụ phí dòng riêng, packing list kiểu Techwork), <em>Yibei</em> (sheet IV + PL, thùng = CTNS × Qty/CTN),
+        <em>Luen Hing</em> (PDF mỗi thùng một dòng, gộp theo PO + article + lapdip), <em>Hoa Nghiêm</em> (hóa đơn GTGT VND, mã hàng tách 3 dòng + phiếu đóng hàng).</li>
+        <li><b>Luật chung v11.13:</b> <em>Delivered Qty</em> đã bằng SL hóa đơn → hàng đã nhập kho trước, không tính dung sai lần nữa; dòng cùng màu không đủ chỗ mà có đúng một dòng
+        cùng mã/size có số PO bằng SL hóa đơn → dùng dòng đó (kiểm lại màu); PO hệ cũ / dòng không ghi PO → dò mã + màu, ưu tiên PO chưa có trên hóa đơn;
+        cột Chủ hàng lấy <em>Partner Name</em> của inbound.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
@@ -528,6 +533,8 @@ function fabProfile(wb) {
   let t = '';
   for (const ws of wb.worksheets) for (let r = 1; r <= Math.min(30, ws.rowCount); r++) t += rowText(ws, r);
   t = t.toUpperCase();
+  if (/CHUANGJIE/.test(t) && /INVOICE\s*NO/.test(t)) return 'CHUANGJIE';
+  if (/YIBEI/.test(t) && /(QAUNTITIES|QUANTITY)\s*\(PRS\)|QTY\s*\/\s*CTN/.test(t)) return 'YIBEI';
   if (/QTY\s*\/\s*M/.test(t) && /SURCHARGE/.test(t) && names.includes('PACKING LIST')) return 'TECHWORK';
   if (/11\.\s*PO NUMBER/.test(t) && /QUANTITY\s*\/\s*UNIT/.test(t)) return 'BLAO';
   if (/MARKS\s*&\s*NOS/.test(t) && /INV\.?\s*NO/.test(t)) return 'HYU';
@@ -535,6 +542,32 @@ function fabProfile(wb) {
   if (/CELEB\s*TEXTILES/.test(t) && /INVOICE\s*NO/.test(t) && /PO\s*NO\./.test(t) && /DESCRIPTION OF GOODS/.test(t)) return 'CELEB';
   if (/CHEUNG\s*HING/.test(t) && /INVOICE/.test(t) && /UNIT\s*PRICE/.test(t) && /DESCRIPTION/.test(t) && !/PACKING\s*LIST/.test(t)) return 'CHEUNGHING';
   return '';
+}
+
+/* Packing list kiểu Techwork / Chuangjie: PO# | Article No. | Colour | Lot No. | Roll | Rolls # | Ttl/M | N.W. | G.W.
+   PO / article / màu / lô chỉ ghi ở dòng đầu của nhóm rồi để trống → kế thừa. */
+function techworkPkl(wp, unit) {
+  const groups = [];
+  const pr = findRow(wp, /PO\s*#/i) || 12;
+  const P = {
+    po: colBy(wp, pr, /PO\s*#/i), art: colBy(wp, pr, /ARTICLE/i), color: colBy(wp, pr, /COLOUR|COLOR/i),
+    lot: colBy(wp, pr, /LOT/i), roll: colBy(wp, pr, /ROLLS\s*#/i), qty: colBy(wp, pr, /TTL/i),
+    nw: colBy(wp, pr, /N\.?W/i), gw: colBy(wp, pr, /G\.?W/i),
+  };
+  let cp = '', ca = '', cc = '', cl = '';
+  for (let r = pr + 1; r <= wp.rowCount; r++) {
+    if (/^total/i.test(T(wp, r, 1))) break;
+    const q = N(wp, r, P.qty);
+    if (isNaN(q) || q <= 0) continue;
+    cp = T(wp, r, P.po) || cp; ca = T(wp, r, P.art) || ca;
+    cc = T(wp, r, P.color) || cc; cl = (P.lot ? T(wp, r, P.lot) : '') || cl;
+    const key = poSap(cp) + '|' + AZ(ca) + '|' + AZ(cc) + '|' + AZ(cl);
+    let g = groups.find((x) => x.key === key);
+    if (!g) { g = { key, po: poSap(cp), poRaw: cp, article: ca, color: cc, lot: cl, unit, rolls: [], total: 0 }; groups.push(g); }
+    g.rolls.push({ no: P.roll ? T(wp, r, P.roll) : String(g.rolls.length + 1), qty: q, nw: N(wp, r, P.nw), gw: N(wp, r, P.gw) });
+    g.total = r3(g.total + q);
+  }
+  return groups;
 }
 
 /* =====================  TECHWORK  ===================== */
@@ -579,29 +612,8 @@ function readTechwork(wb) {
       code: art || color,
     });
   }
-  /* packing list: PO# | Article No. | Colour | Lot No. | Roll | Rolls # | Ttl/M … */
-  const groups = [];
-  if (wp) {
-    const pr = findRow(wp, /PO\s*#/i) || 12;
-    const P = {
-      po: colBy(wp, pr, /PO\s*#/i), art: colBy(wp, pr, /ARTICLE/i), color: colBy(wp, pr, /COLOUR|COLOR/i),
-      lot: colBy(wp, pr, /LOT/i), roll: colBy(wp, pr, /ROLLS\s*#/i), qty: colBy(wp, pr, /TTL/i),
-      nw: colBy(wp, pr, /N\.?W/i), gw: colBy(wp, pr, /G\.?W/i),
-    };
-    let cp = '', ca = '', cc = '', cl = '';
-    for (let r = pr + 1; r <= wp.rowCount; r++) {
-      if (/^total/i.test(T(wp, r, 1))) break;
-      const q = N(wp, r, P.qty);
-      if (isNaN(q) || q <= 0) continue;
-      cp = T(wp, r, P.po) || cp; ca = T(wp, r, P.art) || ca;
-      cc = T(wp, r, P.color) || cc; cl = (P.lot ? T(wp, r, P.lot) : '') || cl;
-      const key = poSap(cp) + '|' + AZ(ca) + '|' + AZ(cc) + '|' + AZ(cl);
-      let g = groups.find((x) => x.key === key);
-      if (!g) { g = { key, po: poSap(cp), poRaw: cp, article: ca, color: cc, lot: cl, unit, rolls: [], total: 0 }; groups.push(g); }
-      g.rolls.push({ no: P.roll ? T(wp, r, P.roll) : String(g.rolls.length + 1), qty: q, nw: N(wp, r, P.nw), gw: N(wp, r, P.gw) });
-      g.total = r3(g.total + q);
-    }
-  }
+  /* packing list: PO# | Article No. | Colour | Lot No. | Roll | Rolls # | Ttl/M … (dùng chung với Chuangjie) */
+  const groups = wp ? techworkPkl(wp, unit) : [];
   return {
     profile: 'TECHWORK', supplier: 'Fujian Techwork',
     inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: unit, surchargeHeader: 0, total, totalQty, amountInclSur: true },
@@ -1378,6 +1390,277 @@ function readCheungHingPkl(wb, fname) {
   };
 }
 
+/* =====================  CHUANGJIE (Trung Quốc) — hóa đơn + packing list Excel  =====================
+   Sheet "Invoice": PO NO. | DESCRIPTION | ITEM | COLOUR | QTY/M | PRICE ($/M) | AMOUNT — PO, mô tả, ITEM chỉ ghi ở dòng đầu nhóm;
+   màu "LAVENDERICE-TL229887-F" (tên màu + mã lapdip); dòng "Surcharge of Additional Qty CJ-DP0060 (…)" = phụ phí riêng
+   (SAP ghi vào Surcharge Item của một dòng bất kỳ → so ở mức tổng, amountInclSur=false). Sheet "Packing List" cùng bố cục Techwork.
+   Trước v11.13 bị nhận nhầm là Techwork (cùng chữ QTY/M + SURCHARGE + sheet Packing List). */
+function readChuangjie(wb) {
+  const wi = wb.worksheets.find((w) => /invoice/i.test(String(w.name))) || wb.worksheets[0];
+  const wp = wb.worksheets.find((w) => /packing/i.test(String(w.name)));
+  const hr = findRow(wi, /PO\s*NO\..*DESCRIPTION.*ITEM.*COLOU?R/i);
+  if (!hr) return null;
+  const C = { po: colBy(wi, hr, /^PO\s*NO/i), desc: colBy(wi, hr, /DESCRIPTION/i), item: colBy(wi, hr, /^ITEM/i), color: colBy(wi, hr, /COLOU?R/i),
+    qty: colBy(wi, hr, /QTY/i), price: colBy(wi, hr, /PRICE/i), amt: colBy(wi, hr, /AMOUNT/i) };
+  const unit = unitKey((T(wi, hr, C.qty).match(/\/\s*([A-Za-z]+)/) || [])[1] || 'M');
+  let no = '', invDate = '';
+  const rNo = findRow(wi, /INVOICE\s*NO/i);
+  if (rNo) { const c = colBy(wi, rNo, /INVOICE\s*NO/i), cd = colBy(wi, rNo, /INVOICE\s*DATE/i); no = T(wi, rNo + 1, c); invDate = cd ? parseDateCell(V(wi, rNo + 1, cd), yearHintOf(wb)) : ''; }
+  const items = [];
+  let po = '', desc = '', item = '', total = NaN, totalQty = NaN, surchargeHeader = 0;
+  for (let r = hr + 1; r <= wi.rowCount; r++) {
+    const a = T(wi, r, C.po);
+    if (/^TOTAL/i.test(a)) { total = N(wi, r, C.amt); totalQty = N(wi, r, C.qty); break; }
+    if (/surcharge/i.test(a) || /surcharge/i.test(T(wi, r, C.desc))) { const sv = N(wi, r, C.amt); if (!isNaN(sv)) surchargeHeader = r3(surchargeHeader + sv); continue; }
+    const qty = N(wi, r, C.qty);
+    if (isNaN(qty) || qty <= 0) continue;
+    po = a || po; desc = T(wi, r, C.desc) || desc; item = T(wi, r, C.item) || item;
+    const raw = T(wi, r, C.color).replace(/_x00[0-9a-f]{2}_/gi, ' ').replace(/\s+/g, ' ').trim();
+    const ml = raw.match(/^(.*?)[\s-]*\b(T[A-Z]{1,2}\d{5,}-[A-Z0-9])$/i);
+    const color = (ml ? ml[1] : raw).replace(/-/g, ' ').replace(/\s+/g, ' ').trim(), lap = ml ? ml[2].toUpperCase() : '';
+    items.push({
+      poRaw: po, po: poSap(po), article: item, colorText: color, colorCode: lap, colorShort: color,
+      desc: [item, raw, desc].filter(Boolean).join(' · '),
+      qtyByUnit: { [unit]: qty }, unit, qty, price: N(wi, r, C.price), surcharge: 0, amount: N(wi, r, C.amt), code: item + ' · ' + color,
+    });
+  }
+  if (!items.length) return null;
+  const groups = wp ? techworkPkl(wp, unit) : [];
+  return {
+    profile: 'CHUANGJIE', supplier: 'Chuangjie',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: unit, surchargeHeader, total, totalQty, amountInclSur: false },
+    pkl: groups.length ? { groups, unit, level: 'lot' } : null,
+  };
+}
+
+/* =====================  YIBEI (Trung Quốc) — mould cup, sheet IV + PL trong cùng file  =====================
+   IV: Shipping Marks | PO Number | ITEM | DESCRIPTION ("Bra cup M" → size) | COLOR | Qauntities(PRS) | Price | Total.
+   PL: dòng chỉ có số PO rồi CTN NO. | Descripctions | Size | Color | CTNS | Qty/CTN | Quantity(PRS): số lượng thùng = CTNS × Qty/CTN
+   (thùng cuối chia hai dòng M 9 + L 170, cột Quantity ghi tổng thùng 179 nên không dùng). Đơn vị đôi (PAA). */
+function readYibei(wb) {
+  const wi = wb.worksheets.find((w) => /^IV$|INVOICE/i.test(String(w.name).trim()));
+  const wp = wb.worksheets.find((w) => /^PL$|PACKING/i.test(String(w.name).trim()));
+  if (!wi) return null;
+  const hr = findRow(wi, /PO\s*NUMBER.*ITEM.*DESCRIPTION.*COLOR/i);
+  if (!hr) return null;
+  const C = { po: colBy(wi, hr, /PO\s*NUMBER/i), item: colBy(wi, hr, /^ITEM/i), desc: colBy(wi, hr, /DESCRIPTION/i), color: colBy(wi, hr, /^COLOR/i),
+    qty: colBy(wi, hr, /Q[AU]+NTIT/i), price: colBy(wi, hr, /PRICE/i), amt: colBy(wi, hr, /TOTAL\s*AMOUNT|AMOUNT/i) };
+  const unit = /PRS|PAIR/i.test(T(wi, hr, C.qty)) ? 'PAA' : 'PCS';
+  let no = '', invDate = '';
+  for (let r = 1; r < hr; r++) for (let c = 1; c <= 12; c++) {
+    const t = T(wi, r, c); let m;
+    if (!no && (m = t.match(/\bNO\s*[:：]?\s*(\d{6,})/i))) no = m[1];
+    if (!invDate && (m = t.match(/\bDATE\s*[:：]?\s*(.+)$/i))) invDate = parseDateCell(m[1].replace(/\./g, ' ').trim()) || '';
+  }
+  const items = [];
+  let po = '';
+  for (let r = hr + 1; r <= wi.rowCount; r++) {
+    const a = T(wi, r, C.po);
+    if (/^[A-Z]{2,4}\d{7}$/i.test(a)) po = a.toUpperCase();
+    const qty = N(wi, r, C.qty);
+    const item = T(wi, r, C.item);
+    if (!po || !item || isNaN(qty) || qty <= 0) continue;
+    const desc = T(wi, r, C.desc).replace(/\s+/g, ' ').trim();
+    const size = ((desc.match(/\b(XXS|XS|S|M|L|XL|XXL|XXXL|\d{2,3}[A-K]{1,2})\s*$/i) || [])[1] || '').toUpperCase();
+    const color = T(wi, r, C.color).replace(/\s+/g, ' ').trim();
+    items.push({
+      poRaw: po, po: poSap(po), article: item, colorText: color, colorCode: '', colorShort: color, size,
+      desc: [item, desc, color].filter(Boolean).join(' · '),
+      qtyByUnit: { [unit]: qty }, unit, qty, price: N(wi, r, C.price), surcharge: 0, amount: N(wi, r, C.amt), code: item + ' · ' + desc,
+      pklKey: poSap(po) + '|' + AZ(item) + '|' + AZ(color) + '|' + AZ(size),
+    });
+  }
+  if (!items.length) return null;
+  const groups = [];
+  if (wp) {
+    const h2 = findRow(wp, /CTN\s*NO.*DESCRIP.*SIZE.*COLOR/i);
+    if (h2) {
+      const P = { desc: colBy(wp, h2, /DESCRIP/i), size: colBy(wp, h2, /^SIZE/i), color: colBy(wp, h2, /^COLOR/i), ctns: colBy(wp, h2, /^CTNS/i),
+        per: colBy(wp, h2, /QTY\s*\/\s*CTN/i), qty: colBy(wp, h2, /^QUANTITY/i), nw: colBy(wp, h2, /N\.?W/i), gw: colBy(wp, h2, /G\.?W/i) };
+      let ppo = '', ctn = '';
+      for (let r = h2 + 1; r <= wp.rowCount; r++) {
+        const a = T(wp, r, 1);
+        if (/^[A-Z]{2,4}\d{7}$/i.test(a)) { ppo = a.toUpperCase(); continue; }
+        if (/^TOTAL/i.test(a)) break;
+        const ctns = N(wp, r, P.ctns), per = N(wp, r, P.per), qt = N(wp, r, P.qty);
+        const q = (!isNaN(ctns) && !isNaN(per)) ? r3(ctns * per) : (!isNaN(per) ? per : qt);
+        if (isNaN(q) || q <= 0) continue;
+        if (a) ctn = a;
+        const art = T(wp, r, P.desc).trim(), size = T(wp, r, P.size).toUpperCase(), color = T(wp, r, P.color).replace(/\s+/g, ' ').trim();
+        const itemKey = poSap(ppo) + '|' + AZ(art) + '|' + AZ(color) + '|' + AZ(size);
+        const key = itemKey + '|' + AZ(ctn);
+        let g = groups.find((x) => x.key === key);
+        if (!g) { g = { key, itemKey, po: poSap(ppo), poRaw: ppo, article: art, color, size, lot: ctn ? 'Thùng ' + ctn : '(không ghi thùng)', unit, rolls: [], total: 0 }; groups.push(g); }
+        g.rolls.push({ no: String(g.rolls.length + 1), qty: q, nw: N(wp, r, P.nw), gw: N(wp, r, P.gw) });
+        g.total = r3(g.total + q);
+      }
+    }
+  }
+  return {
+    profile: 'YIBEI', supplier: 'Yibei',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: unit, surchargeHeader: 0, total: NaN, totalQty: NaN, amountInclSur: true },
+    pkl: groups.length ? { groups, unit, level: 'lot' } : null,
+  };
+}
+
+/* =====================  LUEN HING (Hồng Kông) — hóa đơn PDF + packing list PDF theo thùng  =====================
+   Mỗi thùng một dòng: "775-775 1 PO: LHT0012200" / "WS6206X18(LF610143F) LF610143F 503.00 M USD 0.2010 USD 101.10" /
+   "Ela WS6206X18 18MM Dusty Rose" (mô tả + màu). Hóa đơn gộp các thùng cùng PO + article + lapdip thành một dòng đối chiếu
+   (inbound: WS6206X18 DUSTY ROSE LF610143-F 4073 m = 503+600+700+500+1200+570). Article "WR81077-05N" ↔ Supplier Ref "TAPE WR81077/5"
+   (bỏ 0 đầu và chữ cuối phần sau dấu "-"); lapdip LF69932A ↔ "LF69932-A". */
+const isLuenHingText = (t) => /LUEN\s*HING/i.test(t);
+const lhArticle = (raw) => String(raw == null ? '' : raw).toUpperCase().replace(/-0*(\d+)[A-Z]?$/, '-$1');
+const LH_CTN = /^(\d+)-(\d+)\s+(\d+)\s+PO:\s*([A-Z]{2,4}\d{7})\b/i;
+const LH_LINE = /^([A-Z0-9][A-Z0-9.\/-]*)\(([A-Z0-9-]+)\)\s+([A-Z0-9-]+)\s+([\d,]+\.\d+)\s+(M|MTRS?|YDS?|KGS?|PCS)\s+USD\s+([\d.]+)\s+USD\s+([\d,]+\.\d+)/i;
+const lhColor = (desc) => { const w = String(desc || '').trim().split(/\s+/); const out = []; for (let i = w.length - 1; i >= 0 && /^[A-Za-z]+$/.test(w[i]); i--) out.unshift(w[i]); return out.join(' '); };
+function readLuenHing(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isLuenHingText(t) || !/\bInvoice\s*:/i.test(t) || /PACKING\s*LIST/i.test(t)) return null;
+  const no = (t.match(/\bInvoice\s*:\s*(\S+)/i) || [])[1] || '';
+  const dm = t.match(/\bDate\s*:\s*(\d{1,2})-([A-Za-z]{3})-(\d{4})/);
+  const invDate = dm ? dmy(dm[1], MONTHS.indexOf(dm[2].toUpperCase()) + 1, dm[3]) : '';
+  const map = new Map();
+  let po = '';
+  for (let i = 0; i < all.length; i++) {
+    let m;
+    if ((m = all[i].match(LH_CTN))) { po = m[4].toUpperCase(); continue; }
+    if (!po || !(m = all[i].match(LH_LINE))) continue;
+    const art = lhArticle(m[1]), lap = m[2].toUpperCase(), unit = unitKey(m[5]);
+    const qty = Number(m[4].replace(/,/g, '')), price = Number(m[6]), amount = Number(m[7].replace(/,/g, ''));
+    const desc = all[i + 1] && !LH_CTN.test(all[i + 1]) && !LH_LINE.test(all[i + 1]) ? all[i + 1] : '';
+    const color = lhColor(desc);
+    const key = poSap(po) + '|' + AZ(art) + '|' + AZ(lap);
+    let it = map.get(key);
+    if (!it) {
+      it = { poRaw: po, po: poSap(po), article: art, colorText: color, colorCode: lap, colorShort: color, lapdip: lap,
+        desc: [m[1], lap, desc].filter(Boolean).join(' · '), qtyByUnit: { [unit]: 0 }, unit, qty: 0, price, surcharge: 0, amount: 0,
+        code: m[1] + ' · ' + color, pklKey: key, cartons: 0 };
+      map.set(key, it);
+    }
+    it.qty = r3(it.qty + qty); it.qtyByUnit[unit] = it.qty; it.amount = r3(it.amount + amount); it.cartons++;
+  }
+  const items = [...map.values()];
+  if (!items.length) return null;
+  const totalQty = (() => { const x = t.match(/Total\s*Quantity\s*:\s*([\d,]+\.\d+)/i); return x ? Number(x[1].replace(/,/g, '')) : NaN; })();
+  const total = (() => { const x = t.match(/Total\s*Amount\s*:\s*USD\s*([\d,]+\.\d+)/i); return x ? Number(x[1].replace(/,/g, '')) : NaN; })();
+  return {
+    profile: 'LUENHING', supplier: 'Luen Hing',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: items[0].unit, surchargeHeader: 0, total, totalQty, amountInclSur: true },
+    pkl: null,
+  };
+}
+function readLuenHingPkl(lines, fname) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isLuenHingText(t) || !/PACKING\s*LIST/i.test(t)) return null;
+  const pklNo = (t.match(/Packing\s*List\s*No\s*:\s*(\S+)/i) || [])[1] || '';
+  const groups = [];
+  let po = '', range = '', art = '', lap = '';
+  for (let i = 0; i < all.length; i++) {
+    let m;
+    if ((m = all[i].match(LH_CTN))) { po = m[4].toUpperCase(); range = m[1] + '-' + m[2]; art = ''; lap = ''; continue; }
+    if (!po) continue;
+    if ((m = all[i].match(/^([A-Z0-9][A-Z0-9.\/-]*)\(([A-Z0-9-]+)\)\s+([A-Z0-9-]+)\s*$/i))) { art = lhArticle(m[1]); lap = m[2].toUpperCase(); continue; }
+    if (art && (m = all[i].match(/^([\d,]+\.\d+)\s+(M|MTRS?|YDS?|KGS?|PCS)\s+([\d.]+)\s+KGs?\b/i)) && !/^@/.test(all[i])) {
+      const q = Number(m[1].replace(/,/g, ''));
+      if (!q) continue;
+      const itemKey = poSap(po) + '|' + AZ(art) + '|' + AZ(lap);
+      const key = itemKey + '|' + AZ(range);
+      let g = groups.find((x) => x.key === key);
+      if (!g) { g = { key, itemKey, po: poSap(po), poRaw: po, article: art, color: lhColor(all[i + 1] || ''), lot: 'Thùng ' + range, unit: unitKey(m[2]), rolls: [], total: 0 }; groups.push(g); }
+      g.rolls.push({ no: range, qty: q, nw: Number(m[3]) });
+      g.total = r3(g.total + q);
+      art = ''; lap = '';
+    }
+  }
+  if (!groups.length) return null;
+  return {
+    profile: 'LUENHING', supplier: 'Luen Hing', role: 'pkl', file: fname || '', pklNo,
+    inv: { no: pklNo, invNo: '', invDate: '', items: [], currency: 'USD', unitDefault: 'M', total: NaN },
+    pkl: { groups, unit: 'M', level: 'lot', soft: false },
+    pklOnly: true,
+  };
+}
+
+/* =====================  HOA NGHIÊM VINA — hóa đơn GTGT PDF (VND) + phiếu đóng hàng PDF  =====================
+   Dòng hàng chia 3 dòng chữ: "Dây dệt (dệt thoi) YN6044 /HNV0000800//G08A" · "1 M 770,00 1.352,00 1.041.040,00 8% 83.283,00" ·
+   "8/3 BROWN" → mã hàng = mảnh cuối dòng trên + mảnh đầu dòng dưới (YN6044 + 8/3 = YN60448/3 ↔ Supplier Ref), PO giữa hai dấu "/",
+   màu = đoạn sau dấu "/" cuối (G08A BROWN ↔ cột Color). Số kiểu Việt (6.110,00). Phiếu đóng hàng: "1-10 YM66133/7P 1500 M …" với
+   mã màu "(N07A" ở dòng trên và "PO:HNV0000600 … BLACK)" ở dòng dưới. */
+const isHoaNghiemText = (t) => /HOA\s*NGHI[ÊE]M/i.test(t);
+const viNum = (s) => { const x = String(s == null ? '' : s).trim().replace(/\./g, '').replace(',', '.'); const n = Number(x); return x && !isNaN(n) ? n : NaN; };
+function readHoaNghiem(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isHoaNghiemText(t) || !/H[ÓO]A Đ[ƠO]N GI[ÁA] TR[ỊI] GIA T[ĂA]NG|VAT\s*INVOICE/i.test(t)) return null;
+  const serial = (t.match(/K[ýy]\s*hi[ệe]u[^:\n]*:\s*([A-Z0-9]{5,})/i) || [])[1] || '';
+  const no = (t.match(/S[ốo]\s*\(\s*No\.?\s*\)\s*:\s*(\d+)/i) || [])[1] || '';
+  const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : no;
+  const dm = t.match(/Ng[àa]y\s*\(?\s*Date\s*\)?\s*(\d{1,2})\s*th[áa]ng\s*\(?\s*month\s*\)?\s*(\d{1,2})\s*n[ăa]m\s*\(?\s*year\s*\)?\s*(\d{4})/i);
+  const invDate = dm ? dmy(dm[1], dm[2], dm[3]) : '';
+  const RE_QTY = /^(\d{1,3})\s+(M|MTRS?|C[áa]i|PCS|KGS?|Y|YDS?)\s+([\d.]+,\d{2})\s+([\d.]+,\d{2})\s+([\d.]+,\d{2})\s+\d+\s*%/i;
+  const items = [];
+  for (let i = 1; i < all.length - 1; i++) {
+    const m = all[i].match(RE_QTY);
+    if (!m) continue;
+    const prev = all[i - 1], next = all[i + 1];
+    const mp = (prev + ' ' + next).match(/\/\s*([A-Z]{2,4}\d{7})\s*\//);
+    const po = mp ? mp[1].toUpperCase() : '';
+    const prefix = (prev.match(/(?:^|\s)([A-Z]{2}\d{3,}[A-Z0-9]*)\s+\//) || prev.match(/(?:^|\s)([A-Z]{2}\d{3,}[A-Z0-9]*)\s*$/) || [])[1] || '';
+    const suffix = (next.match(/^(\d+\/\d+[A-Z]?)\b/) || [])[1] || '';
+    const article = (prefix + suffix).toUpperCase();
+    const tail = (po ? prev.slice(prev.indexOf('/' + po)) : prev) + ' ' + next.replace(/^\S+\s*/, '');
+    const color = tail.split('/').pop().replace(/\s+/g, ' ').trim();
+    const qty = viNum(m[3]), price = viNum(m[4]), amount = viNum(m[5]);
+    if (isNaN(qty) || qty <= 0) continue;
+    const unit = unitKey(m[2]);
+    items.push({
+      poRaw: po, po: poSap(po), article, colorText: color, colorCode: (color.match(/^[A-Z]\d{2}[A-Z]/) || [''])[0], colorShort: color,
+      desc: [article, color, prev.replace(/\s*\/.*$/, '')].filter(Boolean).join(' · '),
+      qtyByUnit: { [unit]: qty }, unit, qty, price, surcharge: 0, amount, code: article + ' · ' + color,
+      pklKey: poSap(po) + '|' + AZ(article) + '|' + AZ(color.split(' ')[0]),
+    });
+  }
+  if (!items.length) return null;
+  const total = viNum((t.match(/T[ổo]ng c[ộo]ng\s*\(Total\)\s*:\s*([\d.]+,\d{2})/i) || [])[1]);
+  return {
+    profile: 'HOANGHIEM', supplier: 'Hoa Nghiêm', vat: true,
+    inv: { no: invNo, invNo, invDate, serial, items, currency: 'VND', unitDefault: items[0].unit, surchargeHeader: 0, total, totalQty: NaN, amountInclSur: true },
+    pkl: null,
+  };
+}
+function readHoaNghiemPkl(lines, fname) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isHoaNghiemText(t) || !/PHI[ẾE]U Đ[ÓO]NG H[ÀA]NG|PACKING\s*LIST/i.test(t) || /H[ÓO]A Đ[ƠO]N GI[ÁA] TR[ỊI] GIA T[ĂA]NG/i.test(t)) return null;
+  const groups = [];
+  const RE = /^(\d+)-(\d+)\s+([A-Z]{2}\d{3,}[A-Z0-9]*\/\d+[A-Z]?)\s+([\d.,]+)\s+(M|MTRS?|KGS?|PCS|YDS?)\b/i;
+  for (let i = 0; i < all.length; i++) {
+    const m = all[i].match(RE);
+    if (!m) continue;
+    const code = ((all[i - 1] || '').match(/\(([A-Z]\d{2}[A-Z])\s*$/) || [])[1] || '';
+    const po = ((all[i + 1] || '').match(/PO\s*:\s*([A-Z]{2,4}\d{7})/i) || [])[1] || '';
+    const cname = ((all[i + 1] || '').match(/([A-Z][A-Z ]+?)\)\s*$/) || [])[1] || '';
+    const q = Number(m[4].replace(/,/g, ''));
+    if (!q || !po) continue;
+    const article = m[3].toUpperCase();
+    const itemKey = poSap(po) + '|' + AZ(article) + '|' + AZ(code);
+    const key = itemKey + '|' + m[1];
+    let g = groups.find((x) => x.key === key);
+    if (!g) { g = { key, itemKey, po: poSap(po), poRaw: po, article, color: (code + ' ' + cname).trim(), lot: 'Thùng ' + m[1], unit: unitKey(m[5]), rolls: [], total: 0 }; groups.push(g); }
+    g.rolls.push({ no: m[1], qty: q });
+    g.total = r3(g.total + q);
+  }
+  if (!groups.length) return null;
+  return {
+    profile: 'HOANGHIEM', supplier: 'Hoa Nghiêm', role: 'pkl', file: fname || '',
+    inv: { no: '', invNo: '', invDate: '', items: [], currency: 'VND', unitDefault: 'M', total: NaN },
+    pkl: { groups, unit: 'M', level: 'lot', soft: false },
+    pklOnly: true,
+  };
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);
@@ -1386,6 +1669,8 @@ function readFab(wb) {
   if (p === 'YUBO') return readYubo(wb);
   if (p === 'CELEB') return readCeleb(wb);
   if (p === 'CHEUNGHING') return readCheungHing(wb);
+  if (p === 'CHUANGJIE') return readChuangjie(wb);
+  if (p === 'YIBEI') return readYibei(wb);
   return null;
 }
 
@@ -1448,6 +1733,8 @@ function analyzeFab(inv, pkl, rows, opts) {
   }
 
   for (const it of inv.items) {
+    /* chỗ còn nhận được của một dòng inbound (chưa tính hàng đã nhập kho trước — xem grRow bên dưới) */
+    const roomRaw = (r) => (r.unltd ? Infinity : (isNaN(r.overTol) ? (isNaN(r.qty) ? 0 : r.qty) : r.overTol) - (isNaN(r.deliv) ? 0 : r.deliv) - (consumed.get(r) || 0));
     /* ---- 1. lọc theo PO (bù 0 cho đủ 7 chữ số) ---- */
     let usedPo = it.po, poNote = '';
     const poWanted = (it.poList && it.poList.length) ? it.poList : [usedPo];
@@ -1467,14 +1754,30 @@ function analyzeFab(inv, pkl, rows, opts) {
     if (rows && !poRows.length && (it.gen || !String(it.poRaw || it.po || '').trim())) {
       const distinct = [...new Set(rows.map((r) => poSap(r.poV)))];
       const rawPo = String(it.poRaw || it.po || '').trim();
+      /* PO hệ cũ không tra được (PT.WINNER1-0667) hoặc dòng không ghi PO trong khi các dòng khác có: dò mã + màu + còn chỗ trên
+         mọi PO của inbound, ưu tiên PO KHÔNG xuất hiện trên hóa đơn (dòng này ắt thuộc PO khác); chỉ nhận khi còn đúng MỘT PO */
+      const onePoByArtColor = () => {
+        const invT = [it.colorText, it.colorCode, it.desc, it.ctx].filter(Boolean).join(' ');
+        const cands = rows.filter((r) => ((it.article && artHit(it.article, r.material, r.desc, r.spec, r.supRef)) || refHit(r, invT))
+          && colorScore(it.colorText || invT, r.color, invT) >= 3 && roomRaw(r) >= (isNaN(it.qty) ? 0 : it.qty) - EPS);
+        const onInv = new Set(inv.items.map((x) => poSap(x.po)).filter(Boolean));
+        const cpos = [...new Set(cands.map((r) => poSap(r.poV)))];
+        const free = cpos.filter((pp) => !onInv.has(pp));
+        return free.length === 1 ? free[0] : (cpos.length === 1 ? cpos[0] : '');
+      };
       if (!rawPo && inv.hasSapPo) {
-        poNote += 'Dòng này không ghi PO (các dòng khác có) — không tự gán. ';
+        const pp = onePoByArtColor();
+        if (pp) { poRows = rows.filter((r) => poSame(r.poV, pp)); usedPo = pp; poNote += `Dòng này không ghi PO SAP (các dòng khác có) — chỉ PO ${pp} có mã + màu này còn chỗ nhận nên dùng PO đó. `; }
+        else poNote += 'Dòng này không ghi PO (các dòng khác có) — không tự gán. ';
       } else if (!rawPo) {
         poRows = rows; usedPo = distinct.length === 1 ? distinct[0] : '';
         poNote += distinct.length === 1 ? `Chứng từ không ghi PO — inbound chỉ có PO ${usedPo}. ` : `Chứng từ không ghi PO — dò trên toàn bộ ${distinct.length} PO của inbound. `;
       } else if (distinct.length === 1 && !/^(?:[A-Z][A-Z&]{2}\d{7}|CH\d{8})$/.test(rawPo.toUpperCase())) {
         poRows = rows; usedPo = distinct[0];
         poNote += `PO trên chứng từ "${rawPo}" không phải mã SAP — inbound chỉ có PO ${usedPo} nên dùng mã này. `;
+      } else if (distinct.length > 1 && !/^(?:[A-Z][A-Z&]{2}\d{7}|CH\d{8})$/.test(rawPo.toUpperCase())) {
+        const pp = onePoByArtColor();
+        if (pp) { poRows = rows.filter((r) => poSame(r.poV, pp)); usedPo = pp; poNote += `PO trên chứng từ "${rawPo}" không phải mã SAP — chỉ PO ${usedPo} có mã + màu này còn chỗ nhận nên dùng PO đó. `; }
       }
     }
     if (rows && poRows.length) {
@@ -1559,6 +1862,22 @@ function analyzeFab(inv, pkl, rows, opts) {
         else if (fits.length === 1) { hit = fits; pickedByQty = true; }
       }
     }
+    /* dòng duy nhất cùng màu nhưng KHÔNG đủ chỗ (sẽ vượt dung sai) trong khi có đúng một dòng khác cùng mã + size có số PO
+       đúng bằng SL chứng từ và còn chỗ → màu đọc từ chứng từ không chắc (ô màu gộp nhiều dòng, Dongguan Uwork) → dùng dòng đó */
+    if (hit.length === 1) {
+      const h0 = hit[0];
+      const q0 = it.qtyByUnit[unitKey(h0.unit)] != null ? it.qtyByUnit[unitKey(h0.unit)] : it.qty;
+      const gr0 = (isNaN(h0.deliv) ? 0 : h0.deliv) > EPS && Math.abs(h0.deliv - q0) <= EPS;
+      if (!isNaN(q0) && !gr0 && roomRaw(h0) < q0 - EPS) {
+        const cand = poRows.filter((r) => r !== h0 && unitKey(r.unit) === unitKey(h0.unit)
+          && (h0.supRef ? AZ(r.supRef) === AZ(h0.supRef) : artHit(it.article, r.material, r.desc, r.spec, r.supRef))
+          && (!h0.size || sizeSame(h0.size, r.size)) && Math.abs((isNaN(r.qty) ? -1 : r.qty) - q0) <= EPS && roomRaw(r) >= q0 - EPS);
+        if (cand.length === 1) {
+          poNote += `Dòng cùng màu "${String(h0.color).trim()}" (PO ${h0.qty}) không đủ chỗ cho ${q0}; dòng cùng mã/size "${String(cand[0].color).trim()}" có số PO đúng bằng nên dùng dòng đó — kiểm lại màu trên chứng từ. `;
+          hit = cand; pickedByQty = true;
+        }
+      }
+    }
     /* nhiều dòng cùng điểm, khác Material (các size của cùng mã) mà tổng còn nhận của
        chúng đúng bằng SL chứng từ → chứng từ gộp các size: chia đúng theo PO từng size */
     let splitSize = false;
@@ -1587,9 +1906,11 @@ function analyzeFab(inv, pkl, rows, opts) {
        Cùng một mã vải + màu có thể nằm trong nhiều PO với số Material y hệt nhau
        (Yubo). Không có cách nào đọc ra PO đúng, nên chia theo PO cũ trước (FIFO):
        lấp đầy phần còn nhận được của PO số nhỏ nhất, thừa thì tràn sang PO kế tiếp. */
-    /* PO đánh dấu Unltd Overdelivery = X → SAP cho giao vượt không giới hạn, không có mức dung sai */
+    /* Delivered Qty đã ĐÚNG BẰNG SL hóa đơn → lô này đã nhập kho trước khi đối chiếu (Celeb, Derun, AIM High): khi tính chỗ còn
+       nhận không cộng lô này lần nữa. PO đánh dấu Unltd Overdelivery = X → giao vượt không giới hạn, không có mức dung sai. */
+    const grRow = (hit.length === 1 && !isNaN(q) && (isNaN(hit[0].deliv) ? 0 : hit[0].deliv) > EPS && Math.abs(hit[0].deliv - q) <= EPS) ? hit[0] : null;
     const roomOf = (r) => (r.unltd ? Infinity : (isNaN(r.overTol) ? (isNaN(r.qty) ? 0 : r.qty) : r.overTol)
-      - (isNaN(r.deliv) ? 0 : r.deliv) - (consumed.get(r) || 0));
+      - ((isNaN(r.deliv) ? 0 : r.deliv) - (r === grRow ? q : 0)) - (consumed.get(r) || 0));
     const alloc = [];
     let overflow = 0;
     if (hit.length && !unitBad && !isNaN(q) && !ambiguousMat) {
@@ -1642,7 +1963,8 @@ function analyzeFab(inv, pkl, rows, opts) {
     const amtBad = alloc.length > 0 && !unitBad && !isNaN(it.amount) && !isNaN(q)
       && Math.abs(inbAmount - it.amount) > aTol;
     const unltd = used.some((h) => h.unltd);
-    const room = unltd ? Infinity : r3(overTol - delivered);
+    const delivEff = grRow ? r3(delivered - q) : delivered;   // phần đã giao KHÔNG kể lô này
+    const room = unltd ? Infinity : r3(overTol - delivEff);
     const overBad = overflow > EPS;
     /* Delivered Qty đã đúng bằng SL hóa đơn → hàng đã nhập kho trước khi đối chiếu hóa đơn (chỉ ghi chú) */
     const grDone = used.length === 1 && !isNaN(q) && delivered > EPS && Math.abs(delivered - q) <= EPS;
@@ -1731,13 +2053,13 @@ function analyzeFab(inv, pkl, rows, opts) {
     } else if (q > qtyPo + EPS) {
       status = 'KHỚP (trong dung sai)';
       note += `Giao ${q} ${inbUnit} vượt PO ${qtyPo} nhưng còn trong dung sai (tối đa ${overTol}).`;
-    } else if (delivered > EPS && q > qtyPo - delivered + EPS) {
+    } else if (delivEff > EPS && q > qtyPo - delivEff + EPS) {
       /* PO đã giao một phần: đợt này vượt phần còn lại nhưng cộng dồn vẫn trong dung sai */
       status = 'KHỚP (trong dung sai)';
-      note += `Giao ${q} ${inbUnit}, PO ${qtyPo} đã giao ${delivered} chỉ còn ${Math.round((qtyPo - delivered) * 1000) / 1000} — vượt ${Math.round((q - qtyPo + delivered) * 1000) / 1000} nhưng cộng dồn còn trong dung sai (tối đa ${overTol}).`;
+      note += `Giao ${q} ${inbUnit}, PO ${qtyPo} đã giao ${delivEff} chỉ còn ${Math.round((qtyPo - delivEff) * 1000) / 1000} — vượt ${Math.round((q - qtyPo + delivEff) * 1000) / 1000} nhưng cộng dồn còn trong dung sai (tối đa ${overTol}).`;
     } else if (q < qtyPo - EPS) {
       status = 'KHỚP (giao thiếu)';
-      note += `Giao ${q}/${qtyPo} ${inbUnit} — còn lại ${Math.round((qtyPo - delivered - q) * 1000) / 1000}.`;
+      note += `Giao ${q}/${qtyPo} ${inbUnit} — còn lại ${Math.round((qtyPo - delivEff - q) * 1000) / 1000}.`;
     } else {
       status = 'KHỚP';
     }
@@ -2567,6 +2889,7 @@ function valueBelow(lines, labelRe, ok) {
 function pdfInvNo(lines) {
   const txt = lines.map((l) => l.text).join('\n');
   const tries = [
+    /INVOICE\s*(?:NO|NUMBER)\.?\s*[:：]?\s*([A-Z]{1,3}\s\d{4,})\b/i,   // "INVOICE NO. E 26162" (Prestige / TPCS, bản scan)
     /INVOICE\s*(?:NO|NUMBER|#|№)\.?\s*(?:&\s*DATE)?\s*[:：]?\s*\n?\s*([A-Z0-9][A-Z0-9\-\/().]{3,})/i,
     /\bINVOICE\s*[:：]\s*([A-Z0-9][A-Z0-9\-\/().]{3,})/i,
     /\bINV\.?\s*(?:NO|#)\.?\s*[:：]?\s*([A-Z0-9][A-Z0-9\-\/().]{3,})/i,
@@ -3566,7 +3889,7 @@ const TRAINED_SUPPLIERS = [
   ['Chuangjie', /CHUANGJIE/], ['Derun', /\bDERUN\b/], ['DJIC', /\bDJIC\b/], ['Dongguan Uwork', /UWORK/],
   ['Freetex', /FREETEX/], ['Fujian Baikai', /BAIKAI/], ['Fujian Honggang', /HONGGANG/], ['Hing Yip', /HING\s*YIP/],
   ['Hoa Nghiêm', /HOA\s*NGHIEM/], ['Best Pacific', /BEST\s*PACIFIC/], ['Junye', /\bJUNYE\b/], ['Luen Hing', /LUEN\s*HING/],
-  ['Pioneer', /\bPIONEER\b/], ['PT Winner', /\bWINNER\b/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
+  ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
   ['Vinity', /\bVINITY\b/],
@@ -3590,7 +3913,8 @@ function supplierCheck(g, cInb) {
   const byPo = (cInb && cInb.partnerByPo) || {};
   let parts = [...new Set((g.inv.sapPos || []).map((p) => byPo[String(p).toUpperCase()]).filter(Boolean))];
   if (!parts.length) parts = (cInb && cInb.partners) || [];
-  const name = fabSup || supplierNameOf(docLines) || parts[0] || '';
+  /* tên hiển thị: Partner Name của inbound (chuẩn SAP) → tên mẫu riêng → tên đọc từ chứng từ */
+  const name = (parts.length === 1 ? parts[0] : '') || fabSup || supplierNameOf(docLines) || parts[0] || '';
   const fromDoc = trainedSupplierOf([fabSup, docLines.join(' ')].join(' '));
   const fromInb = parts.length === 1 ? trainedSupplierOf(parts[0]) : '';   // nhiều chủ hàng trong cùng file → không kết luận từ inbound
   const trained = fromDoc || fromInb;
@@ -3663,6 +3987,20 @@ async function classify(file) {
       let cp = null;
       try { cp = readCarvicoPkl(lines, file.name); } catch (e) { cp = null; }
       if (cp && cp.pkl && cp.pkl.groups.length) { out = { kind: 'genpkl', score: 6, gen: cp, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
+    /* Luen Hing (phụ liệu, Hồng Kông): hóa đơn PDF theo thùng + packing list PDF */
+    if (!ocr && isLuenHingText(lines.join(' '))) {
+      let lh = null; try { lh = readLuenHing(lines); } catch (e) { lh = null; }
+      if (lh && lh.inv.items.length) { out = { kind: 'fab', score: 9, fab: lh, lines, pos: [...new Set(lh.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+      let lp = null; try { lp = readLuenHingPkl(lines, file.name); } catch (e) { lp = null; }
+      if (lp) { out = { kind: 'genpkl', score: 6, gen: lp, lines, pos: [...new Set(lp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    /* Hoa Nghiêm Vina: hóa đơn GTGT (VND, mã hàng tách 3 dòng) + phiếu đóng hàng */
+    if (!ocr && isHoaNghiemText(lines.join(' '))) {
+      let hn = null; try { hn = readHoaNghiem(lines); } catch (e) { hn = null; }
+      if (hn && hn.inv.items.length) { out = { kind: 'fab', score: 9, fab: hn, lines, pos: [...new Set(hn.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+      let hp = null; try { hp = readHoaNghiemPkl(lines, file.name); } catch (e) { hp = null; }
+      if (hp) { out = { kind: 'genpkl', score: 6, gen: hp, lines, pos: [...new Set(hp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* packing list PDF của Thiên Gia: PO + kích thước + mã code → dùng như packing list Excel theo PO */
     if (!ocr) {

@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.12)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.13)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,8 +972,9 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 11 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
-  Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing) + các chủ hàng đã chạy thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 15 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+  Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm) + các chủ hàng đã chạy
+  thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
   không phân biệt hoa/thường. **Không** dùng chữ "BLAO"/"SCAVI" làm dấu hiệu vì đó là tên người mua.
@@ -1160,6 +1161,70 @@ dòng riêng trên hóa đơn" (khác thì ⚠).
 Kết quả: 26/28 `KHỚP` / `KHỚP (chia theo size)`, 2 `CẦN KIỂM TAY`; file `INB_20260908_08.09.2026.xlsx` đủ 233 dòng, 219 dòng Invoice
 Quantity trùng 100 % với file buyer đã điền, 14 dòng còn lại để trống chờ điền tay (buyer đã điền 10/7/11/12/6/6/6 và 32/95/106/55/38/32/32
 — không suy ra được từ chứng từ); phụ phí 50 khớp Surcharge Item; chạy chung với Capital, Carvico, Celeb không ảnh hưởng nhau.
+
+## L. Lô huấn luyện 07.10.2026 — 32 bộ / 28 chủ hàng (v11.13, 09.10.2026)
+
+Cách làm: giải nén thư mục buyer gửi, chạy từng thư mục con qua công cụ (trình duyệt không giao diện), so file `INB_…` với inbound đã
+điền theo khóa PO + Material + Size + Spec; inbound không có `Invoice Number` coi là bản SAP xuất thô (không có đáp án, chỉ xét tính
+hợp lý); thư mục có inbound của hóa đơn khác (Hing Yip SO260717028, Bemis trong thư mục Luen Hing) thì chỉ so các dòng cùng số HĐ.
+Lượt 1 (v11.12): 13/32 trùng 100 %. Lượt 2 (v11.13): **20/32**, 9 bộ inbound thô hợp lý, 3 bộ vướng dữ liệu.
+
+**L1. Luật chung mới trong `analyzeFab`.**
+- `roomRaw(r)` = chỗ còn nhận của một dòng inbound; `grRow`: dòng duy nhất mà `Delivered Qty` đúng bằng SL hóa đơn → lô này đã nhập kho
+  trước khi đối chiếu, khi tính chỗ còn nhận (`roomOf`, `room`, `delivEff`) trừ lô này ra. Derun (419,7 / 97,84 / 579,71 / 709,12 đều =
+  Delivered) và AIM High (3792 = Delivered) hết báo `VƯỢT DUNG SAI` sai; ghi chú "hàng đã nhập kho trước".
+- Đổi dòng theo số lượng: `hit` chỉ có một dòng cùng màu nhưng `roomRaw < q` (sẽ vượt dung sai), trong khi có đúng một dòng khác cùng
+  `Supplier Ref` (hoặc cùng mã) + cùng size có `Quantity` đúng bằng q và còn chỗ → dùng dòng đó, `pickedByQty`, ghi chú kiểm lại màu.
+  Dongguan Uwork: hóa đơn in màu "BLACK" ở giữa khối 3 dòng size nên dòng "12 · 40" bị gán màu PALE NUDE; nay vào đúng dòng BLACK 40.
+- `onePoByArtColor()`: PO hệ cũ không tra được (`PT.WINNER1-0667`, không có file PO SCAF-SCAX) hoặc dòng không ghi PO khi các dòng
+  khác có → dò mã (artHit / refHit) + màu (≥ 3) + còn chỗ trên mọi dòng inbound, **ưu tiên PO không xuất hiện trên hóa đơn**, chỉ nhận
+  khi còn đúng một PO. PT Winner 115: dòng 392 m BLACK → WIN0002700 (đã giao 3.305,5 / 3.697).
+- `supplierCheck`: tên hiển thị = Partner Name của inbound theo PO của hóa đơn → tên mẫu riêng → tên đọc từ chứng từ (hết hiện địa chỉ
+  Scavi "No 14, 19A Street…" hay chữ Hoa). `TRAINED_SUPPLIERS`: `PT Winner` dùng `/WINNER/` (bắt `WINNERSUMBIRI`).
+- `gen.js pdfInvNo`: thêm mẫu `INVOICE NO. E 26162` (chữ + khoảng trắng + số) cho bản scan Prestige/TPCS.
+
+**L2. Mẫu riêng mới (`src/fab.js`).**
+- **Chuangjie** (`readChuangjie`, `profile: 'CHUANGJIE'`): trước bị `fabProfile` nhận nhầm là Techwork (cùng `QTY/M` + `SURCHARGE` +
+  sheet `Packing List`) → nay kiểm `CHUANGJIE` trước. Sheet Invoice: PO / mô tả / ITEM chỉ ở dòng đầu nhóm (kế thừa), màu
+  `LAVENDERICE-TL229887-F` tách tên màu + lapdip (`_x0002_` → khoảng trắng), dòng `Surcharge of Additional Qty …` → `surchargeHeader`
+  (SAP ghi 130 vào Surcharge Item của một dòng; hóa đơn có 2 × 130 → báo ⚠ khác phụ phí), `amountInclSur: false`. Packing list dùng
+  `techworkPkl()` (tách từ readTechwork, dùng chung).
+- **Yibei** (`readYibei`, `'YIBEI'`): sheet `IV` (PO Number | ITEM | DESCRIPTION "Bra cup M" → size | COLOR | Qauntities(PRS)), đơn vị PAA;
+  sheet `PL`: dòng chỉ có PO, rồi CTN | Descripctions | Size | Color | CTNS | Qty/CTN | Quantity — số thùng = CTNS × Qty/CTN (thùng 24 chia
+  M 9 + L 170, cột Quantity ghi tổng 179 nên không dùng). Hết `LỆCH PKL` giả (3.573 / 1.160 khớp).
+- **Luen Hing** (`readLuenHing` / `readLuenHingPkl`, `'LUENHING'`): hóa đơn PDF mỗi thùng một dòng (`775-775 1 PO: LHT0012200` →
+  `WS6206X18(LF610143F) LF610143F 503.00 M USD 0.2010 USD 101.10` → mô tả + màu), gộp theo PO | article | lapdip; `lhArticle`:
+  `WR81077-05N` → `WR81077-5` ↔ Supplier Ref `TAPE WR81077/5`; lapdip `LF69932A` ↔ `LF69932-A`. Packing list: thùng + `@ qty` + dòng
+  article + dòng tổng thùng. (Lượt 1 không chạy được vì tên file có khoảng trắng không ngắt U+00A0 làm bộ thả file tự động lỗi — trình
+  duyệt thật không ảnh hưởng.)
+- **Hoa Nghiêm Vina** (`readHoaNghiem` / `readHoaNghiemPkl`, `'HOANGHIEM'`, VND): dòng hàng tách 3 dòng chữ; mã hàng = mảnh cuối dòng
+  trên (`YN6044`, `YM661`) + mảnh đầu dòng dưới (`8/3`, `33/7P`); PO giữa hai dấu `/`; màu = đoạn sau dấu `/` cuối (`G08A BROWN`);
+  số kiểu Việt `6.110,00`; Invoice Number `1C26THN#00000460`. Phiếu đóng hàng: `1-10 YM66133/7P 1500 M` + mã màu `(N07A` dòng trên +
+  `PO:HNV0000600 … BLACK)` dòng dưới → nhóm PO | mã | màu | thùng. Trước đây hóa đơn không đọc ra dòng hàng và phiếu đóng hàng bị dùng
+  làm "chứng từ" (3 dòng, 1 `VƯỢT DUNG SAI` 3.790 vs PO 770).
+
+**L3. Bảng kết quả theo bộ** (đáp án = inbound buyer đã điền; "thô" = inbound SAP xuất chưa điền).
+
+| Bộ | Loại | Kết quả v11.13 | Ghi chú |
+|---|---|---|---|
+| CAPITAL · CARVICO · CHEUNG HING | mẫu riêng | 8/8 · 7/7 · 233/233 | như v11.9–v11.12 |
+| CELEB | mẫu riêng, thô | 3 KHỚP (trong dung sai) | Unltd Overdelivery |
+| CHUANGJIE | mẫu riêng, thô (IQ đã điền, không số HĐ) | 8/8 SL trùng; 3 `VƯỢT DUNG SAI` thật | buyer vẫn điền 827/254/1098 vượt OTQ |
+| DERUN · AIM HIGH | bộ đọc chung, thô | 4 + 2 dòng KHỚP | hàng đã nhập kho trước (L1) |
+| DJIC · FUJIAN BAIKAI · BEST PACIFIC · JUNYE · STRETCHLINE ×2 · CHAIN GUAN · DONGGUAN UWORK · HING YIP | bộ đọc chung | 100 % | Junye: 4 dòng `LỖI` là PO không có trong inbound (đúng); Hing Yip: dòng SO260717028 thuộc HĐ khác |
+| PADDIES · PRESTIGE · BRUGNOLI | bộ đọc chung + OCR | 100 % | Prestige số HĐ `E 26162`; Brugnoli OCR ~45 s |
+| FREETEX | bộ đọc chung | SL 2/2, số HĐ khác cách ghi | buyer `1C26TFT#878`, công cụ `1C26TFT#00000878` (chuẩn ITL); `.doc` thật ra là RTF |
+| PT WINNER 115 · 124 | bộ đọc chung | SL 5/5 · 4/4 | 115: file đáp án ghi 04.09.2025, hóa đơn in 04.09.2026; PO hệ cũ → WIN0002700 (L1) |
+| FUJIAN HONGGANG · PIONEER · S&M · VINITY · SEAMLESS | bộ đọc chung, thô | hợp lý | Seamless: "PROFORMA INVOICE" thực là debit note phí ép mút → bỏ qua đúng |
+| YIBEI · LUEN HING · HOA NGHIÊM | mẫu riêng mới | 2/2 · 4/4 · 5/5 | packing list khớp từng dòng |
+| SUNPO | — | không so được | inbound kèm theo là HĐ CI80007160 (10.09), chứng từ CI80007172 (17.09) |
+| VANESSA | — | không đọc được | scan mờ, OCR không ra bảng |
+
+## Thay đổi của v11.13 (09.10.2026) — lô huấn luyện 32 bộ: 4 mẫu riêng mới + 5 luật chung
+
+- Mẫu riêng Chuangjie, Yibei, Luen Hing, Hoa Nghiêm (L2); `techworkPkl()` dùng chung.
+- Luật chung: hàng đã nhập kho trước; đổi dòng theo số lượng; PO hệ cũ / dòng không PO dò theo mã + màu ưu tiên PO chưa có trên hóa đơn;
+  tên chủ hàng theo Partner Name; từ khóa WINNER; số HĐ scan `E 26162` (L1).
 
 ## Thay đổi của v11.12 (09.10.2026) — mẫu riêng Cheung Hing + giữ dòng CẦN KIỂM TAY + lọc đơn vị
 

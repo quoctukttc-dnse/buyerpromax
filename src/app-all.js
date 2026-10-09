@@ -671,7 +671,7 @@ const TRAINED_SUPPLIERS = [
   ['Chuangjie', /CHUANGJIE/], ['Derun', /\bDERUN\b/], ['DJIC', /\bDJIC\b/], ['Dongguan Uwork', /UWORK/],
   ['Freetex', /FREETEX/], ['Fujian Baikai', /BAIKAI/], ['Fujian Honggang', /HONGGANG/], ['Hing Yip', /HING\s*YIP/],
   ['Hoa Nghiêm', /HOA\s*NGHIEM/], ['Best Pacific', /BEST\s*PACIFIC/], ['Junye', /\bJUNYE\b/], ['Luen Hing', /LUEN\s*HING/],
-  ['Pioneer', /\bPIONEER\b/], ['PT Winner', /\bWINNER\b/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
+  ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
   ['Vinity', /\bVINITY\b/],
@@ -695,7 +695,8 @@ function supplierCheck(g, cInb) {
   const byPo = (cInb && cInb.partnerByPo) || {};
   let parts = [...new Set((g.inv.sapPos || []).map((p) => byPo[String(p).toUpperCase()]).filter(Boolean))];
   if (!parts.length) parts = (cInb && cInb.partners) || [];
-  const name = fabSup || supplierNameOf(docLines) || parts[0] || '';
+  /* tên hiển thị: Partner Name của inbound (chuẩn SAP) → tên mẫu riêng → tên đọc từ chứng từ */
+  const name = (parts.length === 1 ? parts[0] : '') || fabSup || supplierNameOf(docLines) || parts[0] || '';
   const fromDoc = trainedSupplierOf([fabSup, docLines.join(' ')].join(' '));
   const fromInb = parts.length === 1 ? trainedSupplierOf(parts[0]) : '';   // nhiều chủ hàng trong cùng file → không kết luận từ inbound
   const trained = fromDoc || fromInb;
@@ -768,6 +769,20 @@ async function classify(file) {
       let cp = null;
       try { cp = readCarvicoPkl(lines, file.name); } catch (e) { cp = null; }
       if (cp && cp.pkl && cp.pkl.groups.length) { out = { kind: 'genpkl', score: 6, gen: cp, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
+    /* Luen Hing (phụ liệu, Hồng Kông): hóa đơn PDF theo thùng + packing list PDF */
+    if (!ocr && isLuenHingText(lines.join(' '))) {
+      let lh = null; try { lh = readLuenHing(lines); } catch (e) { lh = null; }
+      if (lh && lh.inv.items.length) { out = { kind: 'fab', score: 9, fab: lh, lines, pos: [...new Set(lh.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+      let lp = null; try { lp = readLuenHingPkl(lines, file.name); } catch (e) { lp = null; }
+      if (lp) { out = { kind: 'genpkl', score: 6, gen: lp, lines, pos: [...new Set(lp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    /* Hoa Nghiêm Vina: hóa đơn GTGT (VND, mã hàng tách 3 dòng) + phiếu đóng hàng */
+    if (!ocr && isHoaNghiemText(lines.join(' '))) {
+      let hn = null; try { hn = readHoaNghiem(lines); } catch (e) { hn = null; }
+      if (hn && hn.inv.items.length) { out = { kind: 'fab', score: 9, fab: hn, lines, pos: [...new Set(hn.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+      let hp = null; try { hp = readHoaNghiemPkl(lines, file.name); } catch (e) { hp = null; }
+      if (hp) { out = { kind: 'genpkl', score: 6, gen: hp, lines, pos: [...new Set(hp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* packing list PDF của Thiên Gia: PO + kích thước + mã code → dùng như packing list Excel theo PO */
     if (!ocr) {
