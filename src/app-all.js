@@ -827,6 +827,12 @@ async function classify(file) {
         return out;
       }
     }
+    /* packing list Excel của Cheung Hing (Box # | PO# | Description | Style | mã | Item | Quantity) */
+    {
+      let hp = null;
+      try { hp = readCheungHingPkl(wb, file.name); } catch (e) { hp = null; }
+      if (hp) { out = { kind: 'genpkl', score: 6, buf, gen: hp, pos: [...new Set(hp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
     /* packing list Excel của Suzhou Celeb (sheet 发货码单: Lot No. | Roll No. | PO Number | Color | Name | Q'ty(Y)) */
     {
       let cpk = null;
@@ -1865,17 +1871,18 @@ function renderDownloads() {
 
 function fillSapWorkbook(ws, H, rows, inv, onlyMatched) {
   const keep = new Set();
-  for (const row of rows) if (row.matched) keep.add(row.r);
+  for (const row of rows) if (row.matched || row.keepHand) keep.add(row.r);
   /* file SAP xuất ra đôi khi còn dòng rác (ô lẻ, không có số PO) — bỏ luôn,
      nếu giữ lại thì SAP sẽ báo lỗi hoặc tạo ra một dòng trống khi import */
   const toDelete = [];
   for (let r = 2; r <= ws.rowCount; r++) if (!keep.has(r)) toDelete.push(r);
   for (const row of rows) {
-    if (row.matched) {
+    if (row.matched || row.keepHand) {
       ws.getCell(row.r, H.invNo).value = inv.invNo;
       ws.getCell(row.r, H.invDate).value = inv.invDate;
       ws.getCell(row.r, H.invDate).numFmt = '@';
-      if (row.setQty != null && H.invQty) ws.getCell(row.r, H.invQty).value = row.setQty;
+      /* dòng CẦN KIỂM TAY (keepHand): để nguyên Invoice Quantity của file SAP cho buyer tự điền */
+      if (row.matched && row.setQty != null && H.invQty) ws.getCell(row.r, H.invQty).value = row.setQty;
     }
   }
   /* ô công thức (kể cả công thức dùng chung) → ghi giá trị, vì xoá dòng chủ sẽ làm ExcelJS không ghi được file */
@@ -2169,6 +2176,7 @@ function writeInvoiceReport(rs, R, inv, lines, VAL, g, withWidths) {
   }
   put(R++, ['Cộng tiền hàng (hóa đơn)', VAL.invTotal, VAL.currency || '']);
   if (VAL.surchargeHeader) put(R++, ['Trong đó phụ phí (dòng riêng trên hóa đơn)', VAL.surchargeHeader]);
+  if (VAL.surInb && (VAL.surchargeHeader || !VAL.surMatch)) put(R++, ['Phụ phí ghi trong inbound (cột Surcharge Item)', VAL.surInb, VAL.surMatch ? 'khớp phụ phí dòng riêng trên hóa đơn' : (VAL.surchargeHeader ? '⚠ khác phụ phí trên hóa đơn — kiểm tra' : '')]);
   if (VAL.hasInb && VAL.cmpCount) {
     if (VAL.pendingLines.length) put(R++, ['Phần đối chiếu được (hóa đơn)', VAL.invCmpTotal,
       `${VAL.pendingLines.length} dòng chưa điền Invoice Quantity nên chưa đối chiếu tiền`]);

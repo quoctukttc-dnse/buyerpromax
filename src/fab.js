@@ -224,6 +224,7 @@ function fabProfile(wb) {
   if (/MARKS\s*&\s*NOS/.test(t) && /INV\.?\s*NO/.test(t)) return 'HYU';
   if (/SCAVI\s*CODE/.test(t) && /PACKING LIST/.test(t)) return 'YUBO';
   if (/CELEB\s*TEXTILES/.test(t) && /INVOICE\s*NO/.test(t) && /PO\s*NO\./.test(t) && /DESCRIPTION OF GOODS/.test(t)) return 'CELEB';
+  if (/CHEUNG\s*HING/.test(t) && /INVOICE/.test(t) && /UNIT\s*PRICE/.test(t) && /DESCRIPTION/.test(t) && !/PACKING\s*LIST/.test(t)) return 'CHEUNGHING';
   return '';
 }
 
@@ -964,6 +965,110 @@ function readCelebPkl(wb, fname) {
   };
 }
 
+/* =====================  CHEUNG HING (Hồng Kông) — phụ liệu (hangtag / sticker / label), hóa đơn Excel + packing list Excel  =====================
+   Hóa đơn: "NO:20260908" · "Date :8/9/2026" (ngày/tháng/năm) · bảng Item | PO | Description | <Style-Mã> | Quantity | đơn vị | Unit Price | Total
+     dòng tiêu đề nhóm (HANGTAG / STICKER / LABEL) chỉ có cột C; dòng hàng: "1 | CH10034200 | Tag REC PAPER100, L63 XW63mm | Panache-PAN3ST | 4379 | pc | 0.076 | 332.804"
+     đơn vị pc / set / doz (inbound: PC / SET / DZ); dòng "BANK CHARGE | 1 | transation | 50 | 50" → phụ phí chung (surchargeHeader).
+   Mã hàng = phần sau dấu "-" của cột Style: Panache-PAN3ST → PAN3ST · Envy-7283 → 7283 · Sculptresse-SCLPST12/SCLPST_10 → SCLPST12/SCLPST_10
+     khớp cột Specification ("PAN3ST", "white blossom- 7283", "SCLPST12/SCLPST_10") hoặc Supplier Ref ("PANMLR PANACHE") của inbound.
+   Cùng mã ở hai đơn vị (Evangeline-11434: sticker pc + label doz) → lọc theo đơn vị. Sticker/label có nhiều dòng inbound theo SIZE:
+     tổng PO các size = SL hóa đơn → chia theo size (KHỚP (chia theo size)); khác → CẦN KIỂM TAY, giữ dòng trong file INB để điền tay.
+   Packing list: Box # | PO# | Description | Style | <mã> | Item | Quantity | đơn vị; dòng không ghi thùng/PO/mô tả thì kế thừa dòng trên. */
+const isCheungHingText = (t) => /CHEUNG\s*HING/i.test(t);
+const chSplitStyle = (style) => {
+  const t = String(style == null ? '' : style).replace(/\s+/g, ' ').trim();
+  const m = t.match(/^(.*?)\s*-\s*(.+)$/);
+  return m ? { brand: m[1].trim(), code: m[2].trim() } : { brand: '', code: t };
+};
+const CH_PO_RE = /^[A-Z]{2,4}\d{7,8}$/i;
+function readCheungHing(wb) {
+  const wi = wb.worksheets.find((w) => findRow(w, /ITEM.*\bPO\b.*DESCRIPTION.*QUANTITY/i, 30)) || wb.worksheets[0];
+  const hr = findRow(wi, /ITEM.*\bPO\b.*DESCRIPTION.*QUANTITY/i, 30);
+  if (!hr) return null;
+  let no = '', invDate = '';
+  for (let r = 1; r < hr; r++) for (let c = 1; c <= 14; c++) {
+    const t = T(wi, r, c);
+    let m;
+    if (!no && (m = t.match(/\bNO\s*[:.]?\s*([A-Z0-9][A-Z0-9\/-]{4,})/i))) no = m[1];
+    if (!invDate && (m = t.match(/\bDATE\s*[:.]?\s*(.+)$/i))) invDate = parseDateCell(m[1].trim()) || '';
+  }
+  const C = { no: colBy(wi, hr, /^ITEM/i) || 1, po: colBy(wi, hr, /^PO$/i) || 2, desc: colBy(wi, hr, /DESCRIPTION/i) || 3,
+    qty: colBy(wi, hr, /QUANTITY/i) || 5, price: colBy(wi, hr, /UNIT\s*PRICE/i) || 7, amt: colBy(wi, hr, /TOTAL/i) || 8 };
+  C.style = C.desc + 1; C.unit = C.qty + 1;
+  const items = [];
+  let cat = '', total = NaN, surchargeHeader = 0;
+  for (let r = hr + 1; r <= wi.rowCount; r++) {
+    const po = T(wi, r, C.po), desc = T(wi, r, C.desc);
+    const qty = N(wi, r, C.qty), amt = N(wi, r, C.amt);
+    if (/^(HANGTAG|STICKER|LABEL|TAG)S?$/i.test(desc) && !po) { cat = desc.toUpperCase(); continue; }
+    if (/BANK\s*CHARGE|HANDLING|COURIER|FREIGHT/i.test(desc) && !isNaN(amt)) { surchargeHeader = r3(surchargeHeader + amt); continue; }
+    if (!po && !desc && !isNaN(amt) && isNaN(qty)) { total = amt; continue; }        // dòng tổng chỉ có cột Total
+    if (/^REMARK/i.test(po) || /^REMARK/i.test(desc)) break;
+    if (!CH_PO_RE.test(po) || isNaN(qty) || qty <= 0) continue;
+    const style = T(wi, r, C.style).replace(/\s+/g, ' ').trim();
+    const { brand, code } = chSplitStyle(style);
+    const unit = unitKey(T(wi, r, C.unit) || 'pc');
+    const poS = poSap(po);
+    items.push({
+      poRaw: po, po: poS, article: code, brand, colorText: '', colorCode: '', colorShort: '',
+      desc: [cat, desc.replace(/\s+/g, ' '), style].filter(Boolean).join(' · '),
+      qtyByUnit: { [unit]: qty }, unit, qty, price: N(wi, r, C.price), surcharge: 0, amount: amt,
+      code: style || code, pklKey: poS + '|' + AZ(code) + '|' + unit,
+    });
+  }
+  if (!items.length) return null;
+  return {
+    profile: 'CHEUNGHING', supplier: 'Cheung Hing',
+    /* amountInclSur=false: thành tiền dòng = SL × đơn giá; phí ngân hàng (surchargeHeader) SAP ghi vào Surcharge Item của một dòng PO bất kỳ → so ở mức tổng */
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: 'PCS', surchargeHeader, total, totalQty: NaN, amountInclSur: false },
+    pkl: null,
+  };
+}
+function readCheungHingPkl(wb, fname) {
+  let head = '';
+  for (const w of wb.worksheets) for (let r = 1; r <= Math.min(8, w.rowCount); r++) head += rowText(w, r);
+  if (!isCheungHingText(head)) return null;
+  const groups = [];
+  for (const ws of wb.worksheets) {
+    const hr = findRow(ws, /BOX\s*#.*PO\s*#.*QUANTITY/i, 30);
+    if (!hr) continue;
+    const C = { box: colBy(ws, hr, /^BOX/i) || 1, po: colBy(ws, hr, /^PO\s*#/i) || 2, desc: colBy(ws, hr, /DESCRIPTION/i) || 4,
+      style: colBy(ws, hr, /^STYLE/i) || 5, item: colBy(ws, hr, /^ITEM/i) || 7, qty: colBy(ws, hr, /^QUANTITY/i) || 8 };
+    C.code = C.style + 1; C.unit = C.qty + 1;
+    let box = '', po = '', desc = '', style = '', code = '', item = '';
+    for (let r = hr + 1; r <= ws.rowCount; r++) {
+      const tPo = T(ws, r, C.po), tCode = T(ws, r, C.code), tItem = T(ws, r, C.item), tBox = T(ws, r, C.box);
+      if (/^REMARK/i.test(tPo) || /^REMARK/i.test(T(ws, r, C.desc - 1))) break;
+      if (!tPo && !tCode && !tItem) continue;                       // dòng cộng nhóm (chỉ có số) / ghi chú
+      const q = N(ws, r, C.qty);
+      if (tBox) box = tBox;
+      if (tPo && CH_PO_RE.test(tPo)) po = tPo;
+      if (T(ws, r, C.desc)) desc = T(ws, r, C.desc).replace(/\s+/g, ' ');
+      if (T(ws, r, C.style)) style = T(ws, r, C.style).trim();
+      if (tCode) code = tCode.replace(/\s+/g, '');
+      if (tItem) item = tItem.toUpperCase();
+      if (isNaN(q) || q <= 0 || !po || !code) continue;
+      const unit = unitKey(T(ws, r, C.unit) || 'pc');
+      const itemKey = poSap(po) + '|' + AZ(code) + '|' + unit;
+      const key = itemKey + '|' + AZ(box);
+      let g = groups.find((x) => x.key === key);
+      if (!g) {
+        g = { key, itemKey, po: poSap(po), poRaw: po, article: code, color: '', item, style, lot: box ? 'Thùng ' + box : '(không ghi thùng)', unit, rolls: [], total: 0 };
+        groups.push(g);
+      }
+      g.rolls.push({ no: String(g.rolls.length + 1), qty: q });
+      g.total = r3(g.total + q);
+    }
+  }
+  if (!groups.length) return null;
+  return {
+    profile: 'CHEUNGHING', supplier: 'Cheung Hing', role: 'pkl', file: fname || '',
+    inv: { no: '', invNo: '', invDate: '', items: [], currency: 'USD', unitDefault: 'PCS', total: NaN },
+    pkl: { groups, unit: 'PCS', level: 'lot', soft: false },
+    pklOnly: true,
+  };
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);
@@ -971,6 +1076,7 @@ function readFab(wb) {
   if (p === 'HYU') return readHyu(wb);
   if (p === 'YUBO') return readYubo(wb);
   if (p === 'CELEB') return readCeleb(wb);
+  if (p === 'CHEUNGHING') return readCheungHing(wb);
   return null;
 }
 
@@ -1084,6 +1190,11 @@ function analyzeFab(inv, pkl, rows, opts) {
     }
     let pool = matBy ? poRows.filter((r) => mats.includes(AZ(r.material)))
       : poRows.filter((r) => artHit(it.article, r.material, r.desc, r.spec, r.supRef) || (it.gen && refHit(r, invText)));
+    /* chứng từ ghi đơn vị (pc / doz / set): cùng mã nhưng khác đơn vị là mặt hàng khác (Cheung Hing: sticker tính cái, nhãn tính tá) */
+    if (pool.length > 1 && it.unit) {
+      const sameU = pool.filter((r) => unitKey(r.unit) === unitKey(it.unit));
+      if (sameU.length && sameU.length < pool.length) pool = sameU;
+    }
     const artOK = pool.length > 0;
     if (!pool.length) pool = poRows;
     /* size ghi trên chứng từ: giữ đúng size (nếu inbound có cột size) */
@@ -1321,6 +1432,11 @@ function analyzeFab(inv, pkl, rows, opts) {
     } else {
       status = 'KHỚP';
     }
+    /* CẦN KIỂM TAY: giữ nguyên các dòng ứng viên trong file INB (có số/ngày HĐ, Invoice Quantity để nguyên) để buyer điền tay */
+    if (status === 'CẦN KIỂM TAY' && hit.length) {
+      hit.forEach((r) => { r.keepHand = r.keepHand || it; });
+      note += ` Đã giữ ${hit.length} dòng này trong file INB (ghi sẵn số/ngày hóa đơn) — điền Invoice Quantity từng dòng bằng tay` + (!isNaN(q) ? ` cho đủ ${q}.` : '.');
+    }
     if (grDone && String(status).indexOf('KHỚP') === 0) note += ` Delivered Qty ${delivered} đã bằng SL hóa đơn — hàng đã nhập kho trước, chỉ cần ghi số/ngày hóa đơn.`;
     if (alloc.length && !unitBad && !isNaN(q) && Math.abs(hadQty - q) > EPS) {
       note += ` Đã ghi Invoice Quantity = ` + (split ? alloc.map((x) => `${x.qty} (${x.r.poV})`).join(' + ') : String(q))
@@ -1361,6 +1477,7 @@ function analyzeFab(inv, pkl, rows, opts) {
       ambiguous: hit.length > 1, usedVar: '', pickedByQty, altRows: alt.length,
       isFab: true, lots, qtyPo, overTol, delivered, unitUsed: inbUnit,
       alloc: alloc.map((x) => ({ po: x.r.poV, material: x.r.material, qty: x.qty })), split: split || splitSize, overflow,
+      surInb: alloc.length ? surSum : 0,
     });
   }
 
@@ -1379,6 +1496,9 @@ function analyzeFab(inv, pkl, rows, opts) {
   const VAL = {
     inbTotal, itemsTotal, invTotal, invCmpTotal, totalDiff, noInvoiceNo: !!inv.noInvoiceNo, noFrom: inv.noFrom || '',
     valueBad: valueLines.length > 0,
+    /* phụ phí ghi trong inbound (Surcharge Item của các dòng đã ghép) — đối chiếu với phụ phí dòng riêng trên hóa đơn khi hóa đơn không cộng phụ phí vào dòng hàng */
+    surInb: rd(lines.reduce((a, l) => a + (l.surInb || 0), 0)),
+    surMatch: !inv.amountInclSur && (inv.surchargeHeader || 0) > 0 && Math.abs(rd(lines.reduce((a, l) => a + (l.surInb || 0), 0)) - inv.surchargeHeader) <= aTol,
     totalBad: hasAmt && cmp.length > 0 && Math.abs(totalDiff) > aTol * Math.max(1, cmp.length),
     noAmounts: !hasAmt,
     valueLines, otherLines, pendingLines: [], cmpCount: cmp.length,

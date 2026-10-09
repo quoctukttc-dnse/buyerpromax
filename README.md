@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.11 — 10 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.12 — 11 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -37,6 +37,7 @@ Thả file `.xlsx` chứng từ vải vào cùng chỗ — công cụ tự nhậ
 | Capital Tricot (Thái Lan) | `INVOICE_SCAVI_…_CT-26-xxxT_PO.CAP…pdf` — **PDF**: trang INVOICE + các trang PACKING LIST theo kiện (v11.9) | YD |
 | Carvico S.p.A. (Ý) | `INV_28493.pdf` (FATTURA/INVOICE) + `PKL_851853_-_INV_28493.pdf`… (một PDF cho mỗi packing list) (v11.10) | M |
 | Suzhou Celeb (Trung Quốc) | `INV.xlsx` (sheet `INVOICE`, dòng `surcharge` riêng) + `PKL_1.xlsx`… (sheet `发货码单`, mỗi file một màu/lô) (v11.11) | YD |
+| Cheung Hing (Hồng Kông, phụ liệu) | `Invoice_to_Scavi_….xlsx` (hangtag / sticker / label, pc · set · doz) + `PACKING_LIST_to_Scavi_….xlsx` theo thùng (v11.12) | PC / SET / DZ |
 
 Hóa đơn và packing list nằm trong **cùng một file** nên không cần thả thêm gì ngoài file inbound
 (`ZMME0032….xlsx` hoặc file SAP xuất ra). Một file inbound dùng được cho **nhiều hóa đơn**.
@@ -125,6 +126,24 @@ màu viết lẫn ngoặc toàn góc / `TCX` (`True Red（19-1664 TCX）`) → s
 Khi `Delivered Qty` đã **đúng bằng** số lượng hóa đơn (hàng nhập kho trước khi đối chiếu hóa đơn, cột `Invoice Quantity` SAP xuất ra
 âm) công cụ ghi chú "hàng đã nhập kho trước, chỉ cần ghi số/ngày hóa đơn" và vẫn điền Invoice Quantity = số lượng hóa đơn.
 
+## Cheung Hing — phụ liệu (hangtag / sticker / label), hóa đơn Excel + packing list Excel theo thùng (v11.12)
+
+Hóa đơn `NO:20260908`, `Date :8/9/2026` (ngày/tháng/năm), bảng `Item | PO | Description | Style-Mã | Quantity | đơn vị | Unit Price | Total`
+chia nhóm HANGTAG / STICKER / LABEL; đơn vị `pc` / `set` / `doz` khớp `PC` / `SET` / `DZ` của inbound. Mã hàng là phần sau dấu `-` của
+cột Style (`Panache-PAN3ST` → `PAN3ST`, `Envy-7283` → `7283`, `Sculptresse-SCLPST12/SCLPST_10`) → dò trong `Specification` / `Supplier Ref`.
+
+- **Cùng mã, khác đơn vị** (`Evangeline-11434` vừa là sticker tính cái vừa là nhãn tính tá) → lọc dòng inbound theo đơn vị (luật chung mới).
+- **Sticker / nhãn có nhiều dòng inbound theo size:** tổng PO các size = số lượng hóa đơn → `KHỚP (chia theo size)`, điền từng size theo PO
+  (`Envy-7285A` 3.217 cái chia vào 69 dòng size). Tổng khác số lượng hóa đơn (giao thiếu vài size, packing list không ghi size) →
+  `CẦN KIỂM TAY`; **từ v11.12 các dòng này vẫn được giữ trong file `INB_…`** (đã ghi số/ngày hóa đơn, Invoice Quantity để nguyên)
+  để buyer điền tay cho đủ, không bị cắt khỏi file nữa.
+- **Phí ngân hàng** (`BANK CHARGE 50`) là phụ phí dòng riêng; SAP ghi vào cột `Surcharge Item` của một dòng PO bất kỳ → công cụ so ở
+  mức tổng (dòng "Phụ phí ghi trong inbound" trong sheet hóa đơn), không bắt dòng PO đó phải cộng 50 vào thành tiền.
+- Packing list theo thùng (`Box # | PO# | Description | Style | mã | Item | Quantity`); dòng không ghi thùng / PO / mô tả kế thừa dòng
+  trên; một thùng chứa nhiều PO. Ghép với hóa đơn bằng PO + mã + đơn vị; sheet `CHI TIET LO` liệt kê theo thùng.
+- Kiểm thử bộ `20260908` (18 PO, 28 dòng hóa đơn, 233 dòng inbound): 26/28 dòng khớp (219 dòng inbound tự điền trùng 100 % với file buyer
+  đã điền), 2 dòng giao thiếu theo size (`11434` sticker 390/394, nhãn 58/73) → `CẦN KIỂM TAY`, 14 dòng giữ lại để điền tay.
+
 ## Chủ hàng chưa huấn luyện → đề nghị liên hệ (v11.7, cột "Chủ hàng" v11.10)
 
 Ngay sau khi thả file, bảng hóa đơn có cột **Chủ hàng**: tên chủ hàng + `mẫu riêng` / `bộ đọc chung`, hoặc nhãn đỏ
@@ -144,7 +163,7 @@ nhắc. Người liên hệ đặt ở hằng `CONTACT`. Huấn luyện xong ch�
 
 ## Bộ đọc chung — chủ hàng chưa có mẫu riêng (v11)
 
-Mọi file Excel/PDF khác (Cheung Hing, Derun, DJIC, Dongguan Uwork, Freetex,
+Mọi file Excel/PDF khác (Derun, DJIC, Dongguan Uwork, Freetex,
 Fujian Baikai, Fujian Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer,
 PT Winner, S&M, Seamless, Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan…) được đọc bằng
 bộ đọc chung: tìm bảng hàng bằng từ khoá tiêu đề, lấy số lượng/đơn vị/giá/PO/mã/màu/size/lô, rồi dò
@@ -211,7 +230,7 @@ và ghi rõ *CHƯA CÓ INBOUND*.
 | `KHỚP (trong dung sai)` | *(vải)* Giao vượt `Quantity` nhưng còn trong `Over Tolerance Qty` — hợp lệ |
 | `VƯỢT DUNG SAI` | *(vải)* **Đỏ** — vượt `Over Tolerance Qty`, SAP sẽ báo lỗi khi import |
 | `SAI ĐƠN VỊ` | *(vải)* Hóa đơn không có con số cùng đơn vị với `Base Unit of Measure` của inbound |
-| `CẦN KIỂM TAY` | *(vải)* Nhiều dòng inbound cùng điểm khớp — công cụ không tự điền |
+| `CẦN KIỂM TAY` | *(vải)* Nhiều dòng inbound cùng điểm khớp — công cụ không tự điền; các dòng đó vẫn được giữ trong file `INB_…` (có số/ngày HĐ) để điền tay (v11.12) |
 | `KHỚP (chia nhiều PO)` | *(Yubo)* Cùng mã Material có ở nhiều PO — đã chia theo PO cũ trước (FIFO), xem sheet `PHAN BO PO` |
 | nhãn `thiếu ký hiệu HĐ` | *(Yubo)* Ô `HD:` chỉ có số — thả kèm file PDF hóa đơn GTGT là điền đủ ký hiệu + số |
 | nhãn `lệch hóa đơn GTGT` | Tổng tiền hàng trên PKL khác `Cộng tiền hàng` trên hóa đơn PDF — kiểm tra lại |

@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.11)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.12)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,8 +972,8 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 10 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
-  Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb) + các chủ hàng đã chạy thử bằng bộ đọc chung (Cheung Hing, Chuangjie, Derun, DJIC,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 11 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+  Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing) + các chủ hàng đã chạy thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
   không phân biệt hoa/thường. **Không** dùng chữ "BLAO"/"SCAVI" làm dấu hiệu vì đó là tên người mua.
@@ -1117,6 +1117,54 @@ vẫn điền Invoice Quantity = SL hóa đơn vì file SAP đang để số âm
 gửi là bản SAP xuất **chưa điền** (Invoice Quantity −14/−9/−14, không có số HĐ) nên đáp án dựng từ hóa đơn: Invoice Quantity 693 / 449 / 694,
 `CELEB260807-3`, `07.08.2026` → file `INB_…` trùng 100 %; 3/3 `KHỚP (trong dung sai)`, packing list khớp từng dòng, tổng tiền
 4.603,53 = inbound (kể cả phụ phí). Chạy chung với Capital + Carvico không ảnh hưởng nhau.
+
+## H. Cheung Hing — phụ liệu, hóa đơn Excel + packing list Excel theo thùng (từ v11.12, 09.10.2026)
+
+Chủ hàng phụ liệu Hồng Kông (hangtag, sticker, label), đi qua luồng vải (`analyzeFab`) vì chứng từ là Excel có PO SAP sẵn. Trước v11.12
+bộ đọc chung đã điền đúng 26/28 dòng nhưng: packing list ghép sai mã (nhóm sticker `7283` mang mã `PAN3ST`), hai dòng `CẦN KIỂM TAY` bị
+**cắt khỏi file INB** (buyer không có chỗ điền tay), và phí ngân hàng làm lệch tổng. Nay có mẫu riêng `readCheungHing` + `readCheungHingPkl`
+(`src/fab.js`, `profile: 'CHEUNGHING'`): hóa đơn nhận theo `CHEUNG HING` + `INVOICE` + `UNIT PRICE` (không có `PACKING LIST`);
+packing list theo `CHEUNG HING` + hàng tiêu đề `Box # … PO# … Quantity`.
+
+**H1. Hóa đơn.** Số `NO:20260908`, ngày `Date :8/9/2026` → `parseDateCell` (ngày/tháng/năm vì 9 ≤ 12 không đảo) → `08.09.2026`; Invoice
+Number ghi `20260908`. Hàng tiêu đề `Item | PO | Description | Quantity | Unit Price | Total`; cột Style = cột sau Description, cột đơn vị =
+cột sau Quantity. Dòng chỉ có `HANGTAG` / `STICKER` / `LABEL` → nhóm hiện hành (đưa vào `desc`). Dòng hàng: PO dạng `CH10034200`
+(`CH_PO_RE` = 2–4 chữ + 7–8 số; `poSap` giữ nguyên 8 số), `article` = phần sau `-` của Style (`chSplitStyle`), `brand` = phần trước,
+đơn vị `pc`/`set`/`doz` → `PCS`/`SET`/`DZ` (bảng `UNIT_ALIAS`), `pklKey = PO | mã | đơn vị`. Dòng `BANK CHARGE` (PO = số hóa đơn, cột
+Total 50) → `surchargeHeader`; dòng chỉ có cột Total → tổng hóa đơn 5.949,832; dừng ở `REMARK`. `amountInclSur: false` (xem H4).
+Không so tổng số lượng (`totalQty` NaN) vì ba đơn vị khác nhau (70.116 pcs · 7.012 set · 2.712 doz).
+
+**H2. Dò inbound.** PO + `article` ⊂ `Specification` (`PAN3ST`, `white blossom- 7283`, `SCLPST12/SCLPST_10`) hoặc `Supplier Ref`
+(`PANMLR PANACHE`). **Luật chung mới — lọc theo đơn vị:** khi pool có nhiều dòng và chứng từ ghi đơn vị, chỉ giữ dòng inbound cùng
+`unitKey` nếu có (Evangeline-11434: 7 dòng sticker `PC` ≠ 7 dòng nhãn `DZ`). Màu trống → điểm màu 0, đơn giá trùng +1 → `hit` = mọi dòng
+cùng mã + đơn vị + giá. Một dòng → điền thẳng. Nhiều dòng khác Material (các size): `splitSize` khi Σ(PO − đã giao) = SL hóa đơn →
+`KHỚP (chia theo size)`, mỗi size điền đúng số PO (`Envy-7285A` 3.217 → 69 dòng; `11435` 2.650 → 60 dòng); không bằng → `CẦN KIỂM TAY`
+(`11434` sticker 390 ≠ 394, nhãn 58 ≠ 73 — packing list chỉ ghi "Label with size details", không có số theo size).
+
+**H3. Giữ dòng CẦN KIỂM TAY trong file INB (luật chung mới).** Các dòng ứng viên của một dòng `CẦN KIỂM TAY` được đánh dấu
+`r.keepHand`; `fillSapWorkbook` giữ chúng lại (trước đây bị xoá vì không `matched`), ghi sẵn `Invoice Number` / `Invoice date`, **không
+đụng** `Invoice Quantity` (giữ số SAP xuất sẵn) để buyer điền tay; ghi chú của dòng nói rõ "Đã giữ n dòng … điền cho đủ q".
+
+**H4. Phí ngân hàng ↔ Surcharge Item.** Inbound ghi 50 USD vào `Surcharge Item` của **một** dòng PO bất kỳ (CH10037500 · PAN3ST). Nếu cộng
+phụ phí vào thành tiền dòng (`amountInclSur: true`) thì dòng đó bị `LỆCH GIÁ TRỊ` lệch đúng 50. Vì vậy mẫu Cheung Hing dùng
+`amountInclSur: false` (thành tiền dòng = SL × đơn giá) và so phụ phí ở **mức tổng**: `VAL.surInb` = Σ `Surcharge Item` của các dòng đã
+ghép, `VAL.surMatch` khi bằng `surchargeHeader`; sheet hóa đơn in dòng "Phụ phí ghi trong inbound (cột Surcharge Item) 50 — khớp phụ phí
+dòng riêng trên hóa đơn" (khác thì ⚠).
+
+**H5. Packing list.** `Box # | PO# | Description | Style | mã | Item | Quantity | đơn vị`: thùng / PO / mô tả / style ghi một lần rồi kế thừa
+(dòng 36 `7285A STICKER 3217 pc` chỉ có mã → PO + mô tả của dòng trên); bỏ dòng chỉ có số (cộng nhóm `70116`, `7012`, `2712`), dừng ở
+`REMARK`. Nhóm = PO | mã | đơn vị | thùng (`Thùng 4` chứa cuối PO CH10035000 + đầu CH10036100). Ghép hóa đơn ↔ packing list theo
+`pklKey` chính xác; `SCLPST12/ SCLPST-10` ↔ `SCLPST12/SCLPST_10` bằng nhau sau AZ.
+
+**H6. Kiểm thử** bộ `20260908` (08.09.2026): 18 PO `CH100342…CH100402`, 28 dòng hóa đơn, 233 dòng inbound, packing list 38 nhóm thùng.
+Kết quả: 26/28 `KHỚP` / `KHỚP (chia theo size)`, 2 `CẦN KIỂM TAY`; file `INB_20260908_08.09.2026.xlsx` đủ 233 dòng, 219 dòng Invoice
+Quantity trùng 100 % với file buyer đã điền, 14 dòng còn lại để trống chờ điền tay (buyer đã điền 10/7/11/12/6/6/6 và 32/95/106/55/38/32/32
+— không suy ra được từ chứng từ); phụ phí 50 khớp Surcharge Item; chạy chung với Capital, Carvico, Celeb không ảnh hưởng nhau.
+
+## Thay đổi của v11.12 (09.10.2026) — mẫu riêng Cheung Hing + giữ dòng CẦN KIỂM TAY + lọc đơn vị
+
+- Mẫu riêng Cheung Hing (mục H). Luật chung: lọc dòng inbound theo đơn vị của chứng từ (H2); dòng `CẦN KIỂM TAY` giữ trong file INB
+  với số/ngày hóa đơn (H3); phụ phí dòng riêng so với Σ `Surcharge Item` khi chứng từ không cộng phụ phí vào dòng (H4).
 
 ## Thay đổi của v11.11 (09.10.2026) — mẫu riêng Suzhou Celeb + PO giao vượt không giới hạn
 

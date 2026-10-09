@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.11 · 09.10.2026 · 10 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.12 · 09.10.2026 · 11 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -162,6 +162,11 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         (<code>Lot No. | Roll No. | PO Number | Color | Name | Q'ty(Y)</code>), màu có ngoặc toàn góc / TCX vẫn ghép đúng.</li>
         <li><b>PO giao vượt không giới hạn</b> (v11.11): inbound có <em>Unltd Overdelivery</em> = <code>X</code> → không kiểm dung sai, giao vượt PO là
         <b>KHỚP (trong dung sai)</b> kèm ghi chú; <em>Delivered Qty</em> đã bằng SL hóa đơn (hàng nhập kho trước) → ghi chú, vẫn điền Invoice Quantity.</li>
+        <li><b>Cheung Hing</b> (v11.12) — phụ liệu (hangtag / sticker / label), hóa đơn Excel <code>Item | PO | Description | Style-Mã | Quantity | pc·set·doz | Unit Price | Total</code>
+        + packing list Excel theo thùng. Mã = phần sau dấu <code>-</code> của Style (<code>Envy-7283</code>) dò trong <em>Specification</em> / <em>Supplier Ref</em>;
+        cùng mã khác đơn vị thì lọc theo đơn vị; sticker/nhãn nhiều size: tổng PO = SL hóa đơn → <b>chia theo size</b>, khác → <b>CẦN KIỂM TAY</b>.
+        Phí ngân hàng (dòng riêng) so với cột <em>Surcharge Item</em> ở mức tổng.</li>
+        <li><b>Dòng CẦN KIỂM TAY</b> (v11.12) không còn bị cắt khỏi file <code>INB_…</code>: giữ nguyên, ghi sẵn số/ngày hóa đơn, <em>Invoice Quantity</em> để trống/giữ số SAP cho buyer điền tay.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
