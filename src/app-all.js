@@ -2021,10 +2021,10 @@ async function run() {
 
       if (rows) {
         const stamp = `${String(inv.invNo || 'CHUA-CO-SO-HD').replace(/[#\\\/:*?"<>|&]/g, '-')}_${inv.invDate}`;
-        if (mergeInb && inbUse.get(g.inb.file) > 1) {
+        if (mergeInb && groups.filter((x) => x.inb).length > 1) {
           if (!merged.has(g.inb.file)) merged.set(g.inb.file, []);
           merged.get(g.inb.file).push({ buf: cInb.buf, H, rows, inv, name: g.inb.file.name });
-          log(`  Hóa đơn này sẽ được gộp chung file INB với các hóa đơn khác dùng cùng inbound ${g.inb.file.name}.`, 'ok');
+          log(`  Hóa đơn này sẽ được gộp vào một file INB chung với các hóa đơn khác đang chọn (inbound ${g.inb.file.name}).`, 'ok');
         } else {
           const kept = fillSapWorkbook(wsSap, H, rows, inv, onlyMatched);
           await addDownload(wbSap, `INB_${stamp}.xlsx`, `Import SAP – ${inv.invNo} (${kept} dòng)`, 'main');
@@ -2041,13 +2041,33 @@ async function run() {
       }
     }
 
-    /* file INB gộp: một file inbound ↔ nhiều hóa đơn; dòng PO được nhiều hóa đơn giao thì nhân thêm dòng (mỗi dòng một số HĐ) */
-    for (const [, entries] of merged) {
-      const mg = await buildMergedInb(entries, onlyMatched);
-      const nos = entries.map((e) => e.inv.invNo);
-      const stamp = nos.map((x) => String(x || 'CHUA-CO-SO-HD').replace(/[#\\\/:*?"<>|&]/g, '-')).join('+').slice(0, 80);
-      await addDownload(mg.wb, `INB_GOP_${stamp}_${entries[0].inv.invDate}.xlsx`, `Import SAP – GỘP ${entries.length} hóa đơn (${mg.kept} dòng${mg.dup ? `, ${mg.dup} dòng nhân đôi` : ''})`, 'main');
-      log(`── File INB gộp ${entries.length} hóa đơn (${nos.join(', ')}): ${mg.kept} dòng${mg.dup ? `, trong đó ${mg.dup} dòng PO giao nhiều lần được nhân thêm dòng` : ''}; tổng Surcharge Item của các dòng giữ lại: ${fmt(mg.surSum)}.`, 'ok');
+    /* file INB gộp: trước hết gộp theo từng file inbound (dòng PO được nhiều hóa đơn giao thì nhân thêm dòng, mỗi dòng một số HĐ);
+       nhiều file inbound cùng mẫu cột (cùng tiêu đề dòng 1) thì nối tiếp các dòng vào MỘT file; khác mẫu cột thì để riêng và báo. */
+    if (merged.size) {
+      const parts = [];
+      for (const [, entries] of merged) parts.push({ entries, ...(await buildMergedInb(entries, onlyMatched)) });
+      const headOf = (wb) => (wb.worksheets[0].getRow(1).values || []).map((v) => String(v == null ? '' : v).trim().toLowerCase()).join('|');
+      const out = [];
+      for (const pt of parts) {
+        const same = out.find((o) => o.head === headOf(pt.wb));
+        if (!same) { out.push({ head: headOf(pt.wb), wb: pt.wb, entries: pt.entries.slice(), kept: pt.kept, dup: pt.dup, surSum: pt.surSum, files: [pt.entries[0].name] }); continue; }
+        const ws = same.wb.worksheets[0], src = pt.wb.worksheets[0];
+        const H = headerIndex(ws);
+        for (let r = 2; r <= src.rowCount; r++) {
+          const vals = (src.getRow(r).values || []).slice(1).map((v) => (v && typeof v === 'object' && !(v instanceof Date) && v.result !== undefined ? v.result : v));
+          if (!vals.some((v) => v != null && v !== '')) continue;
+          const row = ws.addRow(vals);
+          if (H.invDate) row.getCell(H.invDate).numFmt = '@';
+        }
+        same.entries = same.entries.concat(pt.entries); same.kept += pt.kept; same.dup += pt.dup; same.surSum += pt.surSum; same.files.push(pt.entries[0].name);
+      }
+      if (out.length > 1) log(`⚠ Các file inbound không cùng mẫu cột nên không nối vào một file được — xuất ${out.length} file INB gộp.`, 'warn');
+      for (const o of out) {
+        const nos = o.entries.map((e) => e.inv.invNo);
+        const stamp = nos.map((x) => String(x || 'CHUA-CO-SO-HD').replace(/[#\\\/:*?"<>|&]/g, '-')).join('+').slice(0, 80);
+        await addDownload(o.wb, `INB_GOP_${stamp}_${o.entries[0].inv.invDate}.xlsx`, `Import SAP – GỘP ${o.entries.length} hóa đơn (${o.kept} dòng${o.dup ? `, ${o.dup} dòng nhân đôi` : ''})`, 'main');
+        log(`── File INB gộp ${o.entries.length} hóa đơn (${nos.join(', ')}) từ ${o.files.length} file inbound (${o.files.join(', ')}): ${o.kept} dòng${o.dup ? `, trong đó ${o.dup} dòng PO giao nhiều lần được nhân thêm dòng` : ''}; tổng Surcharge Item của các dòng giữ lại: ${fmt(o.surSum)}.`, 'ok');
+      }
     }
     const wbSum = new ExcelJS.Workbook();
     buildSummaryWorkbook(wbSum, all);
@@ -2522,6 +2542,11 @@ $('#clear').addEventListener('click', () => {
   OUTPUTS.length = 0;
   $('#report').innerHTML = ''; $('#log').innerHTML = ''; $('#dls').innerHTML = ''; $('#groups').innerHTML = ''; $('#detect').textContent = '';
   renderSlots();
+});
+/* đổi tùy chọn xuất file sau khi đã có kết quả → chạy lại ngay (trước đây phải tự bấm "Đối chiếu & xuất file") */
+['mergeInb', 'onlyMatched', 'perReport', 'useQty'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', () => { if (STATE.groups.length && !STATE.busy && OUTPUTS.length) { log(`Đã đổi tùy chọn "${el.parentElement.textContent.trim().slice(0, 60)}" — chạy lại…`, 'ok'); run(); } });
 });
 $('#dlall').addEventListener('click', () => {
   OUTPUTS.forEach((o, i) => setTimeout(() => $('#dlx' + i).click(), i * 400));

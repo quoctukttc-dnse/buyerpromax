@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.14 — 16 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.15 — 16 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -157,9 +157,10 @@ lấy *Cust.No* làm mã Material SAP để dò thẳng dòng inbound, gộp cá
 đẩy sang dòng trên-dưới (`MFKSTCSL000504` + `6`, `POTENT PURPLE 19-` + `2520TCX`). **Các file INB đã xuất trước v11.14 cho chủ hàng này
 cần xuất lại.**
 
-**Gộp hóa đơn (tùy chọn mới, ô tick "Gộp các hóa đơn dùng chung một file inbound vào một file INB"):** khi nhiều hóa đơn cùng dùng
-một file inbound SAP (một PO giao nhiều đợt, hoặc một đợt xuất gồm nhiều PO), công cụ ra **một** file `INB_GOP_<các số HĐ>_<ngày>.xlsx`
-thay cho từng file riêng. Mỗi dòng inbound mang đúng số/ngày hóa đơn của mình; dòng PO được từ hai hóa đơn trở lên giao thì được
+**Gộp hóa đơn (ô tick "Gộp tất cả hóa đơn đang chọn vào một file INB", v11.14–v11.15):** công cụ ra **một** file
+`INB_GOP_<các số HĐ>_<ngày>.xlsx` cho mọi hóa đơn đang chọn, kể cả khi mỗi hóa đơn ghép với một file inbound riêng (các file inbound
+cùng mẫu cột được nối tiếp nhau; khác mẫu cột thì để riêng và báo). Đổi ô tick sau khi đã có kết quả thì công cụ **tự chạy lại** (trước
+đây phải bấm lại "Đối chiếu & xuất file", nên tick muộn vẫn thấy 3 file cũ). Mỗi dòng inbound mang đúng số/ngày hóa đơn của mình; dòng PO được từ hai hóa đơn trở lên giao thì được
 **nhân thêm dòng** (mỗi dòng một số hóa đơn + số lượng). Dòng nhật ký ghi tổng *Surcharge Item* của các dòng giữ lại để đối chiếu phụ phí
 PO. Lưu ý: mỗi hóa đơn vẫn được đối chiếu độc lập, nên dung sai không cộng dồn giữa các hóa đơn trong cùng file gộp — kiểm cột
 *Over Tolerance Qty* khi nhiều hóa đơn cùng giao một dòng PO.

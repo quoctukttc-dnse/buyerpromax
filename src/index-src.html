@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.14 · 13.10.2026 · 16 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.15 · 13.10.2026 · 16 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -104,7 +104,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
     </div>
     <div class="row" style="margin-top:8px">
       <label class="chk"><input type="checkbox" id="onlyMatched" checked> File import SAP chỉ giữ các dòng thuộc hóa đơn</label>
-      <label class="chk"><input type="checkbox" id="mergeInb"> Gộp các hóa đơn dùng chung một file inbound vào <b>một</b> file INB (dòng PO giao nhiều lần được nhân thêm dòng, mỗi dòng một số hóa đơn)</label>
+      <label class="chk"><input type="checkbox" id="mergeInb"> Gộp <b>tất cả hóa đơn đang chọn</b> vào <b>một</b> file INB (kể cả khi mỗi hóa đơn có file inbound riêng; dòng PO giao nhiều lần được nhân thêm dòng, mỗi dòng một số hóa đơn)</label>
       <label class="chk"><input type="checkbox" id="perReport"> Xuất thêm file báo cáo chi tiết cho từng hóa đơn</label>
       <label class="chk"><input type="checkbox" id="ocr" checked> OCR PDF dạng ảnh (scan) — cần mạng, lần đầu tải bộ nhận dạng ~8 MB</label>
       <span id="ocrstat" class="hint"></span>
@@ -174,8 +174,9 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         cùng mã/size có số PO bằng SL hóa đơn → dùng dòng đó (kiểm lại màu); PO hệ cũ / dòng không ghi PO → dò mã + màu, ưu tiên PO chưa có trên hóa đơn;
         cột Chủ hàng lấy <em>Partner Name</em> của inbound.</li>
         <li><b>Best Pacific PDF</b> (v11.14): số lượng lấy theo <em>Usable Length</em> (mét), không lấy N.W.(KG); <em>Cust.No</em> = Material SAP.
-        <b>Gộp hóa đơn</b> (ô tick phía trên): nhiều hóa đơn dùng chung một file inbound → một file <code>INB_GOP_…</code>, dòng PO giao nhiều lần
-        được nhân dòng, mỗi dòng một số hóa đơn; nhật ký ghi tổng <em>Surcharge Item</em> của các dòng giữ lại.</li>
+        <b>Gộp hóa đơn</b> (ô tick phía trên, v11.15): mọi hóa đơn đang chọn → một file <code>INB_GOP_…</code>, kể cả khi mỗi hóa đơn ghép với một file inbound
+        riêng (các file inbound cùng mẫu cột được nối tiếp nhau); dòng PO giao nhiều lần được nhân dòng, mỗi dòng một số hóa đơn; nhật ký ghi tổng
+        <em>Surcharge Item</em> của các dòng giữ lại. Đổi ô tick sau khi đã có kết quả → công cụ tự chạy lại.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;

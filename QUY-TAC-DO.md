@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.14)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.15)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1242,9 +1242,13 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
 
 ## M. Gộp nhiều hóa đơn vào một file INB (từ v11.14)
 
-- Ô tick `#mergeInb`. Trong `run()`: đếm số hóa đơn đang chọn dùng chung từng file inbound (`inbUse`); khi bật gộp và ≥ 2 hóa đơn dùng
-  chung một file, không xuất file INB riêng mà gom `{buf, H, rows, inv}` vào `merged` theo file inbound; sau vòng lặp gọi
-  `buildMergedInb(entries, onlyMatched)`.
+- Ô tick `#mergeInb`. Trong `run()`: khi bật gộp và có ≥ 2 hóa đơn đang chọn có inbound, không xuất file INB riêng mà gom
+  `{buf, H, rows, inv}` vào `merged` theo file inbound; sau vòng lặp gọi `buildMergedInb(entries, onlyMatched)` cho từng file, rồi
+  (v11.15) **nối** các workbook có cùng tiêu đề dòng 1 vào workbook đầu tiên (`addRow` giá trị của từng dòng giữ lại, cột Invoice date
+  định dạng text); khác tiêu đề thì xuất riêng và báo ⚠. Lý do: buyer thường xuất mỗi hóa đơn một file ZMME, nên bản v11.14 (chỉ gộp các
+  hóa đơn **cùng** file inbound) không kích hoạt — màn hình vẫn 3 file.
+- (v11.15) Đổi bất kỳ ô tick xuất file nào (`mergeInb`, `onlyMatched`, `perReport`, `useQty`) khi đã có kết quả → `run()` chạy lại ngay;
+  trước đây công cụ tự chạy lúc thả file nên tick sau đó không có tác dụng cho tới khi bấm lại.
 - `buildMergedInb`: nạp template một lần, công thức → giá trị; gom theo số dòng template `row.r` (các hóa đơn đối chiếu trên cùng
   template nên `r` đồng nhất) danh sách `{inv, qty}` của những dòng `matched` / `keepHand`; duyệt **từ dòng cuối lên**: dòng có k hóa đơn →
   `duplicateRow(r, k−1, true)` rồi ghi số/ngày/Invoice Quantity cho r … r+k−1 (chèn dòng chỉ đẩy các dòng phía dưới đã xử lý xong);
@@ -1254,6 +1258,11 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   không bị cộng dồn khi kiểm dung sai — người dùng kiểm `Over Tolerance Qty` trên các dòng nhân đôi.
 - Công cụ không bao giờ ghi `Surcharge Item` / `Surcharge Header`: giá trị này do SAP xuất theo dòng PO; công cụ chỉ đọc để so với
   phụ phí trên hóa đơn (H4) và in trong sheet hóa đơn.
+
+## Thay đổi của v11.15 (13.10.2026) — gộp hóa đơn kể cả khác file inbound + tự chạy lại khi đổi ô tick
+
+- Gộp INB áp dụng cho mọi hóa đơn đang chọn, nối các file inbound cùng mẫu cột (mục M). Đổi ô tick xuất file → chạy lại ngay.
+- Kiểm thử: 2 hóa đơn Best Pacific với 3 file ZMME rời → một file `INB_GOP` 4 dòng; tick ô gộp sau khi đã có 2 file riêng → tự chạy lại ra file gộp.
 
 ## Thay đổi của v11.14 (13.10.2026) — mẫu riêng Best Pacific PDF + gộp hóa đơn vào một file INB
 
