@@ -1347,6 +1347,71 @@ function readHoaNghiemPkl(lines, fname) {
   };
 }
 
+/* =====================  BEST PACIFIC (Hồng Kông) — hóa đơn PDF (Excel đã đi bộ đọc chung)  =====================
+   Dòng hàng: "1 BES0006700 MFKSWRSL0004033 12315M BAINCO WHITE WP28100HP fabrics/76% Polyamide 160.0/63.0 250 B26083135
+   182.50 182.50 0.00 M 77.50 80.30 4 6.55 1195.38" = STT · PO · Cust.No (= Material SAP) · Quality · màu KH · mã màu BP · mô tả ·
+   khổ · g/m² · batch · Delivery Length · Usable Length (tính tiền) · Deduct · đơn vị · N.W.(KG) · G.W.(KG) · cuộn · đơn giá · tiền.
+   Inbound tính bằng MÉT → số lượng = Usable Length (bộ đọc chung từng lấy nhầm N.W. 217 kg thay vì 516 m). Ô Material / màu dài
+   có thể bị đẩy sang dòng trên/dưới ("MFKSTCSL000504" + "6", "POTENT PURPLE 19-" + "2520TCX"). Gộp các batch cùng PO + Material. */
+const isBestPacificText = (t) => /BEST\s*PACIFIC/i.test(t);
+function readBestPacific(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isBestPacificText(t) || !/Invoice\s*NO/i.test(t)) return null;
+  let no = '', invDate = '';
+  for (let i = 0; i < all.length; i++) {
+    if (!no && /Invoice\s*NO\.?\s*:/i.test(all[i])) { const m = (all[i] + ' ' + (all[i + 1] || '')).match(/Invoice\s*NO\.?\s*:\s*([A-Z0-9][A-Z0-9-]{4,})/i); if (m) no = m[1]; }
+    if (!invDate && /Invoice\s*Date/i.test(all[i])) { const m = (all[i] + ' ' + (all[i + 1] || '')).match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/); if (m) invDate = dmy(m[3], m[2], m[1]); }
+  }
+  const RE_MAT = /^[A-Z]{3}[A-Z0-9]{9,12}$/, RE_Q = /^\d{4,6}(?:-\d)?[A-Z]$/, RE_OC = /^[A-Z+][A-Z0-9+]*\d{3,}HP[A-Z]*$/;
+  const isNum = (x) => /^[\d,]+(?:\.\d+)?$/.test(x);
+  const map = new Map();
+  for (let i = 0; i < all.length; i++) {
+    const tk = all[i].split(' ');
+    if (tk.length < 16 || !/^\d{1,3}$/.test(tk[0]) || !/^[A-Z]{2,4}\d{7}$/.test(tk[1])) continue;
+    const n = tk.length;
+    const amount = Number(tk[n - 1].replace(/,/g, '')), price = Number(tk[n - 2]), nw = Number(tk[n - 5]), unitTk = tk[n - 6];
+    const usable = Number(tk[n - 8].replace(/,/g, '')), deliv = Number(tk[n - 9].replace(/,/g, '')), batch = tk[n - 10];
+    if (isNaN(amount) || isNaN(price) || isNaN(usable) || !/^(M|MTRS?|YDS?|KGS?)$/i.test(unitTk)) continue;
+    const mid = tk.slice(2, n - 12);
+    const prev = (all[i - 1] || '').split(' '), next = (all[i + 1] || '').split(' ');
+    let mat = mid.find((x) => RE_MAT.test(x)) || '';
+    if (!mat) { const pm = prev.find((x) => /^[A-Z]{3}[A-Z0-9]{8,12}$/.test(x)); if (pm) mat = pm + (pm.length < 15 && /^\d$/.test(next[0] || '') ? next[0] : ''); }
+    const quality = mid.find((x) => RE_Q.test(x)) || '';
+    const oc = mid.findIndex((x) => RE_OC.test(x));
+    let color = '';
+    const qi = mid.indexOf(quality);
+    if (oc > qi + 1) color = mid.slice(qi + 1, oc).join(' ');
+    else {
+      /* màu nằm ở dòng trên (sau Material) và nối tiếp ở dòng dưới (token thứ 2 nếu token đầu là số dính Material) */
+      const pi = prev.findIndex((x) => /^[A-Z]{3}[A-Z0-9]{8,12}$/.test(x));
+      const up = pi >= 0 ? prev.slice(pi + 1).filter((x) => !/^(fabrics|Dyed|Knitted|Polyamide|Elastane)/i.test(x) && !/\//.test(x)) : [];
+      const dn = next.slice(/^\d$/.test(next[0] || '') ? 1 : 0).filter((x) => /^[A-Z0-9-]+$/.test(x) && !/^(Polyamide|Elastane)/i.test(x));
+      color = (up.join(' ') + (up.length && /-$/.test(up[up.length - 1]) ? '' : ' ') + (dn[0] || '')).replace(/\s+/g, ' ').trim();
+    }
+    const po = poSap(tk[1]), unit = unitKey(unitTk);
+    const key = po + '|' + AZ(mat || quality + color);
+    let it = map.get(key);
+    if (!it) {
+      it = { poRaw: tk[1], po, article: quality, colorText: color, colorCode: '', colorShort: color, mats: mat ? [mat] : [], material: mat,
+        desc: [quality, color, mat].filter(Boolean).join(' · '), qtyByUnit: { [unit]: 0, KG: 0 }, unit, qty: 0, price, surcharge: 0, amount: 0,
+        code: quality + ' · ' + color, batches: [] };
+      map.set(key, it);
+    }
+    it.qty = r3(it.qty + usable); it.qtyByUnit[unit] = it.qty; it.qtyByUnit.KG = r3((it.qtyByUnit.KG || 0) + (isNaN(nw) ? 0 : nw));
+    it.amount = r3(it.amount + amount); it.batches.push({ batch, deliv, usable, nw });
+  }
+  const items = [...map.values()];
+  if (!items.length) return null;
+  const total = (() => { const m = t.match(/Total\s*總金額\(USD\)\s*:\s*([\d,]+\.\d+)/) || t.match(/Total[^\n]*?\(USD\)\s*:\s*([\d,]+\.\d+)/); return m ? Number(m[1].replace(/,/g, '')) : NaN; })();
+  const totalQty = (() => { const m = t.match(/合計\s*:\s*([\d,]+\.\d+)\s+([\d,]+\.\d+)/); return m ? Number(m[2].replace(/,/g, '')) : NaN; })();
+  return {
+    profile: 'BESTPACIFIC', supplier: 'Best Pacific',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: items[0].unit, surchargeHeader: 0, total, totalQty, amountInclSur: false },
+    pkl: null,
+  };
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);

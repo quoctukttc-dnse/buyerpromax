@@ -770,6 +770,11 @@ async function classify(file) {
       try { cp = readCarvicoPkl(lines, file.name); } catch (e) { cp = null; }
       if (cp && cp.pkl && cp.pkl.groups.length) { out = { kind: 'genpkl', score: 6, gen: cp, lines, pos: [] }; CACHE.set(file, out); return out; }
     }
+    /* Best Pacific: hóa đơn PDF — số lượng theo Usable Length (mét), Cust.No = Material SAP */
+    if (!ocr && isBestPacificText(lines.join(' '))) {
+      let bp = null; try { bp = readBestPacific(lines); } catch (e) { bp = null; }
+      if (bp && bp.inv.items.length) { out = { kind: 'fab', score: 9, fab: bp, lines, pos: [...new Set(bp.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
     /* Luen Hing (phụ liệu, Hồng Kông): hóa đơn PDF theo thùng + packing list PDF */
     if (!ocr && isLuenHingText(lines.join(' '))) {
       let lh = null; try { lh = readLuenHing(lines); } catch (e) { lh = null; }
@@ -1914,6 +1919,48 @@ function fillSapWorkbook(ws, H, rows, inv, onlyMatched) {
   return keep.size;
 }
 
+/* Gộp nhiều hóa đơn dùng chung một file inbound vào MỘT file INB. Mỗi hóa đơn đã được đối chiếu riêng trên cùng template
+   (row.r là số dòng trong template). Dòng template được ≥ 2 hóa đơn giao → duplicateRow rồi mỗi dòng ghi một số HĐ + số lượng.
+   Đi từ dòng cuối lên để việc chèn dòng không làm lệch số dòng chưa xử lý. Dòng không thuộc hóa đơn nào bị bỏ (khi onlyMatched). */
+async function buildMergedInb(entries, onlyMatched) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(entries[0].buf.slice(0));
+  const ws = wb.worksheets[0];
+  const H = headerIndex(ws);
+  for (let r = 2; r <= ws.rowCount; r++) {
+    ws.getRow(r).eachCell({ includeEmpty: false }, (cell) => {
+      const v = cell.value;
+      if (v && typeof v === 'object' && !(v instanceof Date) && (v.formula !== undefined || v.sharedFormula !== undefined)) cell.value = v.result === undefined ? null : v.result;
+    });
+  }
+  const byRow = new Map();
+  for (const e of entries) for (const row of e.rows) {
+    if (!(row.matched || row.keepHand)) continue;
+    if (!byRow.has(row.r)) byRow.set(row.r, []);
+    byRow.get(row.r).push({ inv: e.inv, qty: row.matched && row.setQty != null ? row.setQty : null });
+  }
+  let dup = 0;
+  for (const r of [...byRow.keys()].sort((a, b) => b - a)) {
+    const fills = byRow.get(r);
+    if (fills.length > 1) { ws.duplicateRow(r, fills.length - 1, true); dup += fills.length - 1; }
+    fills.forEach((f, i) => {
+      const rr = r + i;
+      ws.getCell(rr, H.invNo).value = f.inv.invNo;
+      ws.getCell(rr, H.invDate).value = f.inv.invDate;
+      ws.getCell(rr, H.invDate).numFmt = '@';
+      if (f.qty != null && H.invQty) ws.getCell(rr, H.invQty).value = f.qty;
+    });
+  }
+  const nos = new Set(entries.map((e) => String(e.inv.invNo == null ? '' : e.inv.invNo)));
+  let kept = 0, surSum = 0;
+  for (let r = ws.rowCount; r >= 2; r--) {
+    const v = String(ws.getCell(r, H.invNo).text || '').trim();
+    if (nos.has(v) && v) { kept++; surSum += H.sur ? (num(ws.getCell(r, H.sur).value) || 0) : 0; }
+    else if (onlyMatched) ws.spliceRows(r, 1);
+  }
+  return { wb, kept, dup, surSum };
+}
+
 /* ================= Chạy ================= */
 async function run() {
   if (STATE.busy) return;
@@ -1932,6 +1979,11 @@ async function run() {
 
     const onlyMatched = $('#onlyMatched').checked;
     const perInvoiceReport = $('#perReport').checked;
+    const mergeInb = !!($('#mergeInb') && $('#mergeInb').checked);
+    /* số hóa đơn (đang chọn) dùng chung từng file inbound — khi bật gộp, các hóa đơn này ra MỘT file INB */
+    const inbUse = new Map();
+    for (const g of groups) if (g.inb) inbUse.set(g.inb.file, (inbUse.get(g.inb.file) || 0) + 1);
+    const merged = new Map();   // file inbound -> [{buf, H, rows, inv, invNo}]
     const all = [];
 
     for (const g of groups) {
@@ -1968,9 +2020,15 @@ async function run() {
       if (!bad.length && rows) log('  Khớp toàn bộ.', 'ok');
 
       if (rows) {
-        const kept = fillSapWorkbook(wsSap, H, rows, inv, onlyMatched);
         const stamp = `${String(inv.invNo || 'CHUA-CO-SO-HD').replace(/[#\\\/:*?"<>|&]/g, '-')}_${inv.invDate}`;
-        await addDownload(wbSap, `INB_${stamp}.xlsx`, `Import SAP – ${inv.invNo} (${kept} dòng)`, 'main');
+        if (mergeInb && inbUse.get(g.inb.file) > 1) {
+          if (!merged.has(g.inb.file)) merged.set(g.inb.file, []);
+          merged.get(g.inb.file).push({ buf: cInb.buf, H, rows, inv, name: g.inb.file.name });
+          log(`  Hóa đơn này sẽ được gộp chung file INB với các hóa đơn khác dùng cùng inbound ${g.inb.file.name}.`, 'ok');
+        } else {
+          const kept = fillSapWorkbook(wsSap, H, rows, inv, onlyMatched);
+          await addDownload(wbSap, `INB_${stamp}.xlsx`, `Import SAP – ${inv.invNo} (${kept} dòng)`, 'main');
+        }
         if (perInvoiceReport) {
           const wbR = new ExcelJS.Workbook();
           await wbR.xlsx.load(cInb.buf.slice(0));
@@ -1983,6 +2041,14 @@ async function run() {
       }
     }
 
+    /* file INB gộp: một file inbound ↔ nhiều hóa đơn; dòng PO được nhiều hóa đơn giao thì nhân thêm dòng (mỗi dòng một số HĐ) */
+    for (const [, entries] of merged) {
+      const mg = await buildMergedInb(entries, onlyMatched);
+      const nos = entries.map((e) => e.inv.invNo);
+      const stamp = nos.map((x) => String(x || 'CHUA-CO-SO-HD').replace(/[#\\\/:*?"<>|&]/g, '-')).join('+').slice(0, 80);
+      await addDownload(mg.wb, `INB_GOP_${stamp}_${entries[0].inv.invDate}.xlsx`, `Import SAP – GỘP ${entries.length} hóa đơn (${mg.kept} dòng${mg.dup ? `, ${mg.dup} dòng nhân đôi` : ''})`, 'main');
+      log(`── File INB gộp ${entries.length} hóa đơn (${nos.join(', ')}): ${mg.kept} dòng${mg.dup ? `, trong đó ${mg.dup} dòng PO giao nhiều lần được nhân thêm dòng` : ''}; tổng Surcharge Item của các dòng giữ lại: ${fmt(mg.surSum)}.`, 'ok');
+    }
     const wbSum = new ExcelJS.Workbook();
     buildSummaryWorkbook(wbSum, all);
     await addDownload(wbSum, `BAOCAO_TONGHOP_${new Date().toISOString().slice(0, 10)}.xlsx`, `Báo cáo tổng hợp (${all.length} hóa đơn)`, 'alt');

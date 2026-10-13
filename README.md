@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.13 — 15 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.14 — 16 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -42,6 +42,7 @@ Thả file `.xlsx` chứng từ vải vào cùng chỗ — công cụ tự nhậ
 | Yibei (Trung Quốc, mould cup) | `… YIB0004500 ….xlsx` (sheet `IV` + `PL`, size M/L trong mô tả, thùng = CTNS × Qty/CTN) (v11.13) | PAA |
 | Luen Hing (Hồng Kông, phụ liệu) | `I 2609-00159.pdf` + `P 2609-00159.pdf` (mỗi thùng một dòng, gộp theo PO + article + lapdip) (v11.13) | M |
 | Hoa Nghiêm Vina | `1C26THN_….pdf` (hóa đơn GTGT VND, mã hàng tách 3 dòng) + `PKL ….pdf` (phiếu đóng hàng) (v11.13) | M |
+| Best Pacific (Hồng Kông) | `Invoice_H26715746-P6….pdf` (PDF: Cust.No = Material SAP, số lượng = Usable Length mét; Excel `Invoice_HL….xlsx` vẫn đi bộ đọc chung) (v11.14) | M |
 
 Hóa đơn và packing list nằm trong **cùng một file** nên không cần thả thêm gì ngoài file inbound
 (`ZMME0032….xlsx` hoặc file SAP xuất ra). Một file inbound dùng được cho **nhiều hóa đơn**.
@@ -148,6 +149,24 @@ cột Style (`Panache-PAN3ST` → `PAN3ST`, `Envy-7283` → `7283`, `Sculptresse
 - Kiểm thử bộ `20260908` (18 PO, 28 dòng hóa đơn, 233 dòng inbound): 26/28 dòng khớp (219 dòng inbound tự điền trùng 100 % với file buyer
   đã điền), 2 dòng giao thiếu theo size (`11434` sticker 390/394, nhãn 58/73) → `CẦN KIỂM TAY`, 14 dòng giữ lại để điền tay.
 
+## Best Pacific — hóa đơn PDF, và gộp nhiều hóa đơn vào một file INB (v11.14)
+
+**Lỗi đã sửa:** hóa đơn PDF của Best Pacific có cả cột *Usable Length* (mét) lẫn *N.W.(KG)*; bộ đọc chung lấy nhầm số kg
+(217 / 206,6 / 220,1) trong khi inbound tính bằng mét (516 / 504 / 523). Mẫu riêng mới đọc theo *Usable Length* (cột tính tiền),
+lấy *Cust.No* làm mã Material SAP để dò thẳng dòng inbound, gộp các batch cùng PO + Material, và ghép được ô Material / màu bị
+đẩy sang dòng trên-dưới (`MFKSTCSL000504` + `6`, `POTENT PURPLE 19-` + `2520TCX`). **Các file INB đã xuất trước v11.14 cho chủ hàng này
+cần xuất lại.**
+
+**Gộp hóa đơn (tùy chọn mới, ô tick "Gộp các hóa đơn dùng chung một file inbound vào một file INB"):** khi nhiều hóa đơn cùng dùng
+một file inbound SAP (một PO giao nhiều đợt, hoặc một đợt xuất gồm nhiều PO), công cụ ra **một** file `INB_GOP_<các số HĐ>_<ngày>.xlsx`
+thay cho từng file riêng. Mỗi dòng inbound mang đúng số/ngày hóa đơn của mình; dòng PO được từ hai hóa đơn trở lên giao thì được
+**nhân thêm dòng** (mỗi dòng một số hóa đơn + số lượng). Dòng nhật ký ghi tổng *Surcharge Item* của các dòng giữ lại để đối chiếu phụ phí
+PO. Lưu ý: mỗi hóa đơn vẫn được đối chiếu độc lập, nên dung sai không cộng dồn giữa các hóa đơn trong cùng file gộp — kiểm cột
+*Over Tolerance Qty* khi nhiều hóa đơn cùng giao một dòng PO.
+
+Công cụ **không ghi** cột *Surcharge Item* / *Surcharge Header*: giá trị đó là của SAP xuất ra theo từng dòng PO, công cụ chỉ đọc để
+đối chiếu với phụ phí trên hóa đơn và in trong sheet hóa đơn của báo cáo.
+
 ## Lô huấn luyện 07.10.2026 — 32 bộ chứng từ của 28 chủ hàng (v11.13)
 
 Buyer gửi một thư mục gồm 32 bộ (hóa đơn + packing list + inbound). Công cụ chạy lần lượt từng bộ, so file `INB_…` xuất ra với inbound
@@ -218,7 +237,7 @@ bản gốc trước khi import. Chi tiết ở `QUY-TAC-DO.md` mục G9.
 | Nút | Khi nào dùng | Kết quả |
 |---|---|---|
 | **Xuất danh sách PO** | Chưa có file inbound (cần số PO để tạo inbound trên SAP) | `DANHSACH_PO_<ngày>.xlsx` — sheet `PO` đúng 2 cột `PO No.` \| `PO No ScaX`; sheet `CHI TIET` liệt kê theo từng hóa đơn/item |
-| **Đối chiếu & xuất file** | Đã có file inbound | Mỗi hóa đơn một file `INB_<số HĐ>_<ngày>.xlsx` để import SAP + một file `BAOCAO_TONGHOP_<ngày>.xlsx` |
+| **Đối chiếu & xuất file** | Đã có file inbound | Mỗi hóa đơn một file `INB_<số HĐ>_<ngày>.xlsx` để import SAP (hoặc một file `INB_GOP_…` cho các hóa đơn dùng chung inbound khi bật tùy chọn gộp, v11.14) + một file `BAOCAO_TONGHOP_<ngày>.xlsx` |
 
 Thiếu packing list thì chỉ đối chiếu hóa đơn ↔ inbound. Thiếu inbound thì đối chiếu hóa đơn ↔ packing list
 và ghi rõ *CHƯA CÓ INBOUND*.

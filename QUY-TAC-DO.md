@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.13)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.14)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,8 +972,8 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 15 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
-  Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm) + các chủ hàng đã chạy
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 16 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+  Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm, Best Pacific PDF) + các chủ hàng đã chạy
   thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
@@ -1219,6 +1219,46 @@ Lượt 1 (v11.12): 13/32 trùng 100 %. Lượt 2 (v11.13): **20/32**, 9 bộ in
 | YIBEI · LUEN HING · HOA NGHIÊM | mẫu riêng mới | 2/2 · 4/4 · 5/5 | packing list khớp từng dòng |
 | SUNPO | — | không so được | inbound kèm theo là HĐ CI80007160 (10.09), chứng từ CI80007172 (17.09) |
 | VANESSA | — | không đọc được | scan mờ, OCR không ra bảng |
+
+## B. Best Pacific — hóa đơn PDF (từ v11.14, 13.10.2026)
+
+Bộ 3 hóa đơn `H26715746-P6`, `H26715749-P6`, `H26715755-P6` (14.10.2026) trên 2 PO `BES0006700`, `BES0010400`. Hóa đơn Excel của chủ
+hàng này (`HL26712894-P15`) đã đúng với bộ đọc chung; **hóa đơn PDF thì sai số lượng**: dòng hàng có cả `Delivery Length` / `Usable Length`
+(mét) lẫn `N.W.(KG)` / `G.W.(KG)`, bộ đọc chung lấy số kg (217 / 206,6 / 220,1 / 15,23) trong khi `Base Unit of Measure` của inbound là M
+(516 / 504 / 523 / 61) — thành tiền vẫn khớp vì so tổng theo dòng hóa đơn nên không bị báo đỏ. Nay có mẫu riêng `readBestPacific`
+(`profile: 'BESTPACIFIC'`), nhận theo `BEST PACIFIC` + `Invoice NO`, chỉ cho PDF có lớp chữ.
+
+**B1. Dòng hàng.** Dòng bắt đầu bằng STT + PO (`1 BES0006700 …`) và có ≥ 16 token; đếm **từ cuối**: tiền · đơn giá · cuộn · G.W. · N.W. ·
+đơn vị · Deduct Qty · Usable Length · Delivery Length · batch · g/m² · khổ. Phần giữa: `Cust.No` (Material SAP, `/^[A-Z]{3}[A-Z0-9]{9,12}$/`),
+`Our Quality#` (`12315M`, `12038-1M`), màu khách hàng (các token giữa Quality và mã màu BP dạng `WP28100HP` / `V+76857HPM`).
+Ô dài bị pdf.js đẩy sang dòng trên/dưới: Material thiếu 1 ký tự ở dòng trên + token số đơn ở đầu dòng dưới (`MFKSTCSL000504` + `6`);
+màu = phần sau Material ở dòng trên + token đầu còn lại ở dòng dưới (`POTENT PURPLE 19-` + `2520TCX`).
+Số lượng = **Usable Length** (計價長度, cột tính tiền; = Delivery Length khi Deduct = 0), `qtyByUnit = { M, KG: N.W. }` để inbound tính KG
+vẫn lấy được kg. Gộp các batch cùng PO + Material (`BAINCO WHITE` 182,5 + 76 + 257,5 = 516 m, 3.379,81 USD). `mats = [Material]` → luật
+V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10/14` → `14.10.2026`; tổng `Total 總金額(USD)` và `合計` (mét).
+
+**B2. Kiểm thử.** Template inbound dựng lại từ 3 file INB buyer gửi (7 dòng, 2 PO): 746 → 3 dòng 516 / 504 / 523 m `KHỚP (trong dung sai)`,
+749 → 61 m `KHỚP`; tổng tiền 10.106,66 / 265,35 khớp. (Hóa đơn 755 chưa có file PDF.)
+
+## M. Gộp nhiều hóa đơn vào một file INB (từ v11.14)
+
+- Ô tick `#mergeInb`. Trong `run()`: đếm số hóa đơn đang chọn dùng chung từng file inbound (`inbUse`); khi bật gộp và ≥ 2 hóa đơn dùng
+  chung một file, không xuất file INB riêng mà gom `{buf, H, rows, inv}` vào `merged` theo file inbound; sau vòng lặp gọi
+  `buildMergedInb(entries, onlyMatched)`.
+- `buildMergedInb`: nạp template một lần, công thức → giá trị; gom theo số dòng template `row.r` (các hóa đơn đối chiếu trên cùng
+  template nên `r` đồng nhất) danh sách `{inv, qty}` của những dòng `matched` / `keepHand`; duyệt **từ dòng cuối lên**: dòng có k hóa đơn →
+  `duplicateRow(r, k−1, true)` rồi ghi số/ngày/Invoice Quantity cho r … r+k−1 (chèn dòng chỉ đẩy các dòng phía dưới đã xử lý xong);
+  cuối cùng xóa các dòng không mang số hóa đơn nào trong bộ (khi `onlyMatched`), đếm `kept`, `dup`, và `surSum` = Σ `Surcharge Item` của
+  các dòng giữ lại (ghi vào nhật ký để buyer đối chiếu phụ phí PO). Tên file `INB_GOP_<HĐ1>+<HĐ2>…_<ngày>.xlsx`.
+- Giới hạn: mỗi hóa đơn vẫn đối chiếu độc lập (consumed không chia sẻ giữa các hóa đơn), nên hai hóa đơn cùng giao một dòng PO sẽ
+  không bị cộng dồn khi kiểm dung sai — người dùng kiểm `Over Tolerance Qty` trên các dòng nhân đôi.
+- Công cụ không bao giờ ghi `Surcharge Item` / `Surcharge Header`: giá trị này do SAP xuất theo dòng PO; công cụ chỉ đọc để so với
+  phụ phí trên hóa đơn (H4) và in trong sheet hóa đơn.
+
+## Thay đổi của v11.14 (13.10.2026) — mẫu riêng Best Pacific PDF + gộp hóa đơn vào một file INB
+
+- Mẫu riêng Best Pacific PDF (mục B): số lượng theo mét (Usable Length) thay vì kg; Material SAP từ cột Cust.No.
+- Tùy chọn gộp các hóa đơn dùng chung inbound vào một file INB, nhân dòng khi nhiều hóa đơn giao cùng dòng PO (mục M).
 
 ## Thay đổi của v11.13 (09.10.2026) — lô huấn luyện 32 bộ: 4 mẫu riêng mới + 5 luật chung
 

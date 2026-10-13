@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.13 · 09.10.2026 · 15 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.14 · 13.10.2026 · 16 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -104,6 +104,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
     </div>
     <div class="row" style="margin-top:8px">
       <label class="chk"><input type="checkbox" id="onlyMatched" checked> File import SAP chỉ giữ các dòng thuộc hóa đơn</label>
+      <label class="chk"><input type="checkbox" id="mergeInb"> Gộp các hóa đơn dùng chung một file inbound vào <b>một</b> file INB (dòng PO giao nhiều lần được nhân thêm dòng, mỗi dòng một số hóa đơn)</label>
       <label class="chk"><input type="checkbox" id="perReport"> Xuất thêm file báo cáo chi tiết cho từng hóa đơn</label>
       <label class="chk"><input type="checkbox" id="ocr" checked> OCR PDF dạng ảnh (scan) — cần mạng, lần đầu tải bộ nhận dạng ~8 MB</label>
       <span id="ocrstat" class="hint"></span>
@@ -172,6 +173,9 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li><b>Luật chung v11.13:</b> <em>Delivered Qty</em> đã bằng SL hóa đơn → hàng đã nhập kho trước, không tính dung sai lần nữa; dòng cùng màu không đủ chỗ mà có đúng một dòng
         cùng mã/size có số PO bằng SL hóa đơn → dùng dòng đó (kiểm lại màu); PO hệ cũ / dòng không ghi PO → dò mã + màu, ưu tiên PO chưa có trên hóa đơn;
         cột Chủ hàng lấy <em>Partner Name</em> của inbound.</li>
+        <li><b>Best Pacific PDF</b> (v11.14): số lượng lấy theo <em>Usable Length</em> (mét), không lấy N.W.(KG); <em>Cust.No</em> = Material SAP.
+        <b>Gộp hóa đơn</b> (ô tick phía trên): nhiều hóa đơn dùng chung một file inbound → một file <code>INB_GOP_…</code>, dòng PO giao nhiều lần
+        được nhân dòng, mỗi dòng một số hóa đơn; nhật ký ghi tổng <em>Surcharge Item</em> của các dòng giữ lại.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
@@ -1658,6 +1662,71 @@ function readHoaNghiemPkl(lines, fname) {
     inv: { no: '', invNo: '', invDate: '', items: [], currency: 'VND', unitDefault: 'M', total: NaN },
     pkl: { groups, unit: 'M', level: 'lot', soft: false },
     pklOnly: true,
+  };
+}
+
+/* =====================  BEST PACIFIC (Hồng Kông) — hóa đơn PDF (Excel đã đi bộ đọc chung)  =====================
+   Dòng hàng: "1 BES0006700 MFKSWRSL0004033 12315M BAINCO WHITE WP28100HP fabrics/76% Polyamide 160.0/63.0 250 B26083135
+   182.50 182.50 0.00 M 77.50 80.30 4 6.55 1195.38" = STT · PO · Cust.No (= Material SAP) · Quality · màu KH · mã màu BP · mô tả ·
+   khổ · g/m² · batch · Delivery Length · Usable Length (tính tiền) · Deduct · đơn vị · N.W.(KG) · G.W.(KG) · cuộn · đơn giá · tiền.
+   Inbound tính bằng MÉT → số lượng = Usable Length (bộ đọc chung từng lấy nhầm N.W. 217 kg thay vì 516 m). Ô Material / màu dài
+   có thể bị đẩy sang dòng trên/dưới ("MFKSTCSL000504" + "6", "POTENT PURPLE 19-" + "2520TCX"). Gộp các batch cùng PO + Material. */
+const isBestPacificText = (t) => /BEST\s*PACIFIC/i.test(t);
+function readBestPacific(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isBestPacificText(t) || !/Invoice\s*NO/i.test(t)) return null;
+  let no = '', invDate = '';
+  for (let i = 0; i < all.length; i++) {
+    if (!no && /Invoice\s*NO\.?\s*:/i.test(all[i])) { const m = (all[i] + ' ' + (all[i + 1] || '')).match(/Invoice\s*NO\.?\s*:\s*([A-Z0-9][A-Z0-9-]{4,})/i); if (m) no = m[1]; }
+    if (!invDate && /Invoice\s*Date/i.test(all[i])) { const m = (all[i] + ' ' + (all[i + 1] || '')).match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/); if (m) invDate = dmy(m[3], m[2], m[1]); }
+  }
+  const RE_MAT = /^[A-Z]{3}[A-Z0-9]{9,12}$/, RE_Q = /^\d{4,6}(?:-\d)?[A-Z]$/, RE_OC = /^[A-Z+][A-Z0-9+]*\d{3,}HP[A-Z]*$/;
+  const isNum = (x) => /^[\d,]+(?:\.\d+)?$/.test(x);
+  const map = new Map();
+  for (let i = 0; i < all.length; i++) {
+    const tk = all[i].split(' ');
+    if (tk.length < 16 || !/^\d{1,3}$/.test(tk[0]) || !/^[A-Z]{2,4}\d{7}$/.test(tk[1])) continue;
+    const n = tk.length;
+    const amount = Number(tk[n - 1].replace(/,/g, '')), price = Number(tk[n - 2]), nw = Number(tk[n - 5]), unitTk = tk[n - 6];
+    const usable = Number(tk[n - 8].replace(/,/g, '')), deliv = Number(tk[n - 9].replace(/,/g, '')), batch = tk[n - 10];
+    if (isNaN(amount) || isNaN(price) || isNaN(usable) || !/^(M|MTRS?|YDS?|KGS?)$/i.test(unitTk)) continue;
+    const mid = tk.slice(2, n - 12);
+    const prev = (all[i - 1] || '').split(' '), next = (all[i + 1] || '').split(' ');
+    let mat = mid.find((x) => RE_MAT.test(x)) || '';
+    if (!mat) { const pm = prev.find((x) => /^[A-Z]{3}[A-Z0-9]{8,12}$/.test(x)); if (pm) mat = pm + (pm.length < 15 && /^\d$/.test(next[0] || '') ? next[0] : ''); }
+    const quality = mid.find((x) => RE_Q.test(x)) || '';
+    const oc = mid.findIndex((x) => RE_OC.test(x));
+    let color = '';
+    const qi = mid.indexOf(quality);
+    if (oc > qi + 1) color = mid.slice(qi + 1, oc).join(' ');
+    else {
+      /* màu nằm ở dòng trên (sau Material) và nối tiếp ở dòng dưới (token thứ 2 nếu token đầu là số dính Material) */
+      const pi = prev.findIndex((x) => /^[A-Z]{3}[A-Z0-9]{8,12}$/.test(x));
+      const up = pi >= 0 ? prev.slice(pi + 1).filter((x) => !/^(fabrics|Dyed|Knitted|Polyamide|Elastane)/i.test(x) && !/\//.test(x)) : [];
+      const dn = next.slice(/^\d$/.test(next[0] || '') ? 1 : 0).filter((x) => /^[A-Z0-9-]+$/.test(x) && !/^(Polyamide|Elastane)/i.test(x));
+      color = (up.join(' ') + (up.length && /-$/.test(up[up.length - 1]) ? '' : ' ') + (dn[0] || '')).replace(/\s+/g, ' ').trim();
+    }
+    const po = poSap(tk[1]), unit = unitKey(unitTk);
+    const key = po + '|' + AZ(mat || quality + color);
+    let it = map.get(key);
+    if (!it) {
+      it = { poRaw: tk[1], po, article: quality, colorText: color, colorCode: '', colorShort: color, mats: mat ? [mat] : [], material: mat,
+        desc: [quality, color, mat].filter(Boolean).join(' · '), qtyByUnit: { [unit]: 0, KG: 0 }, unit, qty: 0, price, surcharge: 0, amount: 0,
+        code: quality + ' · ' + color, batches: [] };
+      map.set(key, it);
+    }
+    it.qty = r3(it.qty + usable); it.qtyByUnit[unit] = it.qty; it.qtyByUnit.KG = r3((it.qtyByUnit.KG || 0) + (isNaN(nw) ? 0 : nw));
+    it.amount = r3(it.amount + amount); it.batches.push({ batch, deliv, usable, nw });
+  }
+  const items = [...map.values()];
+  if (!items.length) return null;
+  const total = (() => { const m = t.match(/Total\s*總金額\(USD\)\s*:\s*([\d,]+\.\d+)/) || t.match(/Total[^\n]*?\(USD\)\s*:\s*([\d,]+\.\d+)/); return m ? Number(m[1].replace(/,/g, '')) : NaN; })();
+  const totalQty = (() => { const m = t.match(/合計\s*:\s*([\d,]+\.\d+)\s+([\d,]+\.\d+)/); return m ? Number(m[2].replace(/,/g, '')) : NaN; })();
+  return {
+    profile: 'BESTPACIFIC', supplier: 'Best Pacific',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: items[0].unit, surchargeHeader: 0, total, totalQty, amountInclSur: false },
+    pkl: null,
   };
 }
 
@@ -3988,6 +4057,11 @@ async function classify(file) {
       try { cp = readCarvicoPkl(lines, file.name); } catch (e) { cp = null; }
       if (cp && cp.pkl && cp.pkl.groups.length) { out = { kind: 'genpkl', score: 6, gen: cp, lines, pos: [] }; CACHE.set(file, out); return out; }
     }
+    /* Best Pacific: hóa đơn PDF — số lượng theo Usable Length (mét), Cust.No = Material SAP */
+    if (!ocr && isBestPacificText(lines.join(' '))) {
+      let bp = null; try { bp = readBestPacific(lines); } catch (e) { bp = null; }
+      if (bp && bp.inv.items.length) { out = { kind: 'fab', score: 9, fab: bp, lines, pos: [...new Set(bp.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
     /* Luen Hing (phụ liệu, Hồng Kông): hóa đơn PDF theo thùng + packing list PDF */
     if (!ocr && isLuenHingText(lines.join(' '))) {
       let lh = null; try { lh = readLuenHing(lines); } catch (e) { lh = null; }
@@ -5132,6 +5206,48 @@ function fillSapWorkbook(ws, H, rows, inv, onlyMatched) {
   return keep.size;
 }
 
+/* Gộp nhiều hóa đơn dùng chung một file inbound vào MỘT file INB. Mỗi hóa đơn đã được đối chiếu riêng trên cùng template
+   (row.r là số dòng trong template). Dòng template được ≥ 2 hóa đơn giao → duplicateRow rồi mỗi dòng ghi một số HĐ + số lượng.
+   Đi từ dòng cuối lên để việc chèn dòng không làm lệch số dòng chưa xử lý. Dòng không thuộc hóa đơn nào bị bỏ (khi onlyMatched). */
+async function buildMergedInb(entries, onlyMatched) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(entries[0].buf.slice(0));
+  const ws = wb.worksheets[0];
+  const H = headerIndex(ws);
+  for (let r = 2; r <= ws.rowCount; r++) {
+    ws.getRow(r).eachCell({ includeEmpty: false }, (cell) => {
+      const v = cell.value;
+      if (v && typeof v === 'object' && !(v instanceof Date) && (v.formula !== undefined || v.sharedFormula !== undefined)) cell.value = v.result === undefined ? null : v.result;
+    });
+  }
+  const byRow = new Map();
+  for (const e of entries) for (const row of e.rows) {
+    if (!(row.matched || row.keepHand)) continue;
+    if (!byRow.has(row.r)) byRow.set(row.r, []);
+    byRow.get(row.r).push({ inv: e.inv, qty: row.matched && row.setQty != null ? row.setQty : null });
+  }
+  let dup = 0;
+  for (const r of [...byRow.keys()].sort((a, b) => b - a)) {
+    const fills = byRow.get(r);
+    if (fills.length > 1) { ws.duplicateRow(r, fills.length - 1, true); dup += fills.length - 1; }
+    fills.forEach((f, i) => {
+      const rr = r + i;
+      ws.getCell(rr, H.invNo).value = f.inv.invNo;
+      ws.getCell(rr, H.invDate).value = f.inv.invDate;
+      ws.getCell(rr, H.invDate).numFmt = '@';
+      if (f.qty != null && H.invQty) ws.getCell(rr, H.invQty).value = f.qty;
+    });
+  }
+  const nos = new Set(entries.map((e) => String(e.inv.invNo == null ? '' : e.inv.invNo)));
+  let kept = 0, surSum = 0;
+  for (let r = ws.rowCount; r >= 2; r--) {
+    const v = String(ws.getCell(r, H.invNo).text || '').trim();
+    if (nos.has(v) && v) { kept++; surSum += H.sur ? (num(ws.getCell(r, H.sur).value) || 0) : 0; }
+    else if (onlyMatched) ws.spliceRows(r, 1);
+  }
+  return { wb, kept, dup, surSum };
+}
+
 /* ================= Chạy ================= */
 async function run() {
   if (STATE.busy) return;
@@ -5150,6 +5266,11 @@ async function run() {
 
     const onlyMatched = $('#onlyMatched').checked;
     const perInvoiceReport = $('#perReport').checked;
+    const mergeInb = !!($('#mergeInb') && $('#mergeInb').checked);
+    /* số hóa đơn (đang chọn) dùng chung từng file inbound — khi bật gộp, các hóa đơn này ra MỘT file INB */
+    const inbUse = new Map();
+    for (const g of groups) if (g.inb) inbUse.set(g.inb.file, (inbUse.get(g.inb.file) || 0) + 1);
+    const merged = new Map();   // file inbound -> [{buf, H, rows, inv, invNo}]
     const all = [];
 
     for (const g of groups) {
@@ -5186,9 +5307,15 @@ async function run() {
       if (!bad.length && rows) log('  Khớp toàn bộ.', 'ok');
 
       if (rows) {
-        const kept = fillSapWorkbook(wsSap, H, rows, inv, onlyMatched);
         const stamp = `${String(inv.invNo || 'CHUA-CO-SO-HD').replace(/[#\\\/:*?"<>|&]/g, '-')}_${inv.invDate}`;
-        await addDownload(wbSap, `INB_${stamp}.xlsx`, `Import SAP – ${inv.invNo} (${kept} dòng)`, 'main');
+        if (mergeInb && inbUse.get(g.inb.file) > 1) {
+          if (!merged.has(g.inb.file)) merged.set(g.inb.file, []);
+          merged.get(g.inb.file).push({ buf: cInb.buf, H, rows, inv, name: g.inb.file.name });
+          log(`  Hóa đơn này sẽ được gộp chung file INB với các hóa đơn khác dùng cùng inbound ${g.inb.file.name}.`, 'ok');
+        } else {
+          const kept = fillSapWorkbook(wsSap, H, rows, inv, onlyMatched);
+          await addDownload(wbSap, `INB_${stamp}.xlsx`, `Import SAP – ${inv.invNo} (${kept} dòng)`, 'main');
+        }
         if (perInvoiceReport) {
           const wbR = new ExcelJS.Workbook();
           await wbR.xlsx.load(cInb.buf.slice(0));
@@ -5201,6 +5328,14 @@ async function run() {
       }
     }
 
+    /* file INB gộp: một file inbound ↔ nhiều hóa đơn; dòng PO được nhiều hóa đơn giao thì nhân thêm dòng (mỗi dòng một số HĐ) */
+    for (const [, entries] of merged) {
+      const mg = await buildMergedInb(entries, onlyMatched);
+      const nos = entries.map((e) => e.inv.invNo);
+      const stamp = nos.map((x) => String(x || 'CHUA-CO-SO-HD').replace(/[#\\\/:*?"<>|&]/g, '-')).join('+').slice(0, 80);
+      await addDownload(mg.wb, `INB_GOP_${stamp}_${entries[0].inv.invDate}.xlsx`, `Import SAP – GỘP ${entries.length} hóa đơn (${mg.kept} dòng${mg.dup ? `, ${mg.dup} dòng nhân đôi` : ''})`, 'main');
+      log(`── File INB gộp ${entries.length} hóa đơn (${nos.join(', ')}): ${mg.kept} dòng${mg.dup ? `, trong đó ${mg.dup} dòng PO giao nhiều lần được nhân thêm dòng` : ''}; tổng Surcharge Item của các dòng giữ lại: ${fmt(mg.surSum)}.`, 'ok');
+    }
     const wbSum = new ExcelJS.Workbook();
     buildSummaryWorkbook(wbSum, all);
     await addDownload(wbSum, `BAOCAO_TONGHOP_${new Date().toISOString().slice(0, 10)}.xlsx`, `Báo cáo tổng hợp (${all.length} hóa đơn)`, 'alt');
