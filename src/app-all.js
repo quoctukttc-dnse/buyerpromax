@@ -770,6 +770,11 @@ async function classify(file) {
       try { cp = readCarvicoPkl(lines, file.name); } catch (e) { cp = null; }
       if (cp && cp.pkl && cp.pkl.groups.length) { out = { kind: 'genpkl', score: 6, gen: cp, lines, pos: [] }; CACHE.set(file, out); return out; }
     }
+    /* Inkava gia công in: HĐ GTGT không có PO SAP (PO16431 là mã đơn nội bộ), mã in 8072 ↔ Supplier Ref, nhiều PO số thuần cùng Material */
+    if (!ocr && isInkavaGiaCongText(lines.join(' '))) {
+      let ig = null; try { ig = readInkavaGiaCong(lines); } catch (e) { ig = null; }
+      if (ig && ig.inv.items.length) { out = { kind: 'fab', score: 9, fab: ig, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
     /* Best Pacific: hóa đơn PDF — số lượng theo Usable Length (mét), Cust.No = Material SAP */
     if (!ocr && isBestPacificText(lines.join(' '))) {
       let bp = null; try { bp = readBestPacific(lines); } catch (e) { bp = null; }
@@ -1317,7 +1322,7 @@ async function buildGroups() {
       const near = isNaN(gap) ? 0 : (gap <= 2 ? 2.5 : (gap <= 7 ? 1 : 0));
       /* chủ hàng trên chứng từ trùng Partner Name trong inbound (chứng từ không ghi PO: CARVICO) */
       const supKey = AZ(it.fab.supplier || '').slice(0, 6);
-      const supHit = supKey.length >= 4 && (c.partners || []).some((x) => AZ(x).startsWith(supKey));
+      const supHit = supKey.length >= 4 && (c.partners || []).some((x) => AZ(x).includes(supKey));
       const only = inbs.length === 1 && fabs.length === 1;
       const s = (hit / Math.max(1, it.sapPos.length)) * 6
         + (it.dir && b.dir && it.dir === b.dir ? 2 : 0) + (nameHas(b.file, it.tag) ? 3 : 0) + near + (supHit ? 2 : 0) + (only ? 0.5 : 0);
@@ -1985,8 +1990,13 @@ async function run() {
     for (const g of groups) if (g.inb) inbUse.set(g.inb.file, (inbUse.get(g.inb.file) || 0) + 1);
     const merged = new Map();   // file inbound -> [{buf, H, rows, inv, invNo}]
     const all = [];
+    /* nhiều hóa đơn dùng chung một file inbound → chạy theo thứ tự ngày rồi số HĐ; phần một hóa đơn đã lấy của dòng PO nào được
+       chuyển cho hóa đơn sau (preConsumed, khóa theo số dòng template) để FIFO tiếp tục đúng, không cộng đôi vào cùng dòng */
+    const consumedByInb = new Map();
+    const dKey = (g) => { const m = String(g.inv.inv.invDate || '').match(/^(\d{2})\.(\d{2})\.(\d{4})$/); return (m ? m[3] + m[2] + m[1] : '99999999') + '|' + String(g.inv.inv.invNo || ''); };
+    const ordered = groups.slice().sort((a, b) => (a.inb && b.inb && a.inb.file === b.inb.file) ? dKey(a).localeCompare(dKey(b)) : 0);
 
-    for (const g of groups) {
+    for (const g of ordered) {
       const inv = g.inv.inv;
       log(`── Hóa đơn ${inv.invNo || g.inv.file.name} (${inv.items.length} dòng)${g.isFab ? ` — ${g.isGen ? '' : 'vải · '}${g.fabName}` : ((g.pkl || (g.pklx && g.pklx.length)) ? '' : ' — không có packing list')}${g.inb ? '' : ' — CHƯA CÓ INBOUND'}`);
       if (g.isGen && inv.noFrom) log(`  Số hoá đơn "${inv.invNo}" lấy từ ${inv.noFrom} — kiểm lại trước khi import.`, 'warn');
@@ -1995,8 +2005,9 @@ async function run() {
       if (g.isFab && g.pdfInv) log(`  Hóa đơn GTGT: ${inv.invNo} ngày ${inv.invDate} (${g.pdfInv.file.name})`, 'ok');
       const pklGroups = g.isFab ? g.inv.fab.pkl : (g.pkl ? parsePacking((await classify(g.pkl.file)).lines) : null);
       const pxList = (g.pklx || []).map((p) => p.px).filter(Boolean);
+      const pre = g.inb ? (consumedByInb.get(g.inb.file) || new Map()) : null;
       const doAnalyze = (rr) => (g.isFab
-        ? analyzeFab(inv, pklGroups, rr, { poIdx: po ? { scax: po.map, sap: po.sap } : null, hasPoFile: !!po })
+        ? analyzeFab(inv, pklGroups, rr, { poIdx: po ? { scax: po.map, sap: po.sap } : null, hasPoFile: !!po, preConsumed: pre && pre.size ? pre : null })
         : analyze(inv, pklGroups, rr, po, pxList));
       let rows = null, wbSap = null, wsSap = null, H = null, cInb = null;
       if (g.inb) {
@@ -2009,6 +2020,11 @@ async function run() {
         else rows = readInbRows(wsSap, H);
       }
       const { lines, VAL } = doAnalyze(rows);
+      if (g.inb && g.isFab) {
+        const nxt = new Map(pre || []);
+        for (const l of lines) for (const a of (l.alloc || [])) if (a.r != null) nxt.set(a.r, (nxt.get(a.r) || 0) + a.qty);
+        consumedByInb.set(g.inb.file, nxt);
+      }
       const sup = g.supTrained !== undefined ? { trained: g.supTrained, name: g.supName } : supplierCheck(g, cInb);
       all.push({ g, inv, lines, VAL, newSup: sup.trained ? '' : sup.name, yuboAlone: g.isGen && sup.trained === 'J&H Yubo' });
       if (g.isGen && sup.trained === 'J&H Yubo') log(`  ⚠ Đây là hóa đơn GTGT của J&H Yubo nhưng chưa có file PKL Excel đi kèm (PKL SCAVI… / file nhập inbound của Yubo) — thả thêm file PKL để công cụ đọc theo lô, chia PO và điền đúng Invoice Quantity.`, 'err');

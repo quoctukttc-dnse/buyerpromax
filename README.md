@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.15 — 16 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.16 — 17 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -148,6 +148,19 @@ cột Style (`Panache-PAN3ST` → `PAN3ST`, `Envy-7283` → `7283`, `Sculptresse
   trên; một thùng chứa nhiều PO. Ghép với hóa đơn bằng PO + mã + đơn vị; sheet `CHI TIET LO` liệt kê theo thùng.
 - Kiểm thử bộ `20260908` (18 PO, 28 dòng hóa đơn, 233 dòng inbound): 26/28 dòng khớp (219 dòng inbound tự điền trùng 100 % với file buyer
   đã điền), 2 dòng giao thiếu theo size (`11434` sticker 390/394, nhãn 58/73) → `CẦN KIỂM TAY`, 14 dòng giữ lại để điền tay.
+
+## Inkava đi gia công in — hóa đơn GTGT không có PO SAP (v11.16)
+
+Khác bộ Inkava mua phụ liệu (PO SAP `DUY…` + packing list Excel), hóa đơn gia công ghi `PO16431- LCB-3C8072- F2604578 | PCS | 19.037,00 |
+4.850 | 92.329.450`: `PO16431` là mã đơn nội bộ của Inkava, không phải PO SAP; PO gia công trên inbound là số thuần (`4500018565`…),
+nhiều PO cùng một Material (`SPRIPSZZ0038`), phân biệt bằng *Supplier Ref* `Print S27: 8072 body`. Công cụ lấy **4 chữ số cuối của mảnh
+giữa** (`LCB-3C8072` → `8072`) dò trên mọi PO của inbound theo mã + đơn giá, chia theo **PO cũ trước (FIFO)** → `KHỚP (chia nhiều PO)`.
+
+**Nhiều hóa đơn dùng chung một file inbound (luật chung mới):** các hóa đơn được chạy theo thứ tự ngày rồi số hóa đơn; phần một hóa đơn đã
+lấy của dòng PO nào được chuyển cho hóa đơn sau nên FIFO nối tiếp đúng và không cộng đôi vào cùng dòng (ví dụ 599 lấy 10.386 của PO
+…565 + 8.651 của …566, thì 626 chỉ còn 9.308 ở …566). Kết hợp ô tick gộp → một file `INB_GOP_…` với các dòng PO giao hai lần được nhân dòng.
+Bộ thử `1C26TKV#00000599` + `#00000626`: 7/7 dòng ghép đúng mã; 2 cảnh báo đỏ **thật**: mã `8059` hai hóa đơn cộng 6.386 > PO 6.356
+(thừa 30), mã `8065` 13.102 > PO 5.584 (có thể còn PO khác chưa nằm trong file inbound).
 
 ## Best Pacific — hóa đơn PDF, và gộp nhiều hóa đơn vào một file INB (v11.14)
 

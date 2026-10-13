@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.15)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.16)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -973,7 +973,8 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
 - **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 16 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
-  Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm, Best Pacific PDF) + các chủ hàng đã chạy
+  Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm, Best Pacific PDF,
+  Inkava gia công) + các chủ hàng đã chạy
   thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
@@ -1254,10 +1255,36 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   `duplicateRow(r, k−1, true)` rồi ghi số/ngày/Invoice Quantity cho r … r+k−1 (chèn dòng chỉ đẩy các dòng phía dưới đã xử lý xong);
   cuối cùng xóa các dòng không mang số hóa đơn nào trong bộ (khi `onlyMatched`), đếm `kept`, `dup`, và `surSum` = Σ `Surcharge Item` của
   các dòng giữ lại (ghi vào nhật ký để buyer đối chiếu phụ phí PO). Tên file `INB_GOP_<HĐ1>+<HĐ2>…_<ngày>.xlsx`.
-- Giới hạn: mỗi hóa đơn vẫn đối chiếu độc lập (consumed không chia sẻ giữa các hóa đơn), nên hai hóa đơn cùng giao một dòng PO sẽ
-  không bị cộng dồn khi kiểm dung sai — người dùng kiểm `Over Tolerance Qty` trên các dòng nhân đôi.
+- (v11.16) Các hóa đơn cùng file inbound chia sẻ phần còn nhận qua `preConsumed` (mục IG) — dung sai được cộng dồn đúng khi hai hóa đơn
+  cùng giao một dòng PO.
 - Công cụ không bao giờ ghi `Surcharge Item` / `Surcharge Header`: giá trị này do SAP xuất theo dòng PO; công cụ chỉ đọc để so với
   phụ phí trên hóa đơn (H4) và in trong sheet hóa đơn.
+
+## IG. Inkava đi gia công in — HĐ GTGT không có PO SAP (từ v11.16, 13.10.2026)
+
+- **Nhận diện** (`isInkavaGiaCongText`): có `INKAVA` và dòng dạng `PO\d{4,}- [A-Z]{2,4}-[A-Z0-9]+- F\d{5,}`; không trùng với mẫu Inkava
+  mua phụ liệu (`PODUY0095800- Label…`, PO SAP có chữ). Trước v11.16: parseInvoice không bắt được PO (`PO16431` không có chữ) → 7 dòng
+  `THIẾU FILE PO`, hóa đơn thứ hai không được ghép inbound (luồng trimming ghép inbound 1:1).
+- **Đọc** (`readInkavaGiaCong`, `profile: 'INKAVAGC'`, VND, đi luồng vải): số HĐ `1C26TKV#00000599`, ngày; mỗi dòng → mã in = 4 chữ số
+  cuối mảnh giữa (`LCB-3C8072` → `8072`, `LCB-S58059` → `8059`), `po = ''`, `inv.hasSapPo = false`, đơn giá / thành tiền kiểu Việt; tổng
+  `Cộng tiền hàng`, `Tổng số lượng`.
+- **Dò inbound**: không có PO → dò trên toàn bộ PO của inbound (PO số thuần `4500018565` qua `poSap` giữ nguyên); `artHit('8072', …)`
+  trúng *Supplier Ref* `Print S27: 8072 body`; điểm = đơn giá trùng (+1); mọi dòng cùng Material `SPRIPSZZ0038` → `sameMat` → chia FIFO
+  theo PO tăng dần (`KHỚP (chia nhiều PO)`). Ghép file inbound: `supHit` nay kiểm Partner Name **chứa** 6 ký tự đầu tên chủ hàng
+  (`CONG TY CO PHAN INKAVA` ⊃ `INKAVA`; trước đây đòi bắt đầu bằng nên không ghép).
+- **Nhiều hóa đơn cùng inbound — `preConsumed` (luật chung mới):** `run()` xếp các hóa đơn cùng file inbound theo ngày rồi số HĐ; sau
+  mỗi hóa đơn, `alloc[].r` (số dòng template) được cộng vào `consumedByInb[file]` và truyền cho hóa đơn sau qua `opts.preConsumed`;
+  trong `analyzeFab`, `roomRaw` / `roomOf` / `isOpen` (FIFO) / `room` trừ phần này, ghi chú "Hóa đơn trước (cùng inbound) đã lấy …".
+  Báo cáo chi tiết từng hóa đơn (chạy lại `doAnalyze`) dùng cùng snapshot nên không cộng đôi.
+- **Kết quả bộ thử** (`inv 599 + 626`, inbound 7 dòng / 5 PO): 599 → `8072` 19.037 = …565 10.386 + …566 8.651; `8059` 3.168 (còn 3.188).
+  626 → `7859` 8.489 / 9.030; `8072` 8.547 vào …566 (còn 9.308 sau 599); `8066` 3.542 / 8.911; **`8059` 3.218 > còn 3.188 → `VƯỢT DUNG SAI`
+  thừa 30** (OTQ = PO); **`8065` 13.102 > 5.464 + 120 → `VƯỢT DUNG SAI` thừa 7.518** (phần thừa ghi vào dòng …997 kèm cảnh báo đỏ — có thể
+  còn PO khác chưa xuất trong inbound). Gộp → một file `INB_GOP` 9 dòng (…565-8059 và …566-8072 nhân đôi, mỗi dòng một số HĐ).
+
+## Thay đổi của v11.16 (13.10.2026) — Inkava gia công + chia sẻ phần còn nhận giữa các hóa đơn
+
+- Mẫu riêng Inkava gia công (IG). `preConsumed` giữa các hóa đơn cùng file inbound; `supHit` theo "chứa"; ghi chú VƯỢT DUNG SAI nêu phần
+  hóa đơn trước đã lấy.
 
 ## Thay đổi của v11.15 (13.10.2026) — gộp hóa đơn kể cả khác file inbound + tự chạy lại khi đổi ô tick
 

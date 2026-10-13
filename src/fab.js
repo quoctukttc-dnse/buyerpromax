@@ -1412,6 +1412,46 @@ function readBestPacific(lines) {
   };
 }
 
+/* =====================  INKAVA — hóa đơn GTGT GIA CÔNG IN (đi gia công)  =====================
+   Khác hóa đơn Inkava mua phụ liệu (PO SAP dạng DUY0095800): dòng hàng ghi "PO16431- LCB-3C8072- F2604578 | PCS | 19.037,00 | 4.850 |
+   92.329.450" — PO16431 là mã đơn nội bộ của Inkava, KHÔNG có PO SAP; PO gia công trên inbound là số thuần (4500018565…), nhiều PO
+   cùng một Material (SPRIPSZZ0038), Supplier Ref "Print S27: 8072 body". Mã hình in = 4 chữ số cuối của mảnh giữa (LCB-3C8072 → 8072)
+   → dò trên mọi PO của inbound theo mã + đơn giá, chia theo PO cũ trước (FIFO), nhiều hóa đơn chạy nối tiếp dùng chung phần còn nhận. */
+const isInkavaGiaCongText = (t) => /INKAVA/i.test(t) && /PO\d{4,}-\s*[A-Z]{2,4}-[A-Z0-9]+-\s*F\d{5,}/i.test(t);
+function readInkavaGiaCong(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isInkavaGiaCongText(t)) return null;
+  const serial = (t.match(/K[ýy]\s*hi[ệe]u\s*:\s*([A-Z0-9]{5,})/i) || [])[1] || '';
+  const no = (t.match(/\bS[ốo]\s*:\s*(\d{4,})/i) || [])[1] || '';
+  const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : no;
+  const dm = t.match(/Ng[àa]y\s*(\d{1,2})\s*th[áa]ng\s*(\d{1,2})\s*n[ăa]m\s*(\d{4})/i);
+  const invDate = dm ? dmy(dm[1], dm[2], dm[3]) : '';
+  const RE = /^(\d{1,3})\s+PO(\d{4,})-\s*([A-Z]{2,4})-([A-Z0-9]+)-\s*(F\d{5,})\s+(PCS|PC|C[áa]i|B[ộo]|SET)\s+([\d.]+,\d{2})\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)$/i;
+  const items = [];
+  for (const L of all) {
+    const m = L.match(RE);
+    if (!m) continue;
+    const qty = viNum(m[7]), price = viNum(m[8]), amount = viNum(m[9]);
+    if (isNaN(qty) || qty <= 0) continue;
+    const code = (m[4].match(/(\d{4})$/) || [, m[4]])[1];
+    const unit = unitKey(m[6]);
+    items.push({
+      poRaw: '', po: '', article: code, colorText: '', colorCode: '', colorShort: '',
+      desc: [m[3] + '-' + m[4], 'Order ' + m[2], m[5]].join(' · '), inkavaOrder: m[2], style: m[5],
+      qtyByUnit: { [unit]: qty }, unit, qty, price, surcharge: 0, amount, code: m[3] + '-' + m[4] + ' · ' + m[5],
+    });
+  }
+  if (!items.length) return null;
+  const total = viNum((t.match(/C[ộo]ng ti[ềe]n h[àa]ng\s*:\s*([\d.]+(?:,\d+)?)/i) || [])[1]);
+  const totalQty = viNum((t.match(/T[ổo]ng s[ốo] l[ưu][ợo]ng\s*:\s*([\d.]+(?:,\d+)?)/i) || [])[1]);
+  return {
+    profile: 'INKAVAGC', supplier: 'Inkava (gia công)', vat: true, noPo: true,
+    inv: { no: invNo, invNo, invDate, serial, items, currency: 'VND', unitDefault: items[0].unit, surchargeHeader: 0, total, totalQty, amountInclSur: true, hasSapPo: false },
+    pkl: null,
+  };
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);
@@ -1485,7 +1525,8 @@ function analyzeFab(inv, pkl, rows, opts) {
 
   for (const it of inv.items) {
     /* chỗ còn nhận được của một dòng inbound (chưa tính hàng đã nhập kho trước — xem grRow bên dưới) */
-    const roomRaw = (r) => (r.unltd ? Infinity : (isNaN(r.overTol) ? (isNaN(r.qty) ? 0 : r.qty) : r.overTol) - (isNaN(r.deliv) ? 0 : r.deliv) - (consumed.get(r) || 0));
+    const preC = (r) => (opts.preConsumed && opts.preConsumed.get(r.r)) || 0;   // các hóa đơn trước đã lấy (cùng file inbound, chạy nối tiếp)
+    const roomRaw = (r) => (r.unltd ? Infinity : (isNaN(r.overTol) ? (isNaN(r.qty) ? 0 : r.qty) : r.overTol) - (isNaN(r.deliv) ? 0 : r.deliv) - (consumed.get(r) || 0) - preC(r));
     /* ---- 1. lọc theo PO (bù 0 cho đủ 7 chữ số) ---- */
     let usedPo = it.po, poNote = '';
     const poWanted = (it.poList && it.poList.length) ? it.poList : [usedPo];
@@ -1661,7 +1702,7 @@ function analyzeFab(inv, pkl, rows, opts) {
        nhận không cộng lô này lần nữa. PO đánh dấu Unltd Overdelivery = X → giao vượt không giới hạn, không có mức dung sai. */
     const grRow = (hit.length === 1 && !isNaN(q) && (isNaN(hit[0].deliv) ? 0 : hit[0].deliv) > EPS && Math.abs(hit[0].deliv - q) <= EPS) ? hit[0] : null;
     const roomOf = (r) => (r.unltd ? Infinity : (isNaN(r.overTol) ? (isNaN(r.qty) ? 0 : r.qty) : r.overTol)
-      - ((isNaN(r.deliv) ? 0 : r.deliv) - (r === grRow ? q : 0)) - (consumed.get(r) || 0));
+      - ((isNaN(r.deliv) ? 0 : r.deliv) - (r === grRow ? q : 0)) - (consumed.get(r) || 0) - preC(r));
     const alloc = [];
     let overflow = 0;
     if (hit.length && !unitBad && !isNaN(q) && !ambiguousMat) {
@@ -1675,7 +1716,7 @@ function analyzeFab(inv, pkl, rows, opts) {
         const order = hit.slice().sort((x, y) => String(x.poV).localeCompare(String(y.poV)));
         /* dòng PO đã giao đủ (Delivered ≥ Quantity) coi như đã xong — chỉ dùng phần dung sai
            còn lại của nó khi các dòng còn mở không đủ chỗ                                  */
-        const isOpen = (r) => (isNaN(r.deliv) ? 0 : r.deliv) < (isNaN(r.qty) ? 0 : r.qty) - EPS;
+        const isOpen = (r) => (isNaN(r.deliv) ? 0 : r.deliv) + preC(r) < (isNaN(r.qty) ? 0 : r.qty) - EPS;
         const seq = order.filter(isOpen).concat(order.filter((r) => !isOpen(r)));
         let left = q;
         for (const r of seq) {
@@ -1715,7 +1756,8 @@ function analyzeFab(inv, pkl, rows, opts) {
       && Math.abs(inbAmount - it.amount) > aTol;
     const unltd = used.some((h) => h.unltd);
     const delivEff = grRow ? r3(delivered - q) : delivered;   // phần đã giao KHÔNG kể lô này
-    const room = unltd ? Infinity : r3(overTol - delivEff);
+    const preUsedSum = r3(used.reduce((a, h) => a + preC(h), 0));   // phần các hóa đơn trước (cùng inbound) đã lấy
+    const room = unltd ? Infinity : r3(overTol - delivEff - preUsedSum);
     const overBad = overflow > EPS;
     /* Delivered Qty đã đúng bằng SL hóa đơn → hàng đã nhập kho trước khi đối chiếu hóa đơn (chỉ ghi chú) */
     const grDone = used.length === 1 && !isNaN(q) && delivered > EPS && Math.abs(delivered - q) <= EPS;
@@ -1786,7 +1828,7 @@ function analyzeFab(inv, pkl, rows, opts) {
         + 'CẦN KIỂM TRA LẠI HÓA ĐƠN.';
     } else if (overBad) {
       status = 'VƯỢT DUNG SAI';
-      note += `SL hóa đơn ${q} ${inbUnit} vượt mức cho phép của PO (PO ${qtyPo}, tối đa ${overTol}, đã giao ${delivered} → còn ${room}) — thừa ${overflow}, SAP sẽ báo lỗi khi import.`;
+      note += `SL hóa đơn ${q} ${inbUnit} vượt mức cho phép của PO (PO ${qtyPo}, tối đa ${overTol}, đã giao ${delivEff}${preUsedSum ? `, hóa đơn trước đã lấy ${preUsedSum}` : ''} → còn ${room}) — thừa ${overflow}, SAP sẽ báo lỗi khi import.`;
     } else if (pklBad) {
       status = 'LỆCH PKL';
       note += `Hóa đơn ${!isNaN(pklSumDoc) && Math.abs(pklSumDoc - q) > EPS ? pklSumDoc + ' (gộp các dòng cùng nhóm)' : q} ${inbUnit} nhưng packing list ${pklTotal}` + (lots.length ? ` (${lots.length} lô: ` + lots.map((L) => `${L.lot} ${L.qty}`).join('; ') + ')' : '');
@@ -1819,6 +1861,7 @@ function analyzeFab(inv, pkl, rows, opts) {
       hit.forEach((r) => { r.keepHand = r.keepHand || it; });
       note += ` Đã giữ ${hit.length} dòng này trong file INB (ghi sẵn số/ngày hóa đơn) — điền Invoice Quantity từng dòng bằng tay` + (!isNaN(q) ? ` cho đủ ${q}.` : '.');
     }
+    if (opts.preConsumed && used.some((h) => preC(h) > EPS)) note += ` Hóa đơn trước (cùng inbound) đã lấy ${r3(used.reduce((a, h) => a + preC(h), 0))} của (các) dòng này — chỉ tính phần còn lại.`;
     if (grDone && String(status).indexOf('KHỚP') === 0) note += ` Delivered Qty ${delivered} đã bằng SL hóa đơn — hàng đã nhập kho trước, chỉ cần ghi số/ngày hóa đơn.`;
     if (alloc.length && !unitBad && !isNaN(q) && Math.abs(hadQty - q) > EPS) {
       note += ` Đã ghi Invoice Quantity = ` + (split ? alloc.map((x) => `${x.qty} (${x.r.poV})`).join(' + ') : String(q))
@@ -1858,7 +1901,8 @@ function analyzeFab(inv, pkl, rows, opts) {
       matchBy: (matBy ? 'mã Material' : (artOK ? 'PO + article + màu' : 'PO + màu')) + (sizeBy ? ' + size' : '') + (pickedByQty ? ' + số lượng' : ''),
       ambiguous: hit.length > 1, usedVar: '', pickedByQty, altRows: alt.length,
       isFab: true, lots, qtyPo, overTol, delivered, unitUsed: inbUnit,
-      alloc: alloc.map((x) => ({ po: x.r.poV, material: x.r.material, qty: x.qty })), split: split || splitSize, overflow,
+      alloc: alloc.map((x) => ({ po: x.r.poV, material: x.r.material, qty: x.qty, r: x.r.r })), split: split || splitSize, overflow,
+      preUsed: used.reduce((a, h) => a + preC(h), 0),
       surInb: alloc.length ? surSum : 0,
     });
   }
