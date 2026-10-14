@@ -227,6 +227,7 @@ function fabProfile(wb) {
   if (/SCAVI\s*CODE/.test(t) && /PACKING LIST/.test(t)) return 'YUBO';
   if (/CELEB\s*TEXTILES/.test(t) && /INVOICE\s*NO/.test(t) && /PO\s*NO\./.test(t) && /DESCRIPTION OF GOODS/.test(t)) return 'CELEB';
   if (/CHEUNG\s*HING/.test(t) && /INVOICE/.test(t) && /UNIT\s*PRICE/.test(t) && /DESCRIPTION/.test(t) && !/PACKING\s*LIST/.test(t)) return 'CHEUNGHING';
+  if (/UNITEX/.test(t) && /QUALITY\s*P\/N/.test(t) && /CUSTOMER\s*PO/.test(t)) return 'UNITEX';
   return '';
 }
 
@@ -1076,6 +1077,62 @@ function readCheungHingPkl(wb, fname) {
   };
 }
 
+
+/* =====================  FUJIAN UNITEX  =====================
+   Invoice Excel: CUSTOMER COLOR P/N | CUSTOMER PO. | QUALITY P/N | COMPONENT | WIDTH&WIGHT | COLOUR | MATERIAL NAME | SURCHARGE | Quantity | Unit Price | Amount
+   Số HĐ ở ô sau "No." (":77FZ10L024SAV", dấu ":" có thể là dấu toàn góc "："), ngày sau "Date." ("：2026-10-08").
+   Quantity ghi kèm đơn vị ("330 M"), đơn giá/thành tiền có tiền tệ ("USD 2.958"), SURCHARGE "USD50" theo dòng
+   → Amount dòng ĐÃ gồm surcharge (113 × 2,62 + 50 = 346,06) nên amountInclSur = true, surcharge dòng so với Surcharge Item của SAP. */
+function readUnitex(wb) {
+  const HR = /QUALITY\s*P\/N/i;
+  const wi = wb.worksheets.find((w) => findRow(w, HR, 40)) || wb.worksheets[0];
+  const hr = findRow(wi, HR, 40);
+  if (!hr) return null;
+  const clean = (t) => String(t || '').replace(/^[\s:：.]+/, '').trim();
+  let no = '', invDate = '';
+  for (let r = 1; r < hr; r++) for (let c = 1; c <= 14; c++) {
+    const t = T(wi, r, c);
+    /* ô gộp (merged) lặp lại nhãn "No." / "Date." ở các cột kế → bỏ qua ô trùng nhãn */
+    if (!no && /^NO\.?$/i.test(t)) { for (let k = c + 1; k <= c + 6; k++) { const v = clean(T(wi, r, k)); if (v && !/^NO\.?$/i.test(v)) { no = v.split(/\s+/)[0]; break; } } }
+    if (!invDate && /^DATE\.?$/i.test(t)) { for (let k = c + 1; k <= c + 6; k++) { const raw = V(wi, r, k); const v = clean(cellText(raw)); if (/^DATE\.?$/i.test(v)) continue; if (v || raw instanceof Date) { invDate = parseDateCell(raw instanceof Date ? raw : v) || ''; break; } } }
+  }
+  const C = { po: colBy(wi, hr, /CUSTOMER\s*PO/i), art: colBy(wi, hr, HR), color: colBy(wi, hr, /^COLOU?R$/i), comp: colBy(wi, hr, /COMPONENT/i),
+    spec: colBy(wi, hr, /WIDTH/i), sur: colBy(wi, hr, /SURCHARGE/i), qty: colBy(wi, hr, /QUANTITY/i), price: colBy(wi, hr, /UNIT\s*PRICE/i), amt: colBy(wi, hr, /AMOUNT/i) };
+  if (!C.po || !C.qty) return null;
+  const money = (t) => { const m = String(t || '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/); return m ? Number(m[0]) : NaN; };
+  const cur = (() => { for (let r = hr + 1; r <= wi.rowCount; r++) { const m = T(wi, r, C.price).match(/^([A-Z]{3})\b/); if (m) return m[1]; } return 'USD'; })();
+  const items = [];
+  let total = NaN, totalQty = NaN;
+  for (let r = hr + 1; r <= wi.rowCount; r++) {
+    const first = rowText(wi, r);
+    const qt = T(wi, r, C.qty);
+    const qm = qt.replace(/,/g, '').match(/(-?\d+(?:\.\d+)?)\s*([A-Z]*)/i);
+    if (/^\s*TOTAL\b/i.test(T(wi, r, 2)) || /^\s*TOTAL\b/i.test(T(wi, r, 1))) { if (qm) totalQty = Number(qm[1]); total = money(T(wi, r, C.amt)); break; }
+    if (/SAY\s+TOTAL/i.test(first)) break;
+    const po = T(wi, r, C.po);
+    if (!qm || !po) continue;
+    const qty = Number(qm[1]);
+    if (!(qty > 0)) continue;
+    const unit = unitKey(qm[2] || 'M');
+    const art = C.art ? T(wi, r, C.art) : '';
+    const color = C.color ? T(wi, r, C.color).replace(/\s+/g, ' ').trim() : '';
+    const sur = C.sur ? (money(T(wi, r, C.sur)) || 0) : 0;
+    const poS = poSap(po);
+    items.push({
+      poRaw: po, po: poS, article: art, colorText: color, colorCode: '', colorShort: color,
+      desc: [art, color, C.comp ? T(wi, r, C.comp) : '', C.spec ? T(wi, r, C.spec) : ''].filter(Boolean).join(' · '),
+      qtyByUnit: { [unit]: qty }, unit, qty, price: money(T(wi, r, C.price)), surcharge: isNaN(sur) ? 0 : sur, amount: money(T(wi, r, C.amt)),
+      code: art + ' · ' + color, pklKey: poS + '|' + AZ(art) + '|' + AZ(color),
+    });
+  }
+  if (!items.length) return null;
+  return {
+    profile: 'UNITEX', supplier: 'Fujian Unitex',
+    inv: { no, invNo: no, invDate, items, currency: cur, unitDefault: items[0].unit, surchargeHeader: 0, total, totalQty, amountInclSur: true },
+    pkl: null,
+  };
+}
+
 /* =====================  CHUANGJIE (Trung Quốc) — hóa đơn + packing list Excel  =====================
    Sheet "Invoice": PO NO. | DESCRIPTION | ITEM | COLOUR | QTY/M | PRICE ($/M) | AMOUNT — PO, mô tả, ITEM chỉ ghi ở dòng đầu nhóm;
    màu "LAVENDERICE-TL229887-F" (tên màu + mã lapdip); dòng "Surcharge of Additional Qty CJ-DP0060 (…)" = phụ phí riêng
@@ -1462,6 +1519,7 @@ function readFab(wb) {
   if (p === 'CHEUNGHING') return readCheungHing(wb);
   if (p === 'CHUANGJIE') return readChuangjie(wb);
   if (p === 'YIBEI') return readYibei(wb);
+  if (p === 'UNITEX') return readUnitex(wb);
   return null;
 }
 

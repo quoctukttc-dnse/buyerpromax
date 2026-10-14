@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.16 — 17 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.17 — 18 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -161,6 +161,16 @@ lấy của dòng PO nào được chuyển cho hóa đơn sau nên FIFO nối t
 …565 + 8.651 của …566, thì 626 chỉ còn 9.308 ở …566). Kết hợp ô tick gộp → một file `INB_GOP_…` với các dòng PO giao hai lần được nhân dòng.
 Bộ thử `1C26TKV#00000599` + `#00000626`: 7/7 dòng ghép đúng mã; 2 cảnh báo đỏ **thật**: mã `8059` hai hóa đơn cộng 6.386 > PO 6.356
 (thừa 30), mã `8065` 13.102 > PO 5.584 (có thể còn PO khác chưa nằm trong file inbound).
+
+## Fujian Unitex — hóa đơn Excel có surcharge theo dòng (v11.17)
+
+Hóa đơn Excel một sheet (`第1页`), bảng `CUSTOMER COLOR P/N | CUSTOMER PO. | QUALITY P/N | COMPONENT | WIDTH&WIGHT | COLOUR | MATERIAL NAME |
+SURCHARGE | Quantity | Unit Price | Amount`; số hóa đơn nằm ở ô sau nhãn `No.` (`:77FZ10L024SAV`, ô gộp nên nhãn lặp sang các cột kế), ngày sau
+`Date.` (`：2026-10-08`, dấu hai chấm toàn góc). Số lượng ghi kèm đơn vị (`330 M`), đơn giá / thành tiền kèm tiền tệ (`USD 2.958`), cột
+`SURCHARGE` ghi `USD50` theo dòng và **thành tiền dòng đã gồm surcharge** (113 × 2,62 + 50 = 346,06). Công cụ (`readUnitex`, `src/fab.js`)
+đọc PO = *CUSTOMER PO.*, article = *QUALITY P/N*, màu = *COLOUR*, dò inbound theo PO + article + màu; surcharge dòng so với *Surcharge Item*.
+Bộ thử `77FZ10L024SAV` + `UNI0000700`: 6/6 dòng đúng (330 / 348 / 397 / 113 / 110 / 126 m); 3 dòng `1SR0206SN` báo `LỆCH GIÁ TRỊ` **thật**:
+hóa đơn 2,62 USD/m, PO SAP 2,70 USD/m (lệch 27,92 USD trên cả hóa đơn) — cần hỏi lại chủ hàng / người đặt PO.
 
 ## Best Pacific — hóa đơn PDF, và gộp nhiều hóa đơn vào một file INB (v11.14)
 

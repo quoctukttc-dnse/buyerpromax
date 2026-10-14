@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.16)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.17)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,9 +972,9 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 16 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 18 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
   Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm, Best Pacific PDF,
-  Inkava gia công) + các chủ hàng đã chạy
+  Inkava gia công, Fujian Unitex) + các chủ hàng đã chạy
   thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
@@ -1280,6 +1280,25 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   626 → `7859` 8.489 / 9.030; `8072` 8.547 vào …566 (còn 9.308 sau 599); `8066` 3.542 / 8.911; **`8059` 3.218 > còn 3.188 → `VƯỢT DUNG SAI`
   thừa 30** (OTQ = PO); **`8065` 13.102 > 5.464 + 120 → `VƯỢT DUNG SAI` thừa 7.518** (phần thừa ghi vào dòng …997 kèm cảnh báo đỏ — có thể
   còn PO khác chưa xuất trong inbound). Gộp → một file `INB_GOP` 9 dòng (…565-8059 và …566-8072 nhân đôi, mỗi dòng một số HĐ).
+
+## U. Fujian Unitex — hóa đơn Excel có surcharge theo dòng (từ v11.17, 14.10.2026)
+
+- **Nhận diện** (`fabProfile` → `'UNITEX'`): 30 dòng đầu có `UNITEX` + tiêu đề cột `QUALITY P/N` + `CUSTOMER PO`. Trước v11.17 đi bộ đọc
+  chung: không đọc được số HĐ (`INB_CHUA-CO-SO-HD_…`), báo "không ghi đơn vị — coi như M" dù hóa đơn ghi `330 M`.
+- **Đọc** (`readUnitex`): số HĐ = ô đầu tiên sau nhãn `No.` **khác nhãn** (ô gộp B10:D10 lặp "No." sang C, D), bỏ dấu `:`/`：` đầu; ngày
+  tương tự sau `Date.` → `parseDateCell('2026-10-08')`. Mỗi dòng: `po` = *CUSTOMER PO.*, `article` = *QUALITY P/N*, `colorText` = *COLOUR*
+  (`Syrah` khớp `SYRAH RED` qua `colorScore`), số lượng + đơn vị tách từ `330 M` (`unitKey`), đơn giá / thành tiền lấy số trong `USD 2.958`,
+  tiền tệ lấy từ chữ đầu cột đơn giá, `surcharge` = số trong `USD50`. Dừng ở dòng `TOTAL` (tổng SL `1424 M`, tổng tiền) hoặc `SAY TOTAL`.
+- **Giá trị**: `amountInclSur: true` — thành tiền dòng = SL × đơn giá + surcharge; so với inbound: SL × *Gross Price* + *Surcharge Item*
+  (50 trên ba dòng `1SR0206SN`). Không có packing list (`pkl: null`).
+- **Kết quả bộ thử** (`77FZ10L024SAV` / inbound thô `UNI0000700`, 6 dòng, Delivered 5 / 3): 6/6 dòng ghép đúng PO + article + màu, Invoice
+  Quantity 397 / 330 / 348 / 126 / 113 / 110 (hai dòng `2S0761CN` vượt PO trong dung sai OTQ). Ba dòng `1SR0206SN`: **đơn giá hóa đơn 2,62 ≠
+  PO 2,70** → `LỆCH GIÁ TRỊ` thật (tổng HĐ 4.244,23 so với tính theo PO 4.272,15, lệch 27,92); surcharge 50/dòng khớp *Surcharge Item*.
+
+## Thay đổi của v11.17 (14.10.2026) — mẫu riêng Fujian Unitex
+
+- Mẫu riêng Fujian Unitex (mục U): hóa đơn Excel số lượng kèm đơn vị, đơn giá kèm tiền tệ, surcharge theo dòng đã gồm trong thành tiền.
+  Hồi quy 32 bộ lô 07.10.2026 không đổi.
 
 ## Thay đổi của v11.16 (13.10.2026) — Inkava gia công + chia sẻ phần còn nhận giữa các hóa đơn
 

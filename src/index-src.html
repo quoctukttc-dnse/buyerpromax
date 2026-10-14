@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.16 · 13.10.2026 · 17 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.17 · 14.10.2026 · 18 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -180,6 +180,8 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li><b>Inkava đi gia công</b> (v11.16): HĐ GTGT ghi <code>PO16431- LCB-3C8072- F2604578</code> không có PO SAP → mã in <code>8072</code> dò trong <em>Supplier Ref</em>
         trên mọi PO số thuần của inbound, chia FIFO theo PO cũ trước. <b>Nhiều hóa đơn cùng một file inbound</b> chạy theo thứ tự ngày; phần hóa đơn trước đã lấy
         của dòng PO được trừ cho hóa đơn sau (không cộng đôi, dung sai cộng dồn đúng).</li>
+        <li><b>Fujian Unitex</b> (v11.17): hóa đơn Excel số lượng kèm đơn vị (<code>330 M</code>), đơn giá kèm tiền tệ (<code>USD 2.958</code>), cột <em>SURCHARGE</em>
+        theo dòng (<code>USD50</code>) đã gồm trong thành tiền → so với <em>Surcharge Item</em>; số HĐ / ngày lấy sau nhãn <code>No.</code> / <code>Date.</code>.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
