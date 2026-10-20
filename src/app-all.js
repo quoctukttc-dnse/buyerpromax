@@ -775,6 +775,11 @@ async function classify(file) {
       let ig = null; try { ig = readInkavaGiaCong(lines); } catch (e) { ig = null; }
       if (ig && ig.inv.items.length) { out = { kind: 'fab', score: 9, fab: ig, lines, pos: [] }; CACHE.set(file, out); return out; }
     }
+    /* Inkava — HĐ GTGT ghi thẳng PO SAP số thuần (PO4500014796- …), mã tham chiếu so theo token với Supplier Ref */
+    if (!ocr && isInkavaPoText(lines.join(' '))) {
+      let ip = null; try { ip = readInkavaPo(lines); } catch (e) { ip = null; }
+      if (ip && ip.inv.items.length) { out = { kind: 'fab', score: 9, fab: ip, lines, pos: [...new Set(ip.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
     /* Best Pacific: hóa đơn PDF — số lượng theo Usable Length (mét), Cust.No = Material SAP */
     if (!ocr && isBestPacificText(lines.join(' '))) {
       let bp = null; try { bp = readBestPacific(lines); } catch (e) { bp = null; }

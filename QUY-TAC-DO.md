@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.17)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.18)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,9 +972,9 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 18 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 19 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
   Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm, Best Pacific PDF,
-  Inkava gia công, Fujian Unitex) + các chủ hàng đã chạy
+  Inkava gia công, Inkava PO SAP, Fujian Unitex) + các chủ hàng đã chạy
   thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
@@ -1294,6 +1294,31 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
 - **Kết quả bộ thử** (`77FZ10L024SAV` / inbound thô `UNI0000700`, 6 dòng, Delivered 5 / 3): 6/6 dòng ghép đúng PO + article + màu, Invoice
   Quantity 397 / 330 / 348 / 126 / 113 / 110 (hai dòng `2S0761CN` vượt PO trong dung sai OTQ). Ba dòng `1SR0206SN`: **đơn giá hóa đơn 2,62 ≠
   PO 2,70** → `LỆCH GIÁ TRỊ` thật (tổng HĐ 4.244,23 so với tính theo PO 4.272,15, lệch 27,92); surcharge 50/dòng khớp *Surcharge Item*.
+
+## IP. Inkava — HĐ GTGT ghi thẳng PO SAP số thuần (từ v11.18, 20.10.2026)
+
+- **Nhận diện** (`isInkavaPoText`): có `INKAVA` + `PO45\d{8}-` và **không** phải dạng gia công (`isInkavaGiaCongText` xét trước). Trước
+  v11.18 đi luồng Inkava phụ liệu (trimming): PO số thuần không bắt được → mọi dòng `THIẾU FILE PO`.
+- **Đọc** (`readInkavaPo`, `profile: 'INKAVAPO'`, VND, luồng vải, `hasSapPo` mặc định): số HĐ `1C26TKV#00000632`, ngày. Bảng gom theo
+  **khối**: dòng `PO45…- <head>` (không STT) mở khối; dòng số `STT [chữ] PCS SL ĐG TT` gắn vào khối đang mở (hoặc mở khối mới nếu PO nằm
+  cùng dòng); dòng chữ còn lại là phần nối (`SPRIPSZZ0045( T14102U-W_QHH PREMIUM)`, `04101U)`). Bỏ qua `STT…` lặp đầu trang,
+  `tiep theo trang truoc`, `1/4`. Mỗi khối: `po`, `material` = `[A-Z]{8}\d{4}`, phần ngoặc, `refText` = head bỏ mã vật tư / ngoặc / `-`
+  `,` cuối, chuẩn `A- B` → `A-B`; `refTokens` = token chữ-số của refText.
+- **Dò inbound** (`refPick`, sau bước PO + Material): (1) `AZ(Supplier Ref) === AZ(refText)` → (2) mọi token HĐ ⊆ token(Supplier Ref +
+  mô tả) → (3) mọi token Supplier Ref ⊆ token HĐ (HĐ ghi dài hơn: `REF_01 Printing L15xW15MM,` ⊇ `REF_01`; `KNIT-FW26-312360 Embroidery`
+  ⊇ `KNIT-FW26-312360`). Điểm +2 khi đã lọc đúng mã (không cần màu / giá để vượt ngưỡng). Không có packing list.
+- **Nhiều dòng HĐ → một dòng inbound** (HĐ 632: 3 dòng cùng PO + material khác mã ngoặc; HĐ 649: 5 dòng `REF_01-…`) cộng dồn qua
+  `consumed` (191 / 7.799 ≤ PO 222 / 7.918). Nhiều HĐ cùng PO (4500018262 trên 647 + 675 + 676; 4500018343 trên 639 + 667) chia sẻ
+  phần còn nhận qua `preConsumed` (mục IG).
+- **Kết quả bộ thử** (10 HĐ, 156 dòng, 54 PO, một ZMME 221 dòng): 156/156 ghép đúng; gộp → `INB_GOP` 148 dòng, Σ Invoice Quantity
+  từng HĐ = Tổng số lượng HĐ. Cảnh báo thật: 10 `VƯỢT DUNG SAI` (638: 4500018344 +185; 639: 4500011572 `WTI-FW26-350063` +35,
+  4500018343 +0,02 / +1 / +16,96; 667: +9 / +3 / +9 / +10,16 / +30,04) và 1 `LỆCH GIÁ TRỊ` (639: 4500013475 `KNIT-FW26-340988` 2.200
+  ≠ 2.860).
+
+## Thay đổi của v11.18 (20.10.2026) — mẫu riêng Inkava PO SAP số thuần + dò theo tập token mã tham chiếu
+
+- Mẫu riêng Inkava PO SAP (mục IP): gom dòng theo STT qua nhiều trang, `refTokens` / `refPick` trong `analyzeFab`. Hồi quy 32 bộ +
+  Inkava gia công không đổi.
 
 ## Thay đổi của v11.17 (14.10.2026) — mẫu riêng Fujian Unitex
 

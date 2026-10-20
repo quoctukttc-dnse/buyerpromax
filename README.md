@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.17 — 18 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.18 — 19 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -171,6 +171,21 @@ SURCHARGE | Quantity | Unit Price | Amount`; số hóa đơn nằm ở ô sau nh
 đọc PO = *CUSTOMER PO.*, article = *QUALITY P/N*, màu = *COLOUR*, dò inbound theo PO + article + màu; surcharge dòng so với *Surcharge Item*.
 Bộ thử `77FZ10L024SAV` + `UNI0000700`: 6/6 dòng đúng (330 / 348 / 397 / 113 / 110 / 126 m); 3 dòng `1SR0206SN` báo `LỆCH GIÁ TRỊ` **thật**:
 hóa đơn 2,62 USD/m, PO SAP 2,70 USD/m (lệch 27,92 USD trên cả hóa đơn) — cần hỏi lại chủ hàng / người đặt PO.
+
+## Inkava — hóa đơn GTGT ghi thẳng PO SAP số thuần (v11.18)
+
+Dạng thứ ba của Inkava (in / thêu / serigraphy theo PO `45000xxxxx`), khác bộ mua phụ liệu (`PODUY…` + packing list) và bộ gia công
+(`PO16431- LCB-3C8072- F…`). Mỗi dòng ghi `PO4500014796- <mã tham chiếu>`; mã vật tư SAP (`SPRIPSZZ0045`) có thể cùng dòng, dòng dưới
+hoặc không có; phần trong ngoặc `( T14102U-W_QHH PREMIUM)` là chi tiết thêm; một dòng hàng có thể bị in thành 2–3 dòng (PO ở trên, số
+ở giữa, mã vật tư ở dưới) và hóa đơn dài nhiều trang (`tiep theo trang truoc`). Công cụ (`readInkavaPo`, `src/fab.js`) gom dòng theo STT,
+lấy PO + mã tham chiếu + mã vật tư, rồi dò inbound trong đúng PO theo **tập token** của mã tham chiếu vì Inkava ghi không giống Supplier
+Ref của SAP: `ARN-SS27- 006779-` ↔ `ARN-SS27-006779`, `115427-SS26` ↔ `KNIT-SS26-115427`, `353109-SS26- 8891598` ↔
+`KNIT-SS26-353109-8891598` (không nhầm với `…-8891599`), `REF_01 Printing L15xW15MM,` ↔ `REF_01`.
+Bộ thử 10 hóa đơn `1C26TKV#00000632 … #00000676` (156 dòng, 54 PO) + một file ZMME chung: 156/156 dòng ghép đúng PO + mã; nhiều dòng
+cùng PO + mã (HĐ 632: 3 dòng khác mã trong ngoặc, HĐ 649: 5 dòng) cộng dồn vào một dòng inbound; gộp 10 hóa đơn → một file `INB_GOP`
+148 dòng, tổng Invoice Quantity từng hóa đơn đúng bằng Tổng số lượng trên hóa đơn. Cảnh báo **thật** còn lại: 10 dòng `VƯỢT DUNG SAI`
+(HĐ 638/639/667, ví dụ PO 4500018344 giao 10.043 > 9.858) và 1 dòng `LỆCH GIÁ TRỊ` (HĐ 639: PO 4500013475 `KNIT-FW26-340988` đơn giá
+2.200 ≠ PO 2.860 — cùng mã này trên PO 4500018343 đúng 2.200, có thể hóa đơn ghi nhầm PO).
 
 ## Best Pacific — hóa đơn PDF, và gộp nhiều hóa đơn vào một file INB (v11.14)
 

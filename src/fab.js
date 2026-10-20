@@ -1509,6 +1509,87 @@ function readInkavaGiaCong(lines) {
   };
 }
 
+
+/* =====================  INKAVA — HĐ GTGT ghi thẳng PO SAP số thuần  =====================
+   Dạng thứ ba của Inkava (in / thêu / serigraphy gia công theo PO 45000xxxxx). Mỗi dòng ghi `PO4500014796- <mã tham chiếu>`,
+   mã vật tư SAP (SPRIPSZZ0045) có thể nằm cùng dòng, dòng dưới, hoặc không có; mã trong ngoặc `( T14102U-W_QHH PREMIUM)` là chi tiết
+   thêm. Một dòng hàng có thể bị in thành 2–3 dòng (PO ở trên, số ở giữa, mã vật tư ở dưới) → gom thành khối theo STT.
+   Mã tham chiếu trên HĐ không luôn bằng Supplier Ref: `ARN-SS27- 006779-` ↔ `ARN-SS27-006779`, `115427-SS26` ↔ `KNIT-SS26-115427`,
+   `353109-SS26- 8891598` ↔ `KNIT-SS26-353109-8891598` → so theo TẬP TOKEN (refTokens) trong analyzeFab. */
+const isInkavaPoText = (t) => /INKAVA/i.test(t) && /PO45\d{8}-/.test(t) && !isInkavaGiaCongText(t);
+const TOK = (t) => String(t == null ? '' : t).toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+const MAT_RE = /\b([A-Z]{8}\d{4})\b/;
+function readInkavaPo(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isInkavaPoText(t)) return null;
+  const serial = (t.match(/K[ýy]\s*hi[ệe]u\s*:\s*([A-Z0-9]{5,})/i) || [])[1] || '';
+  const no = (t.match(/\bS[ốo]\s*:\s*(\d{4,})/i) || [])[1] || '';
+  const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : no;
+  const dm = t.match(/Ng[àa]y\s*(\d{1,2})\s*th[áa]ng\s*(\d{1,2})\s*n[ăa]m\s*(\d{4})/i);
+  const invDate = dm ? dmy(dm[1], dm[2], dm[3]) : '';
+  const NUM = /^(\d{1,3})\s+(.*?)\s*(PCS|PC|C[áa]i|B[ộo]|SET|M|KG|YDS?)\s+([\d.]+,\d{2})\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)$/i;
+  const POL = /^PO(45\d{8})-\s*(.*)$/;
+  const SKIP = /^STT\b|tiep theo trang|^\d+\/\d+$|^Tổng số lượng|^Cộng tiền|^Số tiền viết/i;
+  const blocks = [];
+  let cur = null, on = false;
+  for (const L of all) {
+    if (/^STT\b/i.test(L)) { on = true; continue; }
+    if (!on) continue;
+    if (/^T[ổo]ng s[ốo] l[ưu][ợo]ng/i.test(L)) break;
+    if (SKIP.test(L)) continue;
+    const mp = L.match(POL), mn = L.match(NUM);
+    if (mp) { cur = { head: mp[2], text: [], num: null, po: mp[1] }; blocks.push(cur); continue; }
+    if (mn) {
+      if (!cur || cur.num) { cur = { head: '', text: [], num: null, po: '' }; blocks.push(cur); }
+      cur.num = mn; const mid = mn[2];
+      const mp2 = mid.match(/PO(45\d{8})-\s*(.*)$/);
+      if (mp2) { cur.po = cur.po || mp2[1]; cur.head = cur.head || mp2[2]; } else cur.text.push(mid);
+      continue;
+    }
+    if (cur) cur.text.push(L);
+  }
+  const items = [];
+  for (const b of blocks) {
+    if (!b.num || !b.po) continue;
+    const qty = viNum(b.num[4]), price = viNum(b.num[5]), amount = viNum(b.num[6]);
+    if (isNaN(qty) || qty <= 0) continue;
+    const unit = unitKey(b.num[3]);
+    const body = [b.head].concat(b.text).join(' ');
+    const material = (body.match(MAT_RE) || [])[1] || '';
+    const paren = (body.match(/\(\s*([^)]*)\)/) || [])[1] || '';
+    /* mã tham chiếu = phần sau "PO…-" của dòng đầu, bỏ mã vật tư và phần trong ngoặc, cắt "-" / "," thừa */
+    const ref = b.head.replace(MAT_RE, '').replace(/\([^)]*\)?/g, '').replace(/[\s,\-]+$/, '').replace(/\s*-\s*/g, '-').trim();
+    const refTokens = TOK(ref);
+    const desc = [ref, paren.trim(), b.text.join(' ').replace(MAT_RE, '').replace(/\([^)]*\)?/g, '').replace(/\s+/g, ' ').trim()].filter(Boolean).join(' · ');
+    items.push({
+      poRaw: 'PO' + b.po, po: b.po, article: ref, colorText: '', colorCode: '', colorShort: '',
+      desc, material, refTokens, refText: ref,
+      qtyByUnit: { [unit]: qty }, unit, qty, price, surcharge: 0, amount,
+      code: ref + (paren ? ' · ' + paren.trim() : '') + (material ? ' · ' + material : ''),
+    });
+  }
+  if (!items.length) return null;
+  const total = viNum((t.match(/C[ộo]ng ti[ềe]n h[àa]ng\s*:\s*([\d.]+(?:,\d+)?)/i) || [])[1]);
+  const totalQty = viNum((t.match(/T[ổo]ng s[ốo] l[ưu][ợo]ng\s*:\s*([\d.]+(?:,\d+)?)/i) || [])[1]);
+  return {
+    profile: 'INKAVAPO', supplier: 'Inkava (PO SAP)', vat: true,
+    inv: { no: invNo, invNo, invDate, serial, items, currency: 'VND', unitDefault: items[0].unit, surchargeHeader: 0, total, totalQty, amountInclSur: true },
+    pkl: null,
+  };
+}
+/* chọn dòng inbound theo mã tham chiếu: (1) Supplier Ref trùng hẳn → (2) mọi token của HĐ nằm trong Supplier Ref + mô tả
+   → (3) mọi token của Supplier Ref nằm trong mã HĐ (HĐ ghi dài hơn: "REF_01 Printing L15xW15MM," ⊇ "REF_01") */
+function refPick(it, rows) {
+  const k = AZ(it.refText), inv = new Set(it.refTokens || []);
+  if (!k || !inv.size) return rows;
+  const ex = rows.filter((r) => AZ(r.supRef) === k);
+  if (ex.length) return ex;
+  const sub = rows.filter((r) => { const rt = new Set(TOK(String(r.supRef || '') + ' ' + String(r.desc || ''))); return [...inv].every((x) => rt.has(x)); });
+  if (sub.length) return sub;
+  return rows.filter((r) => { const rt = TOK(r.supRef); return rt.length && rt.some((x) => /\d/.test(x) || x.length >= 4) && rt.every((x) => inv.has(x)); });
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);
@@ -1657,6 +1738,8 @@ function analyzeFab(inv, pkl, rows, opts) {
       const sameU = pool.filter((r) => unitKey(r.unit) === unitKey(it.unit));
       if (sameU.length && sameU.length < pool.length) pool = sameU;
     }
+    /* mã tham chiếu theo tập token (Inkava PO số thuần): lọc tiếp trong nhóm PO (+ Material nếu HĐ có ghi) */
+    if (it.refTokens && it.refTokens.length) pool = refPick(it, pool.length ? pool : poRows);
     const artOK = pool.length > 0;
     if (!pool.length) pool = poRows;
     /* size ghi trên chứng từ: giữ đúng size (nếu inbound có cột size) */
@@ -1688,6 +1771,7 @@ function analyzeFab(inv, pkl, rows, opts) {
       const lt = WORDS(r.lapdip)[0];
       if (lt && lt.length >= 6 && (AZ(invText).includes(lt) || AZ(it.colorCode).includes(lt))) s += 2;
       if (!isNaN(r.price) && !isNaN(it.price) && Math.abs(r.price - it.price) <= pTol) s += 1;
+      if (it.refTokens && it.refTokens.length && artOK) s += 2;   // đã lọc đúng mã tham chiếu → không cần màu / giá để vượt ngưỡng
       if (it.gen) {
         /* mã trong Specification / Lapdip có trên chứng từ (+2 mỗi loại) */
         if (codeTokens(r.spec).some((k) => ctxAZ.includes(k))) s += 2;
