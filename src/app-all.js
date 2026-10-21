@@ -674,7 +674,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -774,6 +774,11 @@ async function classify(file) {
     if (!ocr && isInkavaGiaCongText(lines.join(' '))) {
       let ig = null; try { ig = readInkavaGiaCong(lines); } catch (e) { ig = null; }
       if (ig && ig.inv.items.length) { out = { kind: 'fab', score: 9, fab: ig, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
+    /* Kiyohara Việt Nam: HĐ GTGT song ngữ, PO hệ cũ KIYOHARAVN-0003 */
+    if (!ocr && isKiyoharaText(lines.join(' '))) {
+      let ky = null; try { ky = readKiyohara(lines); } catch (e) { ky = null; }
+      if (ky && ky.inv.items.length) { out = { kind: 'fab', score: 9, fab: ky, lines, pos: [...new Set(ky.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* Inkava — HĐ GTGT ghi thẳng PO SAP số thuần (PO4500014796- …), mã tham chiếu so theo token với Supplier Ref */
     if (!ocr && isInkavaPoText(lines.join(' '))) {

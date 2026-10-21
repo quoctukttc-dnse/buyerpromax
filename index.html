@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.18 · 20.10.2026 · 19 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.19 · 21.10.2026 · 20 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -185,6 +185,9 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li><b>Inkava PO SAP số thuần</b> (v11.18): HĐ GTGT ghi <code>PO4500014796- ARN-SS27- 006779- SPRIPSZZ0037</code>, dòng hàng có thể in thành 2–3 dòng và
         nhiều trang → gom theo STT; mã tham chiếu so theo <em>tập token</em> với Supplier Ref (<code>115427-SS26</code> ↔ <code>KNIT-SS26-115427</code>); nhiều dòng HĐ cùng
         PO + mã cộng dồn vào một dòng inbound.</li>
+        <li><b>Kiyohara</b> (v11.19): HĐ GTGT song ngữ, PO hệ cũ <code>KIYOHARAVN-0003</code> → suy PO SAP <code>KYH0000300</code> theo số thứ tự khi không có file PO;
+        dòng không ghi PO dò theo mã + tổng chỗ còn nhận của PO; một PO có nhiều dòng cùng mã → <em>KHỚP (chia nhiều dòng)</em>, lấp số PO từng dòng trước rồi mới
+        tới dung sai, ghi số nguyên.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
@@ -1917,6 +1920,75 @@ function refPick(it, rows) {
   return rows.filter((r) => { const rt = TOK(r.supRef); return rt.length && rt.some((x) => /\d/.test(x) || x.length >= 4) && rt.every((x) => inv.has(x)); });
 }
 
+
+/* =====================  KIYOHARA VIỆT NAM — túi PE, HĐ GTGT song ngữ (easyinvoice)  =====================
+   Dòng số `1 Cái 16.800 1.183 19.874.400`; tên hàng ở dòng NGAY TRÊN (`Túi nhựa PE STONE SHEET S-SS21, KT:`), phần còn lại ở các dòng
+   dưới (`210x310mm`, `(SS-21 Bag PE49 … Printed 1 Side)`, `(PO: KIYOHARAVN-0003)`). PO là mã hệ cũ `KIYOHARAVN-0003`
+   → suy ra PO SAP trong inbound theo số thứ tự (`poBySerial`: 0003 ↔ KYH0000300) khi không có file PO SCAF-SCAX; dòng không ghi PO
+   dò theo mã + chỗ còn nhận trên PO chưa xuất hiện trên hóa đơn (onePoByArtColor). Mã hàng = từ đầu trong ngoặc mô tả (`SS-21`) ↔ Supplier Ref. */
+const isKiyoharaText = (t) => /KIYOHARA/i.test(t) && /H[ÓO]A Đ[ƠO]N GI[ÁA] TR[ỊI] GIA T[ĂA]NG|VAT\s*INVOICE/i.test(t);
+function readKiyohara(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isKiyoharaText(t)) return null;
+  const serial = (t.match(/K[ýy]\s*hi[ệe]u[^:\n]*:\s*([A-Z0-9]{5,})/i) || [])[1] || '';
+  const no = (t.match(/S[ốo]\s*\(\s*No\.?\s*\)\s*:\s*(\d+)/i) || t.match(/\bS[ốo]\s*:\s*(\d{1,8})\b/i) || [])[1] || '';
+  const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : no;
+  const dm = t.match(/Ng[àa]y\s*(?:\(Date\))?\s*(\d{1,2})\s*th[áa]ng\s*(?:\(month\))?\s*(\d{1,2})\s*n[ăa]m\s*(?:\(year\))?\s*(\d{4})/i);
+  const invDate = dm ? dmy(dm[1], dm[2], dm[3]) : '';
+  const NUM = /^(\d{1,3})\s+(C[áa]i|Chi[ếe]c|PCS|PC|B[ộo]|SET|M|KG|Cu[ộo]n|T[áa]m)\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)$/i;
+  const JUNK = /^(STT\b|\(No\.\)|\(1\)\s*\(2\)|trang\s*\d|tiep theo trang|Mã của cơ quan thuế|Trang tra cứu|\(Cần kiểm tra|Đơn vị cung cấp|CÔNG TY TNHH KIYOHARA|Mã số thuế|Địa chỉ|Hồ Chí Minh|Điện thoại|Tài khoản|\d{10,}\s*\(VND\)|Ký hiệu|HÓA ĐƠN GIÁ TRỊ|Số \(No|\(VAT INVOICE\)|Ngày \(Date\)|Họ tên người mua|Tên đơn vị|Số tài khoản|Hình thức thanh toán)/i;
+  const END = /^(Tỷ giá|Cộng tiền hàng|Thuế suất|Tổng cộng|Số tiền viết)/i;
+  let on = false; const body = [];
+  for (const L of all) {
+    if (/^\(1\)\s*\(2\)/.test(L) || /^STT\b/i.test(L)) { on = true; continue; }
+    if (!on) continue;
+    if (END.test(L)) { on = false; continue; }
+    if (JUNK.test(L)) continue;
+    body.push(L);
+  }
+  const idx = []; body.forEach((L, i) => { if (NUM.test(L)) idx.push(i); });
+  const items = [];
+  idx.forEach((bi, k) => {
+    const m = body[bi].match(NUM);
+    const qty = viNum(m[3]), price = viNum(m[4]), amount = viNum(m[5]);
+    if (isNaN(qty) || qty <= 0) return;
+    const title = bi > 0 && !idx.includes(bi - 1) && (k === 0 || bi - 1 > idx[k - 1]) ? body[bi - 1] : '';
+    const endAt = k + 1 < idx.length ? idx[k + 1] - 1 : body.length;   // dòng ngay trước số kế tiếp là tên hàng của dòng kế
+    const tail = body.slice(bi + 1, Math.max(bi + 1, endAt));
+    const text = [title].concat(tail).join(' ');
+    const poRaw = (text.match(/\(\s*PO\s*[:：]?\s*([A-Z0-9][A-Z0-9.\-\/]+)\s*\)/i) || [])[1] || '';
+    const paren = (text.match(/\(\s*([A-Z]{1,4}-?\d{1,4}[^)]*)\)/) || [])[1] || '';
+    const article = (paren.match(/^([A-Z]{1,4}-?\d{1,4}[A-Z]?)/) || title.match(/\b([A-Z]{1,4}-?\d{2,4})\b(?=\s*,|\s*$)/) || [])[1] || '';
+    const u = m[2]; const unit = /^(C[áa]i|Chi[ếe]c)$/i.test(u) ? 'PCS' : unitKey(u);
+    const desc = [title.replace(/,?\s*KT:?\s*$/i, ''), tail.filter((x) => !/^\(\s*PO/i.test(x)).join(' ')].filter(Boolean).join(' · ').replace(/\s+/g, ' ');
+    items.push({
+      poRaw, po: RE_SAPPO_FAB.test(poRaw) ? poRaw : '', poOld: !!poRaw && !RE_SAPPO_FAB.test(poRaw),
+      article, colorText: '', colorCode: '', colorShort: '', desc,
+      qtyByUnit: { [unit]: qty }, unit, qty, price, surcharge: 0, amount,
+      code: article + (title ? ' · ' + title.replace(/,?\s*KT:?\s*$/i, '') : ''),
+    });
+  });
+  if (!items.length) return null;
+  const total = viNum((t.match(/C[ộo]ng ti[ềe]n h[àa]ng[^:\n]*:\s*([\d.]+(?:,\d+)?)/i) || [])[1]);
+  return {
+    profile: 'KIYOHARA', supplier: 'Kiyohara', vat: true,
+    inv: { no: invNo, invNo, invDate, serial, items, currency: 'VND', unitDefault: items[0].unit, surchargeHeader: 0, total, totalQty: NaN, amountInclSur: true, hasSapPo: true },
+    pkl: null,
+  };
+}
+const RE_SAPPO_FAB = /^(?:[A-Z][A-Z&]{2}\d{7}|CH\d{8}|45\d{8})$/;
+/* PO hệ cũ "<TÊN>-<n>" (KIYOHARAVN-0003) → PO SAP có phần số = n × 100 (KYH0000300) và chữ cái PO SAP là dãy con của tên
+   (K·Y·H ⊂ KIYOHARAVN). Chỉ nhận khi đúng MỘT PO trong inbound thỏa; có file PO SCAF-SCAX thì tra file trước (ở trên). */
+function poBySerial(rawPo, distinct) {
+  const m = String(rawPo || '').toUpperCase().match(/^([A-Z][A-Z.&]*?)\s*[-\/]\s*0*(\d{1,5})$/);
+  if (!m) return '';
+  const n = Number(m[2]), name = m[1].replace(/[^A-Z]/g, '');
+  const subseq = (a, b) => { let i = 0; for (const ch of b) if (ch === a[i]) i++; return i === a.length; };
+  const hits = distinct.filter((p) => { const mm = String(p).match(/^([A-Z][A-Z&]{2})(\d{7})$/); return mm && Number(mm[2]) === n * 100 && subseq(mm[1], name); });
+  return hits.length === 1 ? hits[0] : '';
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);
@@ -2009,21 +2081,30 @@ function analyzeFab(inv, pkl, rows, opts) {
     }
     /* bộ đọc chung: chứng từ không ghi PO SAP (hoặc ghi mã riêng của chủ hàng) */
     /* …hoặc mẫu riêng mà chứng từ hoàn toàn không ghi PO (Carvico) */
-    if (rows && !poRows.length && (it.gen || !String(it.poRaw || it.po || '').trim())) {
+    if (rows && !poRows.length && (it.gen || it.poOld || !String(it.poRaw || it.po || '').trim())) {
       const distinct = [...new Set(rows.map((r) => poSap(r.poV)))];
       const rawPo = String(it.poRaw || it.po || '').trim();
       /* PO hệ cũ không tra được (PT.WINNER1-0667) hoặc dòng không ghi PO trong khi các dòng khác có: dò mã + màu + còn chỗ trên
          mọi PO của inbound, ưu tiên PO KHÔNG xuất hiện trên hóa đơn (dòng này ắt thuộc PO khác); chỉ nhận khi còn đúng MỘT PO */
       const onePoByArtColor = () => {
         const invT = [it.colorText, it.colorCode, it.desc, it.ctx].filter(Boolean).join(' ');
-        const cands = rows.filter((r) => ((it.article && artHit(it.article, r.material, r.desc, r.spec, r.supRef)) || refHit(r, invT))
-          && colorScore(it.colorText || invT, r.color, invT) >= 3 && roomRaw(r) >= (isNaN(it.qty) ? 0 : it.qty) - EPS);
+        const need = isNaN(it.qty) ? 0 : it.qty;
+        const cand0 = rows.filter((r) => ((it.article && artHit(it.article, r.material, r.desc, r.spec, r.supRef)) || refHit(r, invT))
+          && (!String(r.color || '').trim() || colorScore(it.colorText || invT, r.color, invT) >= 3));   // inbound không ghi màu → không xét màu
+        /* chỗ còn nhận tính GỘP các dòng cùng PO (Kiyohara: một PO có 6 dòng cùng mã "mua bổ sung") */
+        const roomPo = new Map();
+        cand0.forEach((r) => { const k = poSap(r.poV); roomPo.set(k, (roomPo.get(k) || 0) + Math.max(0, roomRaw(r))); });
+        const cands = cand0.filter((r) => roomPo.get(poSap(r.poV)) >= need - EPS);
         const onInv = new Set(inv.items.map((x) => poSap(x.po)).filter(Boolean));
         const cpos = [...new Set(cands.map((r) => poSap(r.poV)))];
         const free = cpos.filter((pp) => !onInv.has(pp));
         return free.length === 1 ? free[0] : (cpos.length === 1 ? cpos[0] : '');
       };
-      if (!rawPo && inv.hasSapPo) {
+      const serialPo = rawPo && !/^(?:[A-Z][A-Z&]{2}\d{7}|CH\d{8})$/.test(rawPo.toUpperCase()) ? poBySerial(rawPo, distinct) : '';
+      if (serialPo) {
+        poRows = rows.filter((r) => poSame(r.poV, serialPo)); usedPo = serialPo;
+        poNote += `PO hệ cũ "${rawPo}" → PO SAP ${serialPo} (suy theo số thứ tự ×100 và chữ cái; tải file PO SCAF-SCAX nếu muốn tra chính xác). `;
+      } else if (!rawPo && inv.hasSapPo) {
         const pp = onePoByArtColor();
         if (pp) { poRows = rows.filter((r) => poSame(r.poV, pp)); usedPo = pp; poNote += `Dòng này không ghi PO SAP (các dòng khác có) — chỉ PO ${pp} có mã + màu này còn chỗ nhận nên dùng PO đó. `; }
         else poNote += 'Dòng này không ghi PO (các dòng khác có) — không tự gán. ';
@@ -2181,6 +2262,30 @@ function analyzeFab(inv, pkl, rows, opts) {
         const rm = roomOf(hit[0]);
         alloc.push({ r: hit[0], qty: q });
         if (q > rm + EPS) overflow = r3(q - rm);
+      } else if (new Set(hit.map((r) => poSap(r.poV))).size === 1) {
+        /* nhiều dòng cùng mã trong CÙNG một PO (Kiyohara: dòng chính + các dòng "mua bổ sung"): lấp phần còn lại theo số PO
+           của từng dòng trước (theo thứ tự dòng), còn dư mới dùng đến phần dung sai; số nguyên khi chứng từ và PO đều là số nguyên */
+        const intMode = Number.isInteger(q) && hit.every((r) => isNaN(r.qty) || Number.isInteger(r.qty)) && hit.every((r) => isNaN(r.deliv) || Number.isInteger(r.deliv));
+        const cap = (v) => (intMode ? Math.floor(v + EPS) : v);
+        const taken = new Map();
+        const baseOf = (r) => (isNaN(r.qty) ? 0 : r.qty) - ((isNaN(r.deliv) ? 0 : r.deliv) - (r === grRow ? q : 0)) - (consumed.get(r) || 0) - preC(r);
+        let left = q;
+        for (const limit of [baseOf, roomOf]) {
+          for (const r of hit) {
+            if (left <= EPS) break;
+            const rm = cap(limit(r)) - (taken.get(r) || 0);
+            if (rm <= EPS) continue;
+            const take = r3(Math.min(left, rm));
+            taken.set(r, r3((taken.get(r) || 0) + take));
+            left = r3(left - take);
+          }
+        }
+        hit.forEach((r) => { if ((taken.get(r) || 0) > EPS) alloc.push({ r, qty: taken.get(r) }); });
+        if (left > EPS) {
+          if (alloc.length) alloc[alloc.length - 1].qty = r3(alloc[alloc.length - 1].qty + left);
+          else alloc.push({ r: hit[0], qty: q });
+          overflow = left;
+        }
       } else {
         const order = hit.slice().sort((x, y) => String(x.poV).localeCompare(String(y.poV)));
         /* dòng PO đã giao đủ (Delivered ≥ Quantity) coi như đã xong — chỉ dùng phần dung sai
@@ -2305,6 +2410,10 @@ function analyzeFab(inv, pkl, rows, opts) {
       status = 'KHỚP (chia theo size)';
       note += `Chứng từ ghi gộp ${q} ${inbUnit} cho ${alloc.length} dòng (size) — tổng PO đúng bằng nên điền theo từng dòng: `
         + alloc.map((x) => `${x.r.size || x.r.material} ${x.qty}`).join(' + ') + '.';
+    } else if (split && new Set(alloc.map((x) => poSap(x.r.poV))).size === 1) {
+      status = 'KHỚP (chia nhiều dòng)';
+      note += `PO ${alloc[0].r.poV} có ${hit.length} dòng cùng mã (${[...new Set(hit.map((x) => x.material))].join(', ')}) — đã chia theo thứ tự dòng, mỗi dòng tối đa phần còn nhận: `
+        + alloc.map((x) => `dòng ${x.r.r} ${x.qty}`).join(' + ') + '.';
     } else if (split) {
       status = 'KHỚP (chia nhiều PO)';
       note += `Mã + màu này có ở ${hit.length} PO với cùng số Material — đã chia theo PO cũ trước: `
@@ -4156,7 +4265,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -4256,6 +4365,11 @@ async function classify(file) {
     if (!ocr && isInkavaGiaCongText(lines.join(' '))) {
       let ig = null; try { ig = readInkavaGiaCong(lines); } catch (e) { ig = null; }
       if (ig && ig.inv.items.length) { out = { kind: 'fab', score: 9, fab: ig, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
+    /* Kiyohara Việt Nam: HĐ GTGT song ngữ, PO hệ cũ KIYOHARAVN-0003 */
+    if (!ocr && isKiyoharaText(lines.join(' '))) {
+      let ky = null; try { ky = readKiyohara(lines); } catch (e) { ky = null; }
+      if (ky && ky.inv.items.length) { out = { kind: 'fab', score: 9, fab: ky, lines, pos: [...new Set(ky.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* Inkava — HĐ GTGT ghi thẳng PO SAP số thuần (PO4500014796- …), mã tham chiếu so theo token với Supplier Ref */
     if (!ocr && isInkavaPoText(lines.join(' '))) {

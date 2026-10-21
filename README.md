@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.18 — 19 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.19 — 20 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -171,6 +171,18 @@ SURCHARGE | Quantity | Unit Price | Amount`; số hóa đơn nằm ở ô sau nh
 đọc PO = *CUSTOMER PO.*, article = *QUALITY P/N*, màu = *COLOUR*, dò inbound theo PO + article + màu; surcharge dòng so với *Surcharge Item*.
 Bộ thử `77FZ10L024SAV` + `UNI0000700`: 6/6 dòng đúng (330 / 348 / 397 / 113 / 110 / 126 m); 3 dòng `1SR0206SN` báo `LỆCH GIÁ TRỊ` **thật**:
 hóa đơn 2,62 USD/m, PO SAP 2,70 USD/m (lệch 27,92 USD trên cả hóa đơn) — cần hỏi lại chủ hàng / người đặt PO.
+
+## Kiyohara Việt Nam — túi PE, hóa đơn GTGT song ngữ, PO hệ cũ (v11.19)
+
+Hóa đơn easyinvoice song ngữ: dòng số `1 Cái 16.800 1.183 19.874.400`, tên hàng ở dòng ngay trên (`Túi nhựa PE STONE SHEET S-SS21, KT:`),
+mô tả và `(PO: KIYOHARAVN-0003)` ở các dòng dưới; dòng đầu không ghi PO. Mã hàng = từ đầu trong ngoặc mô tả (`SS-21`) ↔ *Supplier Ref*.
+PO trên hóa đơn là **mã hệ cũ** (`KIYOHARAVN-0003`), inbound là `KYH0000300`: không có file PO SCAF-SCAX, công cụ suy PO SAP theo số thứ tự
+(`0003` → phần số `0000300`, chữ `K·Y·H` là dãy con của `KIYOHARAVN`) và chỉ nhận khi đúng một PO trong inbound thỏa; dòng không ghi PO
+dò theo mã + **tổng** chỗ còn nhận của PO (cộng các dòng cùng mã) ưu tiên PO chưa xuất hiện trên hóa đơn. Một PO có nhiều dòng cùng mã
+(dòng chính + "mua bổ sung") → `KHỚP (chia nhiều dòng)`: lấp phần còn lại theo số PO từng dòng trước, còn dư mới dùng dung sai, số nguyên.
+Bộ thử `1C26TVN#00000476` (5 dòng, 36.300 cái) + inbound KYH0000300/400/500/600: 5/5 dòng ghép đúng PO, 15 dòng inbound được điền,
+tổng từng dòng hóa đơn đúng. Lưu ý: file inbound anh gửi đã điền sẵn số HĐ `1C26TVN#475` (không bù 0) trong khi hóa đơn là 476 — cần
+xác nhận lại đây là bộ của hóa đơn nào và quy ước ghi số HĐ.
 
 ## Inkava — hóa đơn GTGT ghi thẳng PO SAP số thuần (v11.18)
 

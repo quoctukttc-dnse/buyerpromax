@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.18)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.19)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,9 +972,9 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 19 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 20 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
   Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm, Best Pacific PDF,
-  Inkava gia công, Inkava PO SAP, Fujian Unitex) + các chủ hàng đã chạy
+  Inkava gia công, Inkava PO SAP, Fujian Unitex, Kiyohara) + các chủ hàng đã chạy
   thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
@@ -1314,6 +1314,31 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   từng HĐ = Tổng số lượng HĐ. Cảnh báo thật: 10 `VƯỢT DUNG SAI` (638: 4500018344 +185; 639: 4500011572 `WTI-FW26-350063` +35,
   4500018343 +0,02 / +1 / +16,96; 667: +9 / +3 / +9 / +10,16 / +30,04) và 1 `LỆCH GIÁ TRỊ` (639: 4500013475 `KNIT-FW26-340988` 2.200
   ≠ 2.860).
+
+## K. Kiyohara Việt Nam — HĐ GTGT song ngữ, PO hệ cũ (từ v11.19, 21.10.2026)
+
+- **Nhận diện** (`isKiyoharaText`): `KIYOHARA` + `HÓA ĐƠN GIÁ TRỊ GIA TĂNG` / `VAT INVOICE`. Trước v11.19: bộ đọc chung → 5 dòng
+  `THIẾU FILE PO`, inbound không ghép (PO `KIYOHARAVN-0003` không có trong inbound).
+- **Đọc** (`readKiyohara`, `profile: 'KIYOHARA'`, VND, `hasSapPo: true`): số HĐ `Số (No.) : 476` + `Ký hiệu (Serial) : 1C26TVN` →
+  `1C26TVN#00000476`; ngày `Ngày (Date) 20 tháng (month) 10 năm (year) 2026`. Thân bảng từ `(1) (2) (3)…` đến `Tỷ giá / Cộng tiền hàng`,
+  bỏ dòng trang (`trang 1/2`, mã cơ quan thuế, đầu trang lặp). Dòng số `STT Cái SL ĐG TT`; tên hàng = dòng ngay trên; phần đuôi = các dòng
+  tới trước tên hàng của dòng kế. `poRaw` = `(PO: …)`, `poOld = true` khi không phải mã SAP; `article` = từ đầu trong ngoặc mô tả
+  (`SS-21`); `Cái` → PCS.
+- **PO hệ cũ → SAP** (`poBySerial`, trong nhánh `it.poOld` của analyzeFab, sau khi tra file PO nếu có): `<TÊN>-<n>` → PO SAP có phần số
+  = n × 100 và 3 chữ cái là dãy con của TÊN (`KYH` ⊂ `KIYOHARAVN`); chỉ nhận khi đúng MỘT PO của inbound thỏa (PT.WINNER1-0667 ↔
+  WIN0002500 không thỏa → vẫn đi onePoByArtColor như cũ). Ghi chú nêu rõ là suy luận và gợi ý tải file PO SCAF-SCAX.
+- **Dòng không ghi PO** (`onePoByArtColor`, luật chung sửa): chỗ còn nhận tính **gộp các dòng cùng PO** (trước: từng dòng phải đủ);
+  inbound không ghi màu → không xét màu. Ưu tiên PO chưa có trên hóa đơn → `KYH0000300` (16.800 ≤ 17.307 gộp 6 dòng).
+- **Chia nhiều dòng cùng PO** (luật chung mới, chỉ khi mọi dòng trúng cùng một PO): hai lượt FIFO theo thứ tự dòng — lượt 1 lấp
+  `Quantity − Delivered`, lượt 2 mới dùng phần dung sai tới OTQ; số nguyên khi SL chứng từ và PO đều nguyên (phần dư cộng vào dòng cuối).
+  Nhãn `KHỚP (chia nhiều dòng)` (trước đây ghi nhầm "chia nhiều PO"). Các trường hợp nhiều PO giữ nguyên thuật toán cũ.
+- **Kết quả bộ thử** (`476` + inbound 19 dòng / 4 PO): 5/5 dòng đúng PO, 15 dòng inbound điền số nguyên, Σ theo dòng HĐ = 16.800 / 9.000 /
+  2.200 / 4.100 / 4.200; tổng tiền 47.685.100 khớp. Hồi quy 32 bộ + Inkava + Unitex không đổi.
+
+## Thay đổi của v11.19 (21.10.2026) — mẫu riêng Kiyohara + PO hệ cũ theo số thứ tự + chia nhiều dòng cùng PO
+
+- Mẫu riêng Kiyohara (mục K). `poBySerial`; onePoByArtColor tính chỗ gộp theo PO và bỏ qua màu khi inbound không ghi; FIFO hai lượt
+  số nguyên cho nhiều dòng cùng PO.
 
 ## Thay đổi của v11.18 (20.10.2026) — mẫu riêng Inkava PO SAP số thuần + dò theo tập token mã tham chiếu
 
