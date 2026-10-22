@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.19)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.20)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1334,6 +1334,16 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   Nhãn `KHỚP (chia nhiều dòng)` (trước đây ghi nhầm "chia nhiều PO"). Các trường hợp nhiều PO giữ nguyên thuật toán cũ.
 - **Kết quả bộ thử** (`476` + inbound 19 dòng / 4 PO): 5/5 dòng đúng PO, 15 dòng inbound điền số nguyên, Σ theo dòng HĐ = 16.800 / 9.000 /
   2.200 / 4.100 / 4.200; tổng tiền 47.685.100 khớp. Hồi quy 32 bộ + Inkava + Unitex không đổi.
+
+## Thay đổi của v11.20 (22.10.2026) — Inkava phụ liệu: mã bị in tách, size UNKNOWN, làm tròn packing list
+
+- `parseInvoice` dạng B (Inkava): `joinSplit` ghép `ALABPRW V0548002` → `ALABPRWV0548002` trước khi bắt mã (`codesIn`).
+- `readPklx` và `sz()` trong `analyze`: size `UNKNOWN` → rỗng, nên packing list không có cột Size (DUY0105800) hoặc ghi UNKNOWN
+  (DUY0105500) vẫn khớp dòng inbound theo Material + Spec; trước đây xMap không trúng → rơi về Invoice Quantity sẵn trong file thô.
+- Làm tròn 3 chữ số: `setQty`, `xCov`, `pklTotal`, `pklSize` (tổng dòng lẻ 1388,456 + 120,272 + 58 + 159,272 = 1725,9999…).
+- Packing list ≠ hóa đơn nhưng `hit.length === 1` → `setQty = it.qty`, ghi chú "Inbound chỉ có một dòng cho mã này — ghi theo hóa đơn";
+  trạng thái `LỆCH PKL` (inbound khớp hóa đơn, packing list lệch) thay vì `LỆCH SL`.
+- Bộ thử HĐ 695: 33 KHỚP + 1 LỆCH PKL; hồi quy 32 bộ + set 7–10 không đổi.
 
 ## Thay đổi của v11.19 (21.10.2026) — mẫu riêng Kiyohara + PO hệ cũ theo số thứ tự + chia nhiều dòng cùng PO
 

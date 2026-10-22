@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.19 — 20 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.20 — 20 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -171,6 +171,16 @@ SURCHARGE | Quantity | Unit Price | Amount`; số hóa đơn nằm ở ô sau nh
 đọc PO = *CUSTOMER PO.*, article = *QUALITY P/N*, màu = *COLOUR*, dò inbound theo PO + article + màu; surcharge dòng so với *Surcharge Item*.
 Bộ thử `77FZ10L024SAV` + `UNI0000700`: 6/6 dòng đúng (330 / 348 / 397 / 113 / 110 / 126 m); 3 dòng `1SR0206SN` báo `LỆCH GIÁ TRỊ` **thật**:
 hóa đơn 2,62 USD/m, PO SAP 2,70 USD/m (lệch 27,92 USD trên cả hóa đơn) — cần hỏi lại chủ hàng / người đặt PO.
+
+## Inkava phụ liệu — hóa đơn 695: mã vật tư bị in tách, packing list không có size (v11.20)
+
+Bộ `1C26TKV#00000695` (34 dòng, 5 PO `DUY…`, 5 packing list Excel, inbound 69 dòng) trước v11.20 báo 20 dòng `THIẾU DÒNG` + 1 `LỆCH SL`:
+hóa đơn in mã vật tư tách đôi `ALABPRW V0548002` nên bộ đọc không bắt được mã → ghép theo đơn giá rồi không tìm thấy dòng. Sửa:
+(1) ghép lại mã bị tách (`ALABPRW V0548002` → `ALABPRWV0548002`) trước khi bắt mã; (2) size `UNKNOWN` trên inbound / packing list coi như
+không có size nên packing list không có cột Size vẫn chia được theo Material + Spec; (3) tổng các dòng lẻ của packing list (1388,456 + …)
+được làm tròn 3 chữ số, hết lệch 1725,9999 vs 1726; (4) packing list ≠ hóa đơn nhưng inbound chỉ có **một** dòng cho mã đó → ghi Invoice
+Quantity theo hóa đơn, giữ cảnh báo lệch packing list (`LỆCH PKL`: PO DUY0105800 nhãn size 2.345 trên PKL, hóa đơn 2.342).
+Kết quả: 33 `KHỚP` + 1 `LỆCH PKL`, 69 dòng inbound điền đủ, tổng 138.569 cái và 28.020.548 đ đúng bằng hóa đơn.
 
 ## Kiyohara Việt Nam — túi PE, hóa đơn GTGT song ngữ, PO hệ cũ (v11.19)
 

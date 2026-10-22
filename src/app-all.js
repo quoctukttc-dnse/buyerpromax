@@ -357,7 +357,9 @@ function parseInvoice(lines) {
   }
   const usePoPre = !bodyCut.some((L) => L.includes('//')) && bodyCut.some((L) => RE_POPRE.test(L));
   if (usePoPre) {
-    const codesIn = (t, po) => (String(t).toUpperCase().match(/\b[A-Z]{3,}\d{3,}\b/g) || [])
+    /* mã vật tư bị in tách "ALABPRW V0548002" (HĐ 695) → ghép lại trước khi bắt mã */
+    const joinSplit = (t) => String(t).toUpperCase().replace(/\b([A-Z]{5,})\s+([A-Z]\d{3,})\b/g, '$1$2');
+    const codesIn = (t, po) => (joinSplit(t).match(/\b[A-Z]{3,}\d{3,}\b/g) || [])
       .filter((x) => !po || !x.includes(String(po).toUpperCase()));
     let cur2 = null, buf2 = [];
     for (const L of bodyCut) {
@@ -980,7 +982,7 @@ function readPklx(ws, fname) {
     if (!mat || !/^[A-Z]{4,}[A-Z0-9]*\d{3,}$/i.test(mat.replace(/\s+/g, '')) || isNaN(q) || q <= 0) continue;
     rows.push({
       material: mat.replace(/\s+/g, '').toUpperCase(), ref: txt(r, C.ref), spec: txt(r, C.spec),
-      size: txt(r, C.size).replace(/\s+/g, '').toUpperCase(), order: txt(r, C.order).trim(), qty: q, sheet: ws.name, hid,
+      size: txt(r, C.size).replace(/\s+/g, '').toUpperCase().replace(/^UNKNOWN$/, ''), order: txt(r, C.order).trim(), qty: q, sheet: ws.name, hid,
     });
     if (hid) hidden++;
   }
@@ -1678,13 +1680,14 @@ function analyze(inv, pkl, rows, po, pklx) {
       /* nhiều dòng inbound trùng một khoá packing list (khác MO) → chia theo số inbound, không cộng trùng */
       /* lượt 1: khớp đủ Material + Size + Spec; lượt 2: dòng inbound còn lại lấy phần packing list CÒN DƯ
          cùng Material + Size (không cộng lại phần đã chia ở lượt 1) */
-      const sz = (h) => String(h.size || '').replace(/\s+/g, '').toUpperCase();
+      /* size "UNKNOWN" (nhãn không theo size) coi như không có size — packing list bỏ trống hoặc cũng ghi UNKNOWN */
+      const sz = (h) => String(h.size || '').replace(/\s+/g, '').toUpperCase().replace(/^UNKNOWN$/, '');
       const left = {};
       Object.keys(xMap).forEach((k) => { if (k[0] !== '~') left[k] = xMap[k]; });
       const give = (hs, take) => hs.forEach((h, i) => {
         const cap = isNaN(h.qty) ? 0 : h.qty;
         const want = i === hs.length - 1 ? Infinity : cap;
-        const v = take(want);
+        const v = Math.round(take(want) * 1000) / 1000;   // tổng các dòng lẻ của packing list (1388,456 + …) có sai số dấu phẩy động
         h.setQty = v > 0 ? v : null; xCov += Math.max(v, 0);
       });
       const g1 = {}, rest = [];
@@ -1708,6 +1711,13 @@ function analyze(inv, pkl, rows, po, pklx) {
         }
         return got;
       }));
+      xCov = Math.round(xCov * 1000) / 1000;
+      /* packing list ≠ hóa đơn nhưng inbound chỉ có MỘT dòng cho mã này (HĐ 695: PKL 2.345, hóa đơn 2.342, PO 2.345)
+         → số hóa đơn là số để nhập SAP, ghi theo hóa đơn và giữ cảnh báo lệch packing list trong ghi chú */
+      if (xCov > 0 && hit.length === 1 && it.qty > 0 && Math.abs(xCov - it.qty) > 0.001) {
+        xNote += `Inbound chỉ có một dòng cho mã này — ghi Invoice Quantity theo hóa đơn ${fmt(it.qty)} (packing list ${fmt(xCov)}). `;
+        hit[0].setQty = it.qty; xCov = it.qty;
+      }
       if (xCov <= 0) { xMap = null; hit.forEach((h) => { h.setQty = null; }); }
       else xMiss = hit.filter((h) => h.setQty == null).length;
     }
@@ -1742,6 +1752,8 @@ function analyze(inv, pkl, rows, po, pklx) {
         pklTotal += rw.qty;
         if (rw.spec || rw.ref) pklCodesUsed.add(rw.spec || rw.ref);
       });
+      pklTotal = Math.round(pklTotal * 1000) / 1000;
+      Object.keys(pklSize).forEach((k) => { pklSize[k] = Math.round(pklSize[k] * 1000) / 1000; });
     }
     // packing list PDF
     if (pkl && !pklFromX) {
