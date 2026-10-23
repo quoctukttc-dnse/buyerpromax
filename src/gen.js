@@ -834,8 +834,9 @@ function readVatPdf(lines, fname) {
   }
   const txt = lines.map((l) => l.text).join('\n');
   const serial = (txt.match(/K[ýy]\s*hi[ệe]u[^:]*:\s*([A-Z0-9]+)/i) || [])[1] || '';
-  const no = (txt.match(/S[ốo]\s*\(\s*No\.?\s*\)\s*:?\s*(\d+)/i) || txt.match(/\bNo\.?\s*\)\s*:?\s*(\d+)/i) || txt.match(/S[ốo]\s*:\s*(\d{3,})/i) || [])[1] || '';
-  const md = txt.replace(/\s+/g, ' ').match(/Ng[àa]y\s*\(?\s*(?:date)?\s*\)?\s*(\d{1,2})\s*th[áa]ng\s*\(?\s*(?:month)?\s*\)?\s*(\d{1,2})\s*n[ăa]m\s*\(?\s*(?:year)?\s*\)?\s*(\d{4})/i);
+  /* "Số (Invoice No.) : 00001698" (Premier) — không lấy "1" của "Ký hiệu (Serial No.) : 1C26TPM" */
+  const no = (txt.match(/S[ốo]\s*\(\s*(?:Invoice\s*)?No\.?\s*\)\s*:?\s*(\d+)(?![A-Z0-9])/i) || txt.match(/\bNo\.?\s*\)\s*:?\s*(\d+)(?![A-Z0-9])/i) || txt.match(/S[ốo]\s*:\s*(\d{3,})/i) || [])[1] || '';
+  const md = txt.replace(/\s+/g, ' ').match(/Ng[àa]y\s*\(?\s*(?:date|day)?\s*\)?\s*(\d{1,2})\s*th[áa]ng\s*\(?\s*(?:month)?\s*\)?\s*(\d{1,2})\s*n[ăa]m\s*\(?\s*(?:year)?\s*\)?\s*(\d{4})/i);
   const invDate = md ? dmy(md[1], md[2], md[3]) : '';
   const tot = txt.match(/T[ổo]ng\s*c[ộo]ng\s*ti[ềe]n\s*ch[ưu]a\s*thu[ếe][^\d]*([\d.,]+)/i) || txt.match(/Thuế suất 8%[^\n]*?([\d.,]+)\s+[\d.,]+\s+[\d.,]+/i) || txt.match(/T[ổo]ng\s*c[ộo]ng\s*\(Total\)\s*:?\s*([\d.,]+)/i);
   const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : (no || '');

@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.20 · 22.10.2026 · 20 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.21 · 23.10.2026 · 22 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -191,6 +191,9 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li><b>Inkava phụ liệu</b> (v11.20): mã vật tư in tách <code>ALABPRW V0548002</code> được ghép lại; size <em>UNKNOWN</em> coi như không có size nên packing list
         không có cột Size vẫn chia được; tổng dòng lẻ của packing list được làm tròn; packing list lệch hóa đơn mà inbound chỉ có một dòng → ghi theo hóa đơn,
         báo <em>LỆCH PKL</em>.</li>
+        <li><b>B&amp;B Apparel · Pioneer Elastic · Premier</b> (v11.21): B&amp;B một dòng mould cup chia theo size; Pioneer đơn giá USD/100 m, phụ phí
+        <code>PLUS SURCHARGE</code> theo dòng ↔ Surcharge Item, packing list PDF riêng theo lô HET; HĐ GTGT song ngữ (Premier) đọc đúng
+        <code>Số (Invoice No.)</code> và <code>Ngày (day)…</code>.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
@@ -1992,6 +1995,149 @@ function poBySerial(rawPo, distinct) {
   return hits.length === 1 ? hits[0] : '';
 }
 
+
+/* =====================  B&B APPAREL ACCESSORIES (Hồng Kông) — mould cup, COMMERCIAL INVOICE  =====================
+   Một dòng/bảng: CALL LOT | PO NO | DESCRIPTION | COLOR | QUANTITY UNIT | UNIT PRICE | AMOUNT
+   "QJ0344-44 BBA0006900 B119TR-N (ST009NAA) BLACK 800 4,732 PR 0.39 1,845.48"; dòng tổng lặp "4732.00 1845.48" phải bỏ.
+   Hóa đơn không ghi size → inbound có nhiều dòng size cùng mã, tổng PO đúng bằng hóa đơn → chia theo size (splitSize). */
+const isBnBText = (t) => /B\s*&\s*B\s*APPAREL/i.test(t) && /COMMERCIAL\s*INVOICE/i.test(t) && /CALL\s*LOT/i.test(t);
+function readBnB(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isBnBText(t)) return null;
+  const no = (t.match(/INVOICE\s*NO\.?\s*[:：]?\s*([A-Z0-9][A-Z0-9\-\/]{3,})/i) || [])[1] || '';
+  const invDate = parseDateCell((t.match(/\bDATE\s*[:：]?\s*([\d\/.\-]{6,})/i) || [])[1] || '') || '';
+  const RE = /^(\S+)\s+([A-Z]{3}\d{7})\s+(.+?)\s+([\d,]+(?:\.\d+)?)\s+(PRS?|PCS|PC|SET|M|YDS?|KGS?)\s+([\d.]+)\s+([\d,]+(?:\.\d+)?)$/i;
+  const items = [];
+  for (const L of all) {
+    const m = L.match(RE);
+    if (!m) continue;
+    const qty = Number(m[4].replace(/,/g, '')), price = Number(m[6]), amount = Number(m[7].replace(/,/g, ''));
+    if (!(qty > 0)) continue;
+    const mid = m[3];
+    /* mô tả kết thúc ở ")" nếu có; phần sau là màu (+ mã màu số) */
+    let desc = mid, color = '';
+    const k = mid.lastIndexOf(')');
+    if (k >= 0 && k < mid.length - 1) { desc = mid.slice(0, k + 1).trim(); color = mid.slice(k + 1).trim(); }
+    else { const w = mid.split(' '); if (w.length > 2) { color = w.slice(-2).join(' '); desc = w.slice(0, -2).join(' '); } }
+    const article = (desc.match(/^([A-Z0-9][A-Z0-9\-\/]+)/i) || [])[1] || desc;
+    const unit = unitKey(m[5]);
+    items.push({
+      poRaw: m[2], po: poSap(m[2]), article, colorText: color.replace(/\s*\d{2,4}$/, ''), colorCode: (color.match(/(\d{2,4})$/) || [])[1] || '', colorShort: color,
+      desc: [desc, color, 'lot ' + m[1]].filter(Boolean).join(' · '), lot: m[1],
+      qtyByUnit: { [unit]: qty }, unit, qty, price, surcharge: 0, amount, code: desc + (color ? ' · ' + color : ''),
+    });
+  }
+  if (!items.length) return null;
+  const total = items.reduce((a, x) => a + x.amount, 0);
+  return {
+    profile: 'BNB', supplier: 'B&B Apparel',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: items[0].unit, surchargeHeader: 0, total: r3(total), totalQty: r3(items.reduce((a, x) => a + x.qty, 0)), amountInclSur: true },
+    pkl: null,
+  };
+}
+
+
+/* =====================  PIONEER ELASTIC (HK) — thun, hóa đơn in theo dòng, đơn giá USD/100M  =====================
+   "HET7291268 PEA0024400 4000 L590/4 BD7602 L04218/4 54A2 BLACK 093 54A2 7.42 296.80" + dòng thành phần "(NY52 SP48)",
+   có khi thêm dòng "PLUS SURCHARGE 130.00 130.00 130.00" (phụ phí theo dòng, GRAND-TOTAL đã gồm) ↔ Surcharge Item của SAP.
+   Cột: mã lô Pioneer | PO SAP | mét | mã hàng (L590/4, 0940516/10, 3493/10, 428/5/XA, 4899/10/PS) | mã style (BD7602T, RP2114T…) |
+   mã hàng lần 2 / Material SAP | mã màu + tên màu (+ mã màu) | đơn giá/100 m | thành tiền. Material + màu có thể nằm ở dòng dưới
+   ("AELATMSL1539006 77Q8 KISS KISS RED 77Q8"). Mã hàng ↔ Supplier Ref SAP ("ELAS 0940516/10#EL02927", "EL 02928=0940516/12",
+   "2640094/10/JP/A"); đơn giá/m = giá/100. Packing list PDF riêng (readPioneerPkl) ghi cùng mã lô HET + PO → ghép theo PO + mã + màu. */
+const isPioneerText = (t) => /USD\s*\/\s*100\s*M/i.test(t) && /ELASTIC\s*WEBBING/i.test(t) && /\bHET\d{6,}/.test(t);
+const PIO_STYLE = /^[A-Z]{2}\d{4}[A-Z@]*$/;          // BD7602, BD7602T, RP2114T, RC0467Z@, YW2103, RD8578
+const PIO_MAT = /^[A-Z]{8}\d{7}$/;                   // AELATMSL1539006
+const PIO_CCODE = /^(?=.*\d)[0-9A-Z]{4}$/;           // 54A2, 05W0, 00EI, 2HMN, 77Q8
+/* "54A2 BLACK 093 54A2" → { code: 54A2, name: BLACK 093 } · "GARDENIA GARDENIA" → { code: '', name: GARDENIA } */
+function pioColor(words) {
+  const code = words.find((w) => PIO_CCODE.test(w)) || '';
+  const rest = words.filter((w) => w !== code);
+  const out = [];
+  rest.forEach((w) => { if (out[out.length - 1] !== w) out.push(w); });
+  let name = out.join(' ');
+  if (out.length >= 2 && out.length % 2 === 0 && out.slice(0, out.length / 2).join(' ') === out.slice(out.length / 2).join(' ')) name = out.slice(0, out.length / 2).join(' ');
+  return { code, name };
+}
+function readPioneer(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isPioneerText(t)) return null;
+  const no = (t.match(/\b(MF\d{6,})\b/) || [])[1] || '';
+  const dm = t.match(/\b(\d{1,2})-([A-Z]{3})-(\d{4})\b/i);
+  const invDate = dm && MONTHS.indexOf(dm[2].toUpperCase()) >= 0 ? dmy(dm[1], MONTHS.indexOf(dm[2].toUpperCase()) + 1, dm[3]) : '';
+  const RE = /^(HET[A-Z0-9]+)\s+([A-Z]{3}\d{7})\s+([\d,]+)\s+(\S+)\s+(.*?)\s*([\d.]+)\s+([\d,]+\.\d{2})$/;
+  const items = [];
+  for (let i = 0; i < all.length; i++) {
+    const m = all[i].match(RE);
+    if (!m) continue;
+    const qty = Number(m[3].replace(/,/g, '')), per100 = Number(m[6]);
+    let amount = Number(m[7].replace(/,/g, ''));
+    if (!(qty > 0)) continue;
+    const article = m[4];
+    let words = m[5].split(' ').filter(Boolean), material = '', surcharge = 0, comp = '';
+    for (let k = i + 1; k <= i + 3 && k < all.length; k++) {
+      const nx = all[k];
+      if (/^HET[A-Z0-9]+\s+[A-Z]{3}\d{7}\s/.test(nx)) break;
+      const ms = nx.match(/^PLUS\s+SURCHARGE\s+([\d,]+\.\d{2})/i);
+      if (ms) { surcharge = r3(surcharge + Number(ms[1].replace(/,/g, ''))); continue; }
+      const mc = nx.match(/^\((.+)\)$/);
+      if (mc) { comp = comp || mc[1]; continue; }
+      const mm = nx.match(/^([A-Z]{8}\d{7})\s+(.*)$/);
+      if (mm) { words = words.concat(nx.split(' ')); continue; }
+    }
+    const style = words.find((w) => PIO_STYLE.test(w)) || '';
+    material = words.find((w) => PIO_MAT.test(w)) || '';
+    const cw = words.filter((w) => w !== article && !PIO_STYLE.test(w) && !PIO_MAT.test(w) && !/^\d[\d\/A-Z]*\/[\dA-Z\/]+$/.test(w));
+    const col = pioColor(cw);
+    amount = r3(amount + surcharge);
+    items.push({
+      poRaw: m[2], po: poSap(m[2]), article, colorText: col.name, colorCode: col.code, colorShort: col.name, material, style,
+      desc: [article, style, col.name + (col.code ? ' ' + col.code : ''), comp, 'lot ' + m[1]].filter(Boolean).join(' · '), lot: m[1], pklNo: no,
+      qtyByUnit: { M: qty }, unit: 'M', qty, price: Math.round(per100 / 100 * 1e6) / 1e6, per100, surcharge, amount,
+      code: article + ' · ' + col.name + (col.code ? ' ' + col.code : ''), pklKey: poSap(m[2]) + '|' + AZ(article) + '|' + AZ(col.name),
+    });
+  }
+  if (!items.length) return null;
+  const total = Number(((t.match(/GRAND-?TOTAL\s*:?\s*([\d,]+\.\d{2})/i) || [])[1] || '').replace(/,/g, '')) || NaN;
+  const tq = (t.match(/\bTOTAL\s*:\s*([\d,]+)\s*M\b/i) || [])[1];
+  return {
+    profile: 'PIONEER', supplier: 'Pioneer Elastic',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: 'M', surchargeHeader: 0, total, totalQty: tq ? Number(tq.replace(/,/g, '')) : NaN, amountInclSur: true },
+    pkl: null,
+  };
+}
+/* Packing list Pioneer: "HET7265309K 1426384-01 RN2070050/10/PS YW2103 247M 2.4 3.3" + dòng dưới "PEA0014500 AELAWCSL0012120 GARDENIA GARDENIA" */
+const isPioneerPklText = (t) => /PACKING\s*LIST/i.test(t) && /\bHET[A-Z0-9]{6,}\s+\S+\s+\S+.*\d\s*M\b/.test(t) && /ELASTIC/i.test(t) && !/USD\s*\/\s*100\s*M/i.test(t);
+function readPioneerPkl(lines, fname) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isPioneerPklText(t)) return null;
+  const pklNo = (t.match(/\b(MF\d{6,})\b/) || [])[1] || '';
+  const RE = /^(HET[A-Z0-9]+)\s+(\S+)\s+(\S+)\s+(.*?)\s*([\d,]+)\s*M\s+[\d.]+\s+[\d.]+$/;
+  const groups = [];
+  for (let i = 0; i < all.length; i++) {
+    const m = all[i].match(RE);
+    if (!m) continue;
+    const q = Number(m[5].replace(/,/g, ''));
+    if (!(q > 0)) continue;
+    const nx = all[i + 1] || '';
+    const mp = nx.match(/^([A-Z]{3}\d{7})\s*(.*)$/);
+    const po = mp ? mp[1] : '';
+    const article = m[3];
+    const words = m[4].split(' ').concat(mp ? mp[2].split(' ') : []).filter(Boolean)
+      .filter((w) => w !== article && !PIO_STYLE.test(w) && !PIO_MAT.test(w) && !/^\d[\d\/A-Z]*\/[\dA-Z\/]+$/.test(w));
+    const col = pioColor(words);
+    const itemKey = poSap(po) + '|' + AZ(article) + '|' + AZ(col.name);
+    const key = itemKey + '|' + AZ(m[1]);
+    let g = groups.find((x) => x.key === key);
+    if (!g) { g = { key, itemKey, po: poSap(po), poRaw: po, article, color: col.name, colorCode: col.code, lot: 'Lô ' + m[1], unit: 'M', rolls: [], total: 0, pklNo }; groups.push(g); }
+    g.total = r3(g.total + q);
+  }
+  if (!groups.length) return null;
+  return { profile: 'PIONEER', supplier: 'Pioneer Elastic', role: 'pkl', file: fname || '', inv: { items: [] }, pkl: { groups, unit: 'M', level: 'lot' }, pklOnly: true, pklNo };
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);
@@ -3364,8 +3510,9 @@ function readVatPdf(lines, fname) {
   }
   const txt = lines.map((l) => l.text).join('\n');
   const serial = (txt.match(/K[ýy]\s*hi[ệe]u[^:]*:\s*([A-Z0-9]+)/i) || [])[1] || '';
-  const no = (txt.match(/S[ốo]\s*\(\s*No\.?\s*\)\s*:?\s*(\d+)/i) || txt.match(/\bNo\.?\s*\)\s*:?\s*(\d+)/i) || txt.match(/S[ốo]\s*:\s*(\d{3,})/i) || [])[1] || '';
-  const md = txt.replace(/\s+/g, ' ').match(/Ng[àa]y\s*\(?\s*(?:date)?\s*\)?\s*(\d{1,2})\s*th[áa]ng\s*\(?\s*(?:month)?\s*\)?\s*(\d{1,2})\s*n[ăa]m\s*\(?\s*(?:year)?\s*\)?\s*(\d{4})/i);
+  /* "Số (Invoice No.) : 00001698" (Premier) — không lấy "1" của "Ký hiệu (Serial No.) : 1C26TPM" */
+  const no = (txt.match(/S[ốo]\s*\(\s*(?:Invoice\s*)?No\.?\s*\)\s*:?\s*(\d+)(?![A-Z0-9])/i) || txt.match(/\bNo\.?\s*\)\s*:?\s*(\d+)(?![A-Z0-9])/i) || txt.match(/S[ốo]\s*:\s*(\d{3,})/i) || [])[1] || '';
+  const md = txt.replace(/\s+/g, ' ').match(/Ng[àa]y\s*\(?\s*(?:date|day)?\s*\)?\s*(\d{1,2})\s*th[áa]ng\s*\(?\s*(?:month)?\s*\)?\s*(\d{1,2})\s*n[ăa]m\s*\(?\s*(?:year)?\s*\)?\s*(\d{4})/i);
   const invDate = md ? dmy(md[1], md[2], md[3]) : '';
   const tot = txt.match(/T[ổo]ng\s*c[ộo]ng\s*ti[ềe]n\s*ch[ưu]a\s*thu[ếe][^\d]*([\d.,]+)/i) || txt.match(/Thuế suất 8%[^\n]*?([\d.,]+)\s+[\d.,]+\s+[\d.,]+/i) || txt.match(/T[ổo]ng\s*c[ộo]ng\s*\(Total\)\s*:?\s*([\d.,]+)/i);
   const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : (no || '');
@@ -4270,7 +4417,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -4370,6 +4517,20 @@ async function classify(file) {
     if (!ocr && isInkavaGiaCongText(lines.join(' '))) {
       let ig = null; try { ig = readInkavaGiaCong(lines); } catch (e) { ig = null; }
       if (ig && ig.inv.items.length) { out = { kind: 'fab', score: 9, fab: ig, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
+    /* Pioneer Elastic (HK): hóa đơn thun, đơn giá USD/100M, mã hàng ↔ Supplier Ref */
+    if (!ocr && isPioneerText(lines.join(' '))) {
+      let pe = null; try { pe = readPioneer(lines); } catch (e) { pe = null; }
+      if (pe && pe.inv.items.length) { out = { kind: 'fab', score: 9, fab: pe, lines, pos: [...new Set(pe.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    if (!ocr && isPioneerPklText(lines.join('\n'))) {
+      let pp = null; try { pp = readPioneerPkl(lines, file.name); } catch (e) { pp = null; }
+      if (pp) { out = { kind: 'genpkl', score: 6, gen: pp, lines, pos: [...new Set(pp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    /* B&B Apparel (Hồng Kông): COMMERCIAL INVOICE mould cup một dòng, chia theo size trên inbound */
+    if (!ocr && isBnBText(lines.join(' '))) {
+      let bb = null; try { bb = readBnB(lines); } catch (e) { bb = null; }
+      if (bb && bb.inv.items.length) { out = { kind: 'fab', score: 9, fab: bb, lines, pos: [...new Set(bb.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* Kiyohara Việt Nam: HĐ GTGT song ngữ, PO hệ cũ KIYOHARAVN-0003 */
     if (!ocr && isKiyoharaText(lines.join(' '))) {

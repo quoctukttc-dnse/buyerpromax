@@ -676,7 +676,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -776,6 +776,20 @@ async function classify(file) {
     if (!ocr && isInkavaGiaCongText(lines.join(' '))) {
       let ig = null; try { ig = readInkavaGiaCong(lines); } catch (e) { ig = null; }
       if (ig && ig.inv.items.length) { out = { kind: 'fab', score: 9, fab: ig, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
+    /* Pioneer Elastic (HK): hóa đơn thun, đơn giá USD/100M, mã hàng ↔ Supplier Ref */
+    if (!ocr && isPioneerText(lines.join(' '))) {
+      let pe = null; try { pe = readPioneer(lines); } catch (e) { pe = null; }
+      if (pe && pe.inv.items.length) { out = { kind: 'fab', score: 9, fab: pe, lines, pos: [...new Set(pe.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    if (!ocr && isPioneerPklText(lines.join('\n'))) {
+      let pp = null; try { pp = readPioneerPkl(lines, file.name); } catch (e) { pp = null; }
+      if (pp) { out = { kind: 'genpkl', score: 6, gen: pp, lines, pos: [...new Set(pp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    /* B&B Apparel (Hồng Kông): COMMERCIAL INVOICE mould cup một dòng, chia theo size trên inbound */
+    if (!ocr && isBnBText(lines.join(' '))) {
+      let bb = null; try { bb = readBnB(lines); } catch (e) { bb = null; }
+      if (bb && bb.inv.items.length) { out = { kind: 'fab', score: 9, fab: bb, lines, pos: [...new Set(bb.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* Kiyohara Việt Nam: HĐ GTGT song ngữ, PO hệ cũ KIYOHARAVN-0003 */
     if (!ocr && isKiyoharaText(lines.join(' '))) {

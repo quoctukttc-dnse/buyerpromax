@@ -1659,6 +1659,149 @@ function poBySerial(rawPo, distinct) {
   return hits.length === 1 ? hits[0] : '';
 }
 
+
+/* =====================  B&B APPAREL ACCESSORIES (Hồng Kông) — mould cup, COMMERCIAL INVOICE  =====================
+   Một dòng/bảng: CALL LOT | PO NO | DESCRIPTION | COLOR | QUANTITY UNIT | UNIT PRICE | AMOUNT
+   "QJ0344-44 BBA0006900 B119TR-N (ST009NAA) BLACK 800 4,732 PR 0.39 1,845.48"; dòng tổng lặp "4732.00 1845.48" phải bỏ.
+   Hóa đơn không ghi size → inbound có nhiều dòng size cùng mã, tổng PO đúng bằng hóa đơn → chia theo size (splitSize). */
+const isBnBText = (t) => /B\s*&\s*B\s*APPAREL/i.test(t) && /COMMERCIAL\s*INVOICE/i.test(t) && /CALL\s*LOT/i.test(t);
+function readBnB(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isBnBText(t)) return null;
+  const no = (t.match(/INVOICE\s*NO\.?\s*[:：]?\s*([A-Z0-9][A-Z0-9\-\/]{3,})/i) || [])[1] || '';
+  const invDate = parseDateCell((t.match(/\bDATE\s*[:：]?\s*([\d\/.\-]{6,})/i) || [])[1] || '') || '';
+  const RE = /^(\S+)\s+([A-Z]{3}\d{7})\s+(.+?)\s+([\d,]+(?:\.\d+)?)\s+(PRS?|PCS|PC|SET|M|YDS?|KGS?)\s+([\d.]+)\s+([\d,]+(?:\.\d+)?)$/i;
+  const items = [];
+  for (const L of all) {
+    const m = L.match(RE);
+    if (!m) continue;
+    const qty = Number(m[4].replace(/,/g, '')), price = Number(m[6]), amount = Number(m[7].replace(/,/g, ''));
+    if (!(qty > 0)) continue;
+    const mid = m[3];
+    /* mô tả kết thúc ở ")" nếu có; phần sau là màu (+ mã màu số) */
+    let desc = mid, color = '';
+    const k = mid.lastIndexOf(')');
+    if (k >= 0 && k < mid.length - 1) { desc = mid.slice(0, k + 1).trim(); color = mid.slice(k + 1).trim(); }
+    else { const w = mid.split(' '); if (w.length > 2) { color = w.slice(-2).join(' '); desc = w.slice(0, -2).join(' '); } }
+    const article = (desc.match(/^([A-Z0-9][A-Z0-9\-\/]+)/i) || [])[1] || desc;
+    const unit = unitKey(m[5]);
+    items.push({
+      poRaw: m[2], po: poSap(m[2]), article, colorText: color.replace(/\s*\d{2,4}$/, ''), colorCode: (color.match(/(\d{2,4})$/) || [])[1] || '', colorShort: color,
+      desc: [desc, color, 'lot ' + m[1]].filter(Boolean).join(' · '), lot: m[1],
+      qtyByUnit: { [unit]: qty }, unit, qty, price, surcharge: 0, amount, code: desc + (color ? ' · ' + color : ''),
+    });
+  }
+  if (!items.length) return null;
+  const total = items.reduce((a, x) => a + x.amount, 0);
+  return {
+    profile: 'BNB', supplier: 'B&B Apparel',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: items[0].unit, surchargeHeader: 0, total: r3(total), totalQty: r3(items.reduce((a, x) => a + x.qty, 0)), amountInclSur: true },
+    pkl: null,
+  };
+}
+
+
+/* =====================  PIONEER ELASTIC (HK) — thun, hóa đơn in theo dòng, đơn giá USD/100M  =====================
+   "HET7291268 PEA0024400 4000 L590/4 BD7602 L04218/4 54A2 BLACK 093 54A2 7.42 296.80" + dòng thành phần "(NY52 SP48)",
+   có khi thêm dòng "PLUS SURCHARGE 130.00 130.00 130.00" (phụ phí theo dòng, GRAND-TOTAL đã gồm) ↔ Surcharge Item của SAP.
+   Cột: mã lô Pioneer | PO SAP | mét | mã hàng (L590/4, 0940516/10, 3493/10, 428/5/XA, 4899/10/PS) | mã style (BD7602T, RP2114T…) |
+   mã hàng lần 2 / Material SAP | mã màu + tên màu (+ mã màu) | đơn giá/100 m | thành tiền. Material + màu có thể nằm ở dòng dưới
+   ("AELATMSL1539006 77Q8 KISS KISS RED 77Q8"). Mã hàng ↔ Supplier Ref SAP ("ELAS 0940516/10#EL02927", "EL 02928=0940516/12",
+   "2640094/10/JP/A"); đơn giá/m = giá/100. Packing list PDF riêng (readPioneerPkl) ghi cùng mã lô HET + PO → ghép theo PO + mã + màu. */
+const isPioneerText = (t) => /USD\s*\/\s*100\s*M/i.test(t) && /ELASTIC\s*WEBBING/i.test(t) && /\bHET\d{6,}/.test(t);
+const PIO_STYLE = /^[A-Z]{2}\d{4}[A-Z@]*$/;          // BD7602, BD7602T, RP2114T, RC0467Z@, YW2103, RD8578
+const PIO_MAT = /^[A-Z]{8}\d{7}$/;                   // AELATMSL1539006
+const PIO_CCODE = /^(?=.*\d)[0-9A-Z]{4}$/;           // 54A2, 05W0, 00EI, 2HMN, 77Q8
+/* "54A2 BLACK 093 54A2" → { code: 54A2, name: BLACK 093 } · "GARDENIA GARDENIA" → { code: '', name: GARDENIA } */
+function pioColor(words) {
+  const code = words.find((w) => PIO_CCODE.test(w)) || '';
+  const rest = words.filter((w) => w !== code);
+  const out = [];
+  rest.forEach((w) => { if (out[out.length - 1] !== w) out.push(w); });
+  let name = out.join(' ');
+  if (out.length >= 2 && out.length % 2 === 0 && out.slice(0, out.length / 2).join(' ') === out.slice(out.length / 2).join(' ')) name = out.slice(0, out.length / 2).join(' ');
+  return { code, name };
+}
+function readPioneer(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isPioneerText(t)) return null;
+  const no = (t.match(/\b(MF\d{6,})\b/) || [])[1] || '';
+  const dm = t.match(/\b(\d{1,2})-([A-Z]{3})-(\d{4})\b/i);
+  const invDate = dm && MONTHS.indexOf(dm[2].toUpperCase()) >= 0 ? dmy(dm[1], MONTHS.indexOf(dm[2].toUpperCase()) + 1, dm[3]) : '';
+  const RE = /^(HET[A-Z0-9]+)\s+([A-Z]{3}\d{7})\s+([\d,]+)\s+(\S+)\s+(.*?)\s*([\d.]+)\s+([\d,]+\.\d{2})$/;
+  const items = [];
+  for (let i = 0; i < all.length; i++) {
+    const m = all[i].match(RE);
+    if (!m) continue;
+    const qty = Number(m[3].replace(/,/g, '')), per100 = Number(m[6]);
+    let amount = Number(m[7].replace(/,/g, ''));
+    if (!(qty > 0)) continue;
+    const article = m[4];
+    let words = m[5].split(' ').filter(Boolean), material = '', surcharge = 0, comp = '';
+    for (let k = i + 1; k <= i + 3 && k < all.length; k++) {
+      const nx = all[k];
+      if (/^HET[A-Z0-9]+\s+[A-Z]{3}\d{7}\s/.test(nx)) break;
+      const ms = nx.match(/^PLUS\s+SURCHARGE\s+([\d,]+\.\d{2})/i);
+      if (ms) { surcharge = r3(surcharge + Number(ms[1].replace(/,/g, ''))); continue; }
+      const mc = nx.match(/^\((.+)\)$/);
+      if (mc) { comp = comp || mc[1]; continue; }
+      const mm = nx.match(/^([A-Z]{8}\d{7})\s+(.*)$/);
+      if (mm) { words = words.concat(nx.split(' ')); continue; }
+    }
+    const style = words.find((w) => PIO_STYLE.test(w)) || '';
+    material = words.find((w) => PIO_MAT.test(w)) || '';
+    const cw = words.filter((w) => w !== article && !PIO_STYLE.test(w) && !PIO_MAT.test(w) && !/^\d[\d\/A-Z]*\/[\dA-Z\/]+$/.test(w));
+    const col = pioColor(cw);
+    amount = r3(amount + surcharge);
+    items.push({
+      poRaw: m[2], po: poSap(m[2]), article, colorText: col.name, colorCode: col.code, colorShort: col.name, material, style,
+      desc: [article, style, col.name + (col.code ? ' ' + col.code : ''), comp, 'lot ' + m[1]].filter(Boolean).join(' · '), lot: m[1], pklNo: no,
+      qtyByUnit: { M: qty }, unit: 'M', qty, price: Math.round(per100 / 100 * 1e6) / 1e6, per100, surcharge, amount,
+      code: article + ' · ' + col.name + (col.code ? ' ' + col.code : ''), pklKey: poSap(m[2]) + '|' + AZ(article) + '|' + AZ(col.name),
+    });
+  }
+  if (!items.length) return null;
+  const total = Number(((t.match(/GRAND-?TOTAL\s*:?\s*([\d,]+\.\d{2})/i) || [])[1] || '').replace(/,/g, '')) || NaN;
+  const tq = (t.match(/\bTOTAL\s*:\s*([\d,]+)\s*M\b/i) || [])[1];
+  return {
+    profile: 'PIONEER', supplier: 'Pioneer Elastic',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: 'M', surchargeHeader: 0, total, totalQty: tq ? Number(tq.replace(/,/g, '')) : NaN, amountInclSur: true },
+    pkl: null,
+  };
+}
+/* Packing list Pioneer: "HET7265309K 1426384-01 RN2070050/10/PS YW2103 247M 2.4 3.3" + dòng dưới "PEA0014500 AELAWCSL0012120 GARDENIA GARDENIA" */
+const isPioneerPklText = (t) => /PACKING\s*LIST/i.test(t) && /\bHET[A-Z0-9]{6,}\s+\S+\s+\S+.*\d\s*M\b/.test(t) && /ELASTIC/i.test(t) && !/USD\s*\/\s*100\s*M/i.test(t);
+function readPioneerPkl(lines, fname) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isPioneerPklText(t)) return null;
+  const pklNo = (t.match(/\b(MF\d{6,})\b/) || [])[1] || '';
+  const RE = /^(HET[A-Z0-9]+)\s+(\S+)\s+(\S+)\s+(.*?)\s*([\d,]+)\s*M\s+[\d.]+\s+[\d.]+$/;
+  const groups = [];
+  for (let i = 0; i < all.length; i++) {
+    const m = all[i].match(RE);
+    if (!m) continue;
+    const q = Number(m[5].replace(/,/g, ''));
+    if (!(q > 0)) continue;
+    const nx = all[i + 1] || '';
+    const mp = nx.match(/^([A-Z]{3}\d{7})\s*(.*)$/);
+    const po = mp ? mp[1] : '';
+    const article = m[3];
+    const words = m[4].split(' ').concat(mp ? mp[2].split(' ') : []).filter(Boolean)
+      .filter((w) => w !== article && !PIO_STYLE.test(w) && !PIO_MAT.test(w) && !/^\d[\d\/A-Z]*\/[\dA-Z\/]+$/.test(w));
+    const col = pioColor(words);
+    const itemKey = poSap(po) + '|' + AZ(article) + '|' + AZ(col.name);
+    const key = itemKey + '|' + AZ(m[1]);
+    let g = groups.find((x) => x.key === key);
+    if (!g) { g = { key, itemKey, po: poSap(po), poRaw: po, article, color: col.name, colorCode: col.code, lot: 'Lô ' + m[1], unit: 'M', rolls: [], total: 0, pklNo }; groups.push(g); }
+    g.total = r3(g.total + q);
+  }
+  if (!groups.length) return null;
+  return { profile: 'PIONEER', supplier: 'Pioneer Elastic', role: 'pkl', file: fname || '', inv: { items: [] }, pkl: { groups, unit: 'M', level: 'lot' }, pklOnly: true, pklNo };
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);

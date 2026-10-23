@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.20 — 20 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.21 — 22 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -171,6 +171,21 @@ SURCHARGE | Quantity | Unit Price | Amount`; số hóa đơn nằm ở ô sau nh
 đọc PO = *CUSTOMER PO.*, article = *QUALITY P/N*, màu = *COLOUR*, dò inbound theo PO + article + màu; surcharge dòng so với *Surcharge Item*.
 Bộ thử `77FZ10L024SAV` + `UNI0000700`: 6/6 dòng đúng (330 / 348 / 397 / 113 / 110 / 126 m); 3 dòng `1SR0206SN` báo `LỆCH GIÁ TRỊ` **thật**:
 hóa đơn 2,62 USD/m, PO SAP 2,70 USD/m (lệch 27,92 USD trên cả hóa đơn) — cần hỏi lại chủ hàng / người đặt PO.
+
+## B&B Apparel, Premier Elastic, Pioneer Elastic — ba bộ có inbound điền tay (v11.21)
+
+- **B&B Apparel Accessories (Hồng Kông)** — COMMERCIAL INVOICE mould cup một dòng `QJ0344-44 BBA0006900 B119TR-N (ST009NAA) BLACK 800
+  4,732 PR 0.39 1,845.48` (mẫu riêng `readBnB`); dòng tổng lặp `4732.00 1845.48` bị bỏ. Hóa đơn không ghi size, inbound có 5 dòng size
+  cùng mã mà tổng PO đúng bằng hóa đơn → `KHỚP (chia theo size)` L 1.366 + M 1.893 + S 841 + XL 526 + XS 106. Khớp 100 % file điền tay.
+- **Premier Elastic Webbing (VN)** — HĐ GTGT song ngữ Bkav, 30 dòng `Thun FKS207/11(BLACK-HS20082501)(PRE0039700)`; bộ đọc chung đã ghép
+  đúng 30/30 nhưng đọc nhầm số HĐ thành `1C26TPM#00000001` (lấy "1" của `Ký hiệu (Serial No.) : 1C26TPM`) và không ra ngày (`Ngày (day)
+  17 tháng (month) 10 năm (year) 2026`). Sửa regex số HĐ / ngày trong bộ đọc chung → `1C26TPM#00001698`, 17.10.2026; khớp 100 % điền tay.
+- **Pioneer Elastic (HK)** — hóa đơn `HET7291268 PEA0024400 4000 L590/4 BD7602 L04218/4 54A2 BLACK 093 54A2 7.42 296.80`, đơn giá
+  **USD/100 m**, có khi thêm dòng `PLUS SURCHARGE 130.00` (mẫu riêng `readPioneer`): mã hàng ↔ Supplier Ref (`ELAS 0940516/10#EL02927`,
+  `EL 02928=0940516/12`, `STRING EL02828=428/5/XA`), màu tách khỏi mã style / Material SAP (`54A2 BLACK 093 54A2` → BLACK 093, mã 54A2),
+  đơn giá/m = giá/100, phụ phí dòng cộng vào thành tiền ↔ Surcharge Item. Packing list PDF riêng (`readPioneerPkl`, cùng mã lô HET + PO)
+  ghép theo PO + mã + màu. Bộ `MF2616171` (19 dòng, 9 PO): 19/19 đúng, khớp 100 % điền tay (trước đây 5 dòng CẦN KIỂM TAY). Bộ cũ
+  `MF2615049` + PKL: 5/5 đúng, 1 cảnh báo thật: dòng PEA0014500 hóa đơn cộng phụ phí 130 USD nhưng PO không có Surcharge Item.
 
 ## Inkava phụ liệu — hóa đơn 695: mã vật tư bị in tách, packing list không có size (v11.20)
 
