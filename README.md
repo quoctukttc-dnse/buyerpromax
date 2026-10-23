@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.23 — 24 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.24 — 24 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -180,8 +180,16 @@ UNIQUE-S1-V1, có thể ngắt thành dòng trên + dòng dưới của dòng s�
 trang): công cụ tách theo số HĐ ở đầu trang thành 18 mục riêng (tên file kèm `[HĐ 21264]`), đọc 440 dòng, tổng số lượng và tổng tiền của
 cả 19 hóa đơn (kể cả HĐ móc treo 21263) đúng bằng dòng `Tổng (Sub Total)`. Phiếu xuất kho PDF chữ (`PXK-HANGER HUE1.pdf`) đọc thành packing
 list theo OD, ghép với hóa đơn có cùng Lệnh giao hàng (2.640 khớp). Phiếu xuất kho nhãn (`PXK NHAN.pdf`, 97 trang scan) chưa OCR vì quá dài
-và hóa đơn đã có đủ mã + số lượng. **Chưa có inbound** cho các PO Mainetti nên chưa đối chiếu được; cần file ZMME (PO SAP của Mainetti
-ứng với `MN100xxxxx`) để huấn luyện bước ghép.
+và hóa đơn đã có đủ mã + số lượng.
+
+**Đối chiếu với inbound (v11.24):** SAP đặt PO Mainetti đúng mã `MN10031500` (Purchasing Document), không có mã hàng 8 số của Mainetti;
+thay vào đó *Specification* `SS26 348066 S1 V1`, *Customer SKU Code* `4897943`, *Size* (`36`, `2XL`, `ONE SIZE`, `34->46, 50->52`), *DSM
+Code*. Mô tả nhãn trên hóa đơn `Nhãn-DCL-30x200-346856-B-5035974-M,L33-S1-V1` được tách thành model `346856`, SKU `5035974`, size `M`
+(bỏ đuôi `,L33` / `L34`; `5-6Y`, `18M`, `UNIQUE` giữ nguyên), loại `S1`, phiên bản `V1` → dò trong PO theo tập token {model, S?, V?}
+(mục IP), lọc size, cộng 3 điểm khi trùng SKU, trừ 3 khi khác; nhiều dòng cùng điểm (S2/S3 cùng spec) tách bằng số lượng đúng bằng PO.
+Móc treo `Móc treo-WIB-10(ANZ405)-…` ↔ Supplier Ref `HANGER ANZ405#WIB-10NB` theo token. Kết quả bộ 19 hóa đơn + ZMME 1.150 dòng: 424/441
+dòng `KHỚP`, 16 dòng `LỖI` vì inbound không có PO MN10037500 và MN10039300 (HĐ 21268, 21269), 1 dòng `VƯỢT DUNG SAI` thật (HĐ 21267: hai
+dòng S3 của model 357446 — A 470 + B 80 — nhưng PO chỉ có một dòng S3 470). Σ Invoice Quantity và Σ tiền của từng file INB đúng bằng hóa đơn.
 
 ## Vanessa — hóa đơn SCAN có kẻ ô, OCR từng ô (v11.22)
 

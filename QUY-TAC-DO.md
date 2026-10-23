@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.23)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.24)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1368,7 +1368,17 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
 - **`readMainettiPxk`** (`isMainettiPxkText`: MAINETTI + DELIVERY NOTE + OD, không có VAT INVOICE): dòng `1 WIB-10 51005002 - Cái 660 2,640
   2,640 4 38X38` → nhóm theo mã 8 số, `total` = SL thực giao, `pklNo` = OD; genpkl cùng profile. `buildGroups`: `byPkl` nay xét cả danh
   sách `pklNos` của dòng hóa đơn (một hóa đơn gom nhiều OD).
-- Chưa có inbound Mainetti → bước ghép PO SAP chưa huấn luyện.
+- **Ghép inbound (v11.24)**: PO SAP = `MN\d{8}` trực tiếp (`poSap` giữ nguyên vì ≥ 7 chữ số); `headerIndex`/`readInbRows` đọc thêm
+  `sku` (Customer SKU Code), `dsm` (DSM Code), `custArt` (Customer Articel Code). `parseLabel(desc)`: tách theo `-` → model (6 số), SKU
+  (7 số), `S\d`, `V\d`, size = các mảnh giữa SKU/model và `S\d` (bỏ chữ biến thể A/B/C đứng ngay sau model; bỏ `,L33`, `2XLL34` → `2XL`);
+  `article` = model, `refTokens = [model, S?, V?]`, `size`, `sku`. `refPick` xét token trong Supplier Ref + mô tả + Specification + SKU +
+  DSM + Customer Articel Code. Điểm: `it.sku && r.sku` → ±3. Text VNPT ở dạng NFD → `normalize('NFC')` trước khi so chữ `Nhãn`.
+- **Kết quả**: 424/441 KHỚP (416 + 4 chia nhiều dòng + 4 giao thiếu), 16 LỖI (PO không có trong inbound), 1 VƯỢT DUNG SAI thật; Σ IQ / Σ tiền
+  từng INB = hóa đơn. Ghi chú "PO còn N dòng màu khác" chỉ liệt kê màu khi inbound có màu.
+
+## Thay đổi của v11.24 (23.10.2026) — Mainetti ghép inbound theo model + S/V + size + SKU
+
+- Mục MT phần ghép inbound; cột SKU / DSM / Customer Articel Code trong readInbRows; refPick xét thêm các cột này. Hồi quy không đổi.
 
 ## Thay đổi của v11.23 (23.10.2026) — Mainetti + tách PDF nhiều hóa đơn
 

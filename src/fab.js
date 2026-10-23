@@ -1585,7 +1585,7 @@ function refPick(it, rows) {
   if (!k || !inv.size) return rows;
   const ex = rows.filter((r) => AZ(r.supRef) === k);
   if (ex.length) return ex;
-  const sub = rows.filter((r) => { const rt = new Set(TOK(String(r.supRef || '') + ' ' + String(r.desc || ''))); return [...inv].every((x) => rt.has(x)); });
+  const sub = rows.filter((r) => { const rt = new Set(TOK([r.supRef, r.desc, r.spec, r.sku, r.dsm, r.custArt].map((v) => String(v || '')).join(' '))); return [...inv].every((x) => rt.has(x)); });
   if (sub.length) return sub;
   return rows.filter((r) => { const rt = TOK(r.supRef); return rt.length && rt.some((x) => /\d/.test(x) || x.length >= 4) && rt.every((x) => inv.has(x)); });
 }
@@ -1876,7 +1876,7 @@ function readVanessa(lines, rows) {
    ở đầu mỗi trang) → classify tách theo số HĐ rồi gọi readMainetti cho từng phần. */
 const isMainettiText = (t) => /MAINETTI/i.test(t) && /H[ÓO]A Đ[ƠO]N GI[ÁA] TR[ỊI] GIA T[ĂA]NG|VAT\s*INVOICE/i.test(t);
 function readMainetti(lines) {
-  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const all = (lines || []).map((x) => String(x == null ? '' : x).normalize('NFC').replace(/\s+/g, ' ').trim());   // PDF VNPT ghi dấu tiếng Việt dạng tổ hợp (NFD)
   const t = all.join('\n');
   if (!isMainettiText(t)) return null;
   const serial = (t.match(/K[ýy]\s*hi[ệe]u[^:\n]*:\s*([A-Z0-9]{5,})/i) || [])[1] || '';
@@ -1909,12 +1909,37 @@ function readMainetti(lines) {
     if (cur && !START.test(L) && !buf.length && /^[A-Z0-9][A-Z0-9,\-]*$/i.test(L) && L.length <= 20) { cur.desc = (cur.desc + L).trim(); continue; }
     buf.push(L);
   }
+  /* Mô tả nhãn "Nhãn-DCL-30x200-346856-B-5035974-M,L33-S1-V1": model 346856 · (biến thể B) · SKU 5035974 (7 số) · size (M, 2XL, 36, 5-6Y,
+     18M, UNIQUE; bỏ đuôi ",L33" / "L34") · S1 (loại nhãn) · V1 (phiên bản). Inbound SAP: PO = MN… trực tiếp, Specification "AW26 346856 S1 V1",
+     Customer SKU Code 5035974, Size → dò theo PO + token {model, S?, V?} + size, cộng điểm khi trùng SKU. Móc treo: "Móc treo-WIB-10(ANZ405)-…"
+     ↔ Supplier Ref "HANGER ANZ405#WIB-10NB" → token {WIB, 10, ANZ405}. */
+  const parseLabel = (desc) => {
+    const parts = desc.split('-').map((x) => x.trim()).filter(Boolean);
+    const iS = parts.findIndex((x, i) => i > 0 && /^S\d$/.test(x));
+    const sv = iS >= 0 ? parts[iS] : '', ver = (parts.find((x) => /^V\d$/.test(x)) || '');
+    const model = parts.find((x) => /^\d{6}$/.test(x)) || '';
+    const sku = parts.find((x) => /^\d{7}$/.test(x)) || '';
+    const iM = parts.indexOf(model), iK = sku ? parts.indexOf(sku) : -1;
+    let sizeParts = [];
+    if (iS > 0) {
+      const from = Math.max(iM, iK) + 1;
+      sizeParts = parts.slice(from, iS).filter((x) => !/^[A-Z]$/.test(x) || from + 1 === iS);   // bỏ chữ biến thể "A"/"B"/"C" đứng ngay sau model
+    }
+    let size = sizeParts.join('-').replace(/,L\d+$/i, '').replace(/^(XXS|XS|S|M|L|XL|XXL|2XL|3XL|4XL)L\d{2}$/i, '$1').trim();
+    if (/^[A-Z]$/.test(size) && !/^[SML]$/.test(size)) size = '';
+    return { model, sku, sv, ver, size };
+  };
   const out = items.map((x) => {
     const desc = x.desc.replace(/-\s+/g, '-');
     const po = pos.length === 1 ? pos[0] : (pos[0] || '');
+    const lab = /^Nh[ãa]n/i.test(desc) ? parseLabel(desc) : null;
+    const hanger = /^M[óo]c treo/i.test(desc) ? (desc.match(/^M[óo]c treo-([A-Z]+-\d+)\(([A-Z0-9]+)\)/i) || []) : [];
+    const refTokens = lab ? [lab.model, lab.sv, lab.ver].filter(Boolean) : (hanger.length ? TOK(hanger[1] + ' ' + hanger[2]) : []);
+    const article = lab ? (lab.model || x.code) : (hanger.length ? hanger[2] : x.code);
     return {
-      poRaw: po, po: '', poOld: !!po, poList: pos.length > 1 ? pos.slice() : undefined, article: x.code, colorText: '', colorCode: '', colorShort: '',
-      desc: [x.code, desc, styles.length ? 'style ' + styles.join(' ') : ''].filter(Boolean).join(' · '), mainettiDesc: desc, styles, dns,
+      poRaw: po, po: poSap(po), poList: pos.length > 1 ? pos.slice() : undefined, article, colorText: '', colorCode: '', colorShort: '',
+      size: lab ? lab.size : '', sku: lab ? lab.sku : '', refTokens: refTokens.length ? refTokens : undefined, refText: refTokens.join(' '),
+      desc: [x.code, desc, styles.length ? 'style ' + styles.join(' ') : ''].filter(Boolean).join(' · '), mainettiDesc: desc, styles, dns, mcode: x.code,
       qtyByUnit: { [x.unit]: x.qty }, unit: x.unit, qty: x.qty, price: x.price, surcharge: 0, amount: x.amount, code: x.code + ' · ' + desc,
       pklNo: dns[0] || '', pklNos: dns, pklKey: 'MAINETTI|' + x.code,
     };
@@ -1923,7 +1948,7 @@ function readMainetti(lines) {
   const tm = t.match(/T[ổo]ng \(Sub Total\)\s*:?\s*([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)/i);
   return {
     profile: 'MAINETTI', supplier: 'Mainetti', vat: true,
-    inv: { no: invNo, invNo, invDate, serial, items: out, currency: 'VND', unitDefault: out[0].unit, surchargeHeader: 0, total: tm ? viNum(tm[2]) : NaN, totalQty: tm ? viNum(tm[1]) : NaN, amountInclSur: true, hasSapPo: false, mainettiPos: pos, styles, dns },
+    inv: { no: invNo, invNo, invDate, serial, items: out, currency: 'VND', unitDefault: out[0].unit, surchargeHeader: 0, total: tm ? viNum(tm[2]) : NaN, totalQty: tm ? viNum(tm[1]) : NaN, amountInclSur: true, hasSapPo: true, mainettiPos: pos, styles, dns },
     pkl: null,
   };
 }
@@ -2176,6 +2201,7 @@ function analyzeFab(inv, pkl, rows, opts) {
       if (lt && lt.length >= 6 && (AZ(invText).includes(lt) || AZ(it.colorCode).includes(lt))) s += 2;
       if (!isNaN(r.price) && !isNaN(it.price) && Math.abs(r.price - it.price) <= pTol) s += 1;
       if (it.refTokens && it.refTokens.length && artOK) s += 2;   // đã lọc đúng mã tham chiếu → không cần màu / giá để vượt ngưỡng
+      if (it.sku && r.sku) s += String(r.sku).trim() === String(it.sku).trim() ? 3 : -3;   // Customer SKU Code (Mainetti / Decathlon)
       if (it.gen) {
         /* mã trong Specification / Lapdip có trên chứng từ (+2 mỗi loại) */
         if (codeTokens(r.spec).some((k) => ctxAZ.includes(k))) s += 2;
@@ -2447,7 +2473,8 @@ function analyzeFab(inv, pkl, rows, opts) {
     if (pklSoftNote) note += pklSoftNote;
     if ((it.warn || []).length) note += ' ⚠ ' + it.warn.join('; ') + '.';
     if (alt.length && hit.length === 1 && status.indexOf('KHỚP') === 0) {
-      note += ` (PO còn ${alt.length} dòng màu khác: ${alt.map((x) => x.color).slice(0, 3).join(' · ')})`;
+      const altNames = alt.map((x) => String(x.color || '').trim()).filter(Boolean);
+      note += altNames.length ? ` (PO còn ${alt.length} dòng màu khác: ${altNames.slice(0, 3).join(' · ')})` : ` (PO còn ${alt.length} dòng cùng mã khác size / loại)`;
     }
 
     /* ---- 7. ghi vào dòng inbound ---- */

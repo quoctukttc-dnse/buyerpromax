@@ -764,6 +764,7 @@ function headerIndex(ws) {
     supRef: pick('supplier ref', 'supplier mat. no.', 'supplier material number', 'supplier material no.', 'supplier mat no'), color: pick('color', 'colour'), lapdip: pick('lapdip color'),
     overTol: pick('over tolerance qty'), unit: pick('base unit of measure'), cur: pick('currency'),
     unltd: pick('unltd overdelivery', 'unlimited overdelivery'),
+    sku: pick('customer sku code'), dsm: pick('dsm code'), custArt: pick('customer articel code', 'customer article code'),
     last: Math.max(...Object.values(H), 1),
   };
 }
@@ -2064,6 +2065,7 @@ function readInbRows(ws, H) {
       qty: num(row.getCell(H.qty).value),
       deliv: H.deliv ? num(row.getCell(H.deliv).value) : 0,
       unltd: H.unltd ? /^x$/i.test(row.getCell(H.unltd).text.trim()) : false,   // PO cho phép giao vượt không giới hạn
+      sku: H.sku ? row.getCell(H.sku).text.trim() : '', dsm: H.dsm ? row.getCell(H.dsm).text.trim() : '', custArt: H.custArt ? row.getCell(H.custArt).text.trim() : '',
       invQty: H.invQty ? num(row.getCell(H.invQty).value) : NaN,
       price: H.price ? num(row.getCell(H.price).value) : NaN,
       sur: H.sur ? num(row.getCell(H.sur).value) : 0,
