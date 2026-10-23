@@ -783,7 +783,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -889,6 +889,34 @@ async function classify(file) {
     if (!ocr && isInkavaGiaCongText(lines.join(' '))) {
       let ig = null; try { ig = readInkavaGiaCong(lines); } catch (e) { ig = null; }
       if (ig && ig.inv.items.length) { out = { kind: 'fab', score: 9, fab: ig, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
+    /* Phiếu xuất kho Mainetti (PDF chữ) → packing list theo OD */
+    if (!ocr && isMainettiPxkText(lines.join('\n'))) {
+      let mp = null; try { mp = readMainettiPxk(lines, file.name); } catch (e) { mp = null; }
+      if (mp) { out = { kind: 'genpkl', score: 6, gen: mp, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
+    /* Mainetti (nhãn / móc treo): HĐ GTGT VNPT; một PDF có thể gộp nhiều hóa đơn → tách theo số HĐ ở đầu trang */
+    if (!ocr && isMainettiText(lines.join(' '))) {
+      const pageLines = pages.map((p) => linesFromPages([p]));
+      const parts = [];
+      pageLines.forEach((pl) => {
+        const no = (pl.join('\n').match(/S[ốo]\s*\(\s*No\.?\s*\)\s*:?\s*(\d{3,})/i) || [])[1] || '';
+        const last = parts[parts.length - 1];
+        if (last && (!no || last.no === no)) last.lines.push(...pl);
+        else if (no) parts.push({ no, lines: pl.slice() });
+      });
+      if (parts.length >= 2) {
+        const subs = [];
+        for (const pt of parts) {
+          let mi = null; try { mi = readMainetti(pt.lines); } catch (e) { mi = null; }
+          if (!mi || !mi.inv.items.length) continue;
+          const pf = new File([file], file.name.replace(/\.pdf$/i, '') + ' [HĐ ' + pt.no.replace(/^0+/, '') + '].pdf', { type: 'application/pdf' });
+          subs.push({ file: pf, out: { kind: 'fab', score: 9, fab: mi, lines: pt.lines, pos: [] } });
+        }
+        if (subs.length) { out = { kind: 'multi', score: 9, parts: subs, lines }; CACHE.set(file, out); return out; }
+      }
+      let mi = null; try { mi = readMainetti(lines); } catch (e) { mi = null; }
+      if (mi && mi.inv.items.length) { out = { kind: 'fab', score: 9, fab: mi, lines, pos: [] }; CACHE.set(file, out); return out; }
     }
     /* Pioneer Elastic (HK): hóa đơn thun, đơn giá USD/100M, mã hàng ↔ Supplier Ref */
     if (!ocr && isPioneerText(lines.join(' '))) {
@@ -1190,6 +1218,19 @@ async function acceptFilesNow(list) {
     if (c.kind === 'doc') { notices.push(`${f.name}: file Word — không đọc được${c.why ? ' (' + c.why + ')' : ''}, cần Excel/PDF`); continue; }
     if (c.kind === 'proforma') { notices.push(`${f.name}: proforma invoice — bỏ qua`); continue; }
     if (!c.kind) { unknown.push(f.name); continue; }
+    if (c.kind === 'multi') {
+      /* một PDF gộp nhiều hóa đơn (Mainetti): mỗi hóa đơn thành một mục riêng, tên file kèm số HĐ */
+      notices.push(`${f.name}: gồm ${c.parts.length} hóa đơn — đã tách riêng từng hóa đơn`);
+      for (const pt of c.parts) {
+        CACHE.set(pt.file, pt.out);
+        if (PDF_PAGES.has(f)) PDF_PAGES.set(pt.file, PDF_PAGES.get(f));
+        const k2 = pt.file.name + '|' + dirOf(f) + '|' + pt.file.size;
+        if (STATE.items.some((x) => x.key === k2)) continue;
+        STATE.items.push({ file: pt.file, kind: pt.out.kind, dir: dirOf(f), key: k2 });
+        fresh.add(k2);
+      }
+      continue;
+    }
     if (c.kind === 'po') { STATE.po = f; continue; }
     const key = f.name + '|' + dirOf(f) + '|' + f.size;
     if (STATE.items.some((x) => x.key === key)) continue;
@@ -1382,7 +1423,7 @@ async function buildGroups() {
     const cands = own ? fabs.filter((x) => x.fab && x.fab.profile === p.gen.profile) : genFabs;
     for (const it of cands) {
       /* số packing list ghi trên hóa đơn (Carvico "00851853 …") trùng số trên file PKL → gắn chắc */
-      const byPkl = p.gen.pklNo && it.inv.items.some((x) => x.pklNo && stripZero(x.pklNo) === stripZero(p.gen.pklNo));
+      const byPkl = p.gen.pklNo && it.inv.items.some((x) => (x.pklNos || [x.pklNo]).some((n) => n && stripZero(n) === stripZero(p.gen.pklNo)));
       const sameDir = it.dir && p.dir && it.dir === p.dir;
       if (it.dir && p.dir && !sameDir) continue;
       const tag = String(it.tag || '').toUpperCase().replace(/[\s#]+/g, '').replace(/^0+/, '');

@@ -1868,6 +1868,92 @@ function readVanessa(lines, rows) {
   };
 }
 
+
+/* =====================  MAINETTI (VIỆT NAM) — nhãn / móc treo, HĐ GTGT VNPT  =====================
+   Bảng: STT | Mã hàng hóa (8 số, 55012610) | Tên hàng hóa (Nhãn-DCL-30x120F-348066-4897943-UNIQUE-S1-V1, có thể bị ngắt thành dòng trên
+   + dòng dưới của dòng số) | Đơn vị | Số lượng | Đơn giá | Thành tiền. Đơn đặt hàng: "SS26 - PO# MN10031500_ R76201A13378" (PO Mainetti
+   MN…, kèm style), Lệnh giao hàng 6000…, Xác nhận đặt hàng 3000…. Một file PDF có thể gộp nhiều hóa đơn (mỗi hóa đơn 1–12 trang, số HĐ
+   ở đầu mỗi trang) → classify tách theo số HĐ rồi gọi readMainetti cho từng phần. */
+const isMainettiText = (t) => /MAINETTI/i.test(t) && /H[ÓO]A Đ[ƠO]N GI[ÁA] TR[ỊI] GIA T[ĂA]NG|VAT\s*INVOICE/i.test(t);
+function readMainetti(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isMainettiText(t)) return null;
+  const serial = (t.match(/K[ýy]\s*hi[ệe]u[^:\n]*:\s*([A-Z0-9]{5,})/i) || [])[1] || '';
+  const no = (t.match(/S[ốo]\s*\(\s*No\.?\s*\)\s*:?\s*(\d{3,})/i) || [])[1] || '';
+  const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : no;
+  const dm = t.match(/Ng[àa]y\s*(\d{1,2})\s*th[áa]ng\s*(\d{1,2})\s*n[ăa]m\s*(\d{4})/i);
+  const invDate = dm ? dmy(dm[1], dm[2], dm[3]) : '';
+  const pos = [...new Set(t.match(/\bMN\d{8}(?![0-9])/g) || [])];   // "MN10031500_" (dính dấu gạch dưới)
+  const styles = [...new Set(t.match(/\bR\d{5}[A-Z]\d{5}\b/g) || [])];
+  const dns = [...new Set(t.match(/\b6000\d{6}\b/g) || [])];
+  const NUM = /^(\d{1,4})\s+(\d{8})\s+(.*?)\s*(C[áa]i|B[ộo]|PCS|PC|Chi[ếe]c|Cu[ộo]n|T[ấa]m|Kg|M)\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)$/i;
+  const START = /^(Nh[ãa]n|M[óo]c treo|Tem|Th[ẻe]|T[úu]i|D[âa]y|Khoen|Kh[óo]a|H[ộo]p)\b/i;
+  const items = [];
+  let on = false, buf = [], cur = null;
+  for (const L of all) {
+    if (/^Code$/i.test(L)) { on = true; buf = []; continue; }
+    if (/^T[ỷy] gi[áa]/i.test(L) || /^T[ổo]ng \(Sub/i.test(L)) { on = false; cur = null; buf = []; continue; }
+    if (!on) continue;
+    const m = L.match(NUM);
+    if (m) {
+      const qty = viNum(m[5]), price = viNum(m[6]), amount = viNum(m[7]);
+      if (isNaN(qty) || qty <= 0) continue;
+      const desc0 = (buf.join(' ') + ' ' + m[3]).replace(/\s+/g, ' ').trim();
+      cur = { code: m[2], desc: desc0, qty, price, amount, unit: /^C[áa]i|Chi[ếe]c|PCS|PC$/i.test(m[4]) ? 'PCS' : unitKey(m[4]) };
+      items.push(cur); buf = [];
+      continue;
+    }
+    /* dòng chữ: nối vào mô tả dòng trước nếu mô tả đang dở ("…-4897943-") và dòng này không mở mô tả mới; ngược lại là đầu mô tả dòng kế */
+    if (cur && !START.test(L) && (/-$/.test(cur.desc) || !cur.desc)) { cur.desc = (cur.desc + L).replace(/\s+/g, ' ').trim(); continue; }
+    if (cur && !START.test(L) && !buf.length && /^[A-Z0-9][A-Z0-9,\-]*$/i.test(L) && L.length <= 20) { cur.desc = (cur.desc + L).trim(); continue; }
+    buf.push(L);
+  }
+  const out = items.map((x) => {
+    const desc = x.desc.replace(/-\s+/g, '-');
+    const po = pos.length === 1 ? pos[0] : (pos[0] || '');
+    return {
+      poRaw: po, po: '', poOld: !!po, poList: pos.length > 1 ? pos.slice() : undefined, article: x.code, colorText: '', colorCode: '', colorShort: '',
+      desc: [x.code, desc, styles.length ? 'style ' + styles.join(' ') : ''].filter(Boolean).join(' · '), mainettiDesc: desc, styles, dns,
+      qtyByUnit: { [x.unit]: x.qty }, unit: x.unit, qty: x.qty, price: x.price, surcharge: 0, amount: x.amount, code: x.code + ' · ' + desc,
+      pklNo: dns[0] || '', pklNos: dns, pklKey: 'MAINETTI|' + x.code,
+    };
+  });
+  if (!out.length) return null;
+  const tm = t.match(/T[ổo]ng \(Sub Total\)\s*:?\s*([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)/i);
+  return {
+    profile: 'MAINETTI', supplier: 'Mainetti', vat: true,
+    inv: { no: invNo, invNo, invDate, serial, items: out, currency: 'VND', unitDefault: out[0].unit, surchargeHeader: 0, total: tm ? viNum(tm[2]) : NaN, totalQty: tm ? viNum(tm[1]) : NaN, amountInclSur: true, hasSapPo: false, mainettiPos: pos, styles, dns },
+    pkl: null,
+  };
+}
+
+
+/* Phiếu xuất kho Mainetti (PDF chữ): "1 WIB-10 51005002 - Cái 660 2,640 2,640 4 38X38" (Stt | Diễn giải | Mã hàng | Đvt | Qui cách | SL đặt |
+   SL thực giao | Số thùng | Size); OD 6000172973 trùng "Lệnh giao hàng số" trên hóa đơn → ghép theo OD, nhóm theo mã hàng 8 số. */
+const isMainettiPxkText = (t) => /MAINETTI/i.test(t) && /DELIVERY\s*NOTE/i.test(t) && /\b6000\d{6}\b/.test(t) && !/VAT\s*INVOICE/i.test(t);
+function readMainettiPxk(lines, fname) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isMainettiPxkText(t)) return null;
+  const od = (t.match(/\b(6000\d{6})\b/) || [])[1] || '';
+  const RE = /^(\d{1,3})\s+(\S+)\s+(\d{8})\s+-?\s*(.*?)\s*(C\s*[áa]\s*i|PCS|PC|B\s*[ộo])\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+(\d+)\b/i;
+  const groups = [];
+  for (const L of all) {
+    const m = L.match(RE);
+    if (!m) continue;
+    const q = Number(m[8].replace(/,/g, ''));
+    if (!(q > 0)) continue;
+    const itemKey = 'MAINETTI|' + m[3];
+    const key = itemKey + '|' + od;
+    let g = groups.find((x) => x.key === key);
+    if (!g) { g = { key, itemKey, po: '', poRaw: '', article: m[3], style: m[2], color: '', lot: 'OD ' + od, unit: 'PCS', rolls: [], total: 0, boxes: 0, pklNo: od }; groups.push(g); }
+    g.total = r3(g.total + q); g.boxes += Number(m[9]) || 0;
+  }
+  if (!groups.length) return null;
+  return { profile: 'MAINETTI', supplier: 'Mainetti', role: 'pkl', file: fname || '', inv: { items: [] }, pkl: { groups, unit: 'PCS', level: 'lot' }, pklOnly: true, pklNo: od };
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);

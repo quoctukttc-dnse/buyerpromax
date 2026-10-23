@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.22)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.23)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,9 +972,9 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 23 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 24 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
   Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm, Best Pacific PDF,
-  Inkava gia công, Inkava PO SAP, Fujian Unitex, Kiyohara, B&B Apparel, Pioneer Elastic, Vanessa) + các chủ hàng đã chạy
+  Inkava gia công, Inkava PO SAP, Fujian Unitex, Kiyohara, B&B Apparel, Pioneer Elastic, Vanessa, Mainetti) + các chủ hàng đã chạy
   thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
@@ -1353,6 +1353,26 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   mã; dòng có size không hợp lệ → chọn trong các size chưa dòng nào nhận: trùng đơn giá → trùng số PO → còn đúng một size; ghi chú "Size OCR
   … — chọn size …". H9258: `0` → 3 (đơn giá 0,287), `84` → 8 (size còn lại).
 - **Kết quả**: H9424 15/15 (không có inbound); H9258 9/9 trùng file điền tay (Surcharge Item 25 + 77 = header 102 → `surMatch`).
+
+## MT. Mainetti — HĐ GTGT VNPT, một PDF nhiều hóa đơn, phiếu xuất kho (từ v11.23, 23.10.2026)
+
+- **Tách file nhiều hóa đơn** (`classify`, nhánh PDF chữ): khi `isMainettiText`, lấy dòng theo từng trang (`linesFromPages([p])`), số HĐ
+  mỗi trang từ `Số (No) : 00021264`; trang không có số (trang trắng / chữ ký) gộp vào hóa đơn trước; ≥ 2 hóa đơn → `kind: 'multi'` với
+  `parts[] = { file: new File([file], 'tên [HĐ 21264].pdf'), out: {kind:'fab', fab, lines} }`. `acceptFilesNow` nhận `multi`: ghi CACHE /
+  PDF_PAGES cho từng file con, thêm từng mục vào `STATE.items` (khóa tên + thư mục + cỡ), báo "gồm N hóa đơn — đã tách".
+- **`readMainetti(lines)`**: serial `Ký hiệu (Series) : 1C26TML`, số, ngày; PO `MN\d{8}(?![0-9])` (dính `_`), style `R\d{5}[A-Z]\d{5}`,
+  OD `6000\d{6}` (`pklNos`). Bảng bật từ dòng `Code`, tắt ở `Tỷ giá` / `Tổng (Sub`. Dòng số `STT 8số [mô tả] Đvt SL ĐG TT`; dòng chữ: nếu mô
+  tả dòng trước kết thúc bằng `-` (hoặc trống) và dòng này không mở mô tả mới (`Nhãn|Móc treo|Tem|…`) → nối vào dòng trước; ngược lại là
+  phần đầu mô tả dòng kế (`buf`). `article` = mã 8 số, `pklKey = 'MAINETTI|' + mã`, `po = ''`, `poOld` (PO Mainetti không phải SAP), VND,
+  `hasSapPo: false`. Kiểm: Σ thành tiền / Σ SL của 19 hóa đơn = `Tổng (Sub Total)`.
+- **`readMainettiPxk`** (`isMainettiPxkText`: MAINETTI + DELIVERY NOTE + OD, không có VAT INVOICE): dòng `1 WIB-10 51005002 - Cái 660 2,640
+  2,640 4 38X38` → nhóm theo mã 8 số, `total` = SL thực giao, `pklNo` = OD; genpkl cùng profile. `buildGroups`: `byPkl` nay xét cả danh
+  sách `pklNos` của dòng hóa đơn (một hóa đơn gom nhiều OD).
+- Chưa có inbound Mainetti → bước ghép PO SAP chưa huấn luyện.
+
+## Thay đổi của v11.23 (23.10.2026) — Mainetti + tách PDF nhiều hóa đơn
+
+- Mẫu riêng Mainetti (mục MT), cơ chế `kind: 'multi'` tách một PDF thành nhiều hóa đơn. Hồi quy 32 bộ + set 7–13 không đổi.
 
 ## Thay đổi của v11.22 (23.10.2026) — Vanessa scan: OCR từng ô bảng + sửa size theo inbound
 

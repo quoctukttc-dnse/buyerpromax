@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.22 — 23 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.23 — 24 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -171,6 +171,17 @@ SURCHARGE | Quantity | Unit Price | Amount`; số hóa đơn nằm ở ô sau nh
 đọc PO = *CUSTOMER PO.*, article = *QUALITY P/N*, màu = *COLOUR*, dò inbound theo PO + article + màu; surcharge dòng so với *Surcharge Item*.
 Bộ thử `77FZ10L024SAV` + `UNI0000700`: 6/6 dòng đúng (330 / 348 / 397 / 113 / 110 / 126 m); 3 dòng `1SR0206SN` báo `LỆCH GIÁ TRỊ` **thật**:
 hóa đơn 2,62 USD/m, PO SAP 2,70 USD/m (lệch 27,92 USD trên cả hóa đơn) — cần hỏi lại chủ hàng / người đặt PO.
+
+## Mainetti — nhãn / móc treo, một PDF gộp nhiều hóa đơn + phiếu xuất kho (v11.23)
+
+Hóa đơn GTGT VNPT của Mainetti (Việt Nam): bảng `STT | Mã hàng hóa (8 số: 55012610) | Tên hàng hóa (Nhãn-DCL-30x120F-348066-4897943-
+UNIQUE-S1-V1, có thể ngắt thành dòng trên + dòng dưới của dòng số) | Đơn vị | Số lượng | Đơn giá | Thành tiền`; Đơn đặt hàng là PO Mainetti
+`MN10031500` kèm style `R76201A13378`; Lệnh giao hàng `6000…`. **File `HD NHAN.pdf` 57 trang gộp 18 hóa đơn** (21264–21281, mỗi hóa đơn 1–12
+trang): công cụ tách theo số HĐ ở đầu trang thành 18 mục riêng (tên file kèm `[HĐ 21264]`), đọc 440 dòng, tổng số lượng và tổng tiền của
+cả 19 hóa đơn (kể cả HĐ móc treo 21263) đúng bằng dòng `Tổng (Sub Total)`. Phiếu xuất kho PDF chữ (`PXK-HANGER HUE1.pdf`) đọc thành packing
+list theo OD, ghép với hóa đơn có cùng Lệnh giao hàng (2.640 khớp). Phiếu xuất kho nhãn (`PXK NHAN.pdf`, 97 trang scan) chưa OCR vì quá dài
+và hóa đơn đã có đủ mã + số lượng. **Chưa có inbound** cho các PO Mainetti nên chưa đối chiếu được; cần file ZMME (PO SAP của Mainetti
+ứng với `MN100xxxxx`) để huấn luyện bước ghép.
 
 ## Vanessa — hóa đơn SCAN có kẻ ô, OCR từng ô (v11.22)
 
