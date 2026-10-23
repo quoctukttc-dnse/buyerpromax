@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.21)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.22)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,9 +972,9 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 22 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 23 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
   Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm, Best Pacific PDF,
-  Inkava gia công, Inkava PO SAP, Fujian Unitex, Kiyohara, B&B Apparel, Pioneer Elastic) + các chủ hàng đã chạy
+  Inkava gia công, Inkava PO SAP, Fujian Unitex, Kiyohara, B&B Apparel, Pioneer Elastic, Vanessa) + các chủ hàng đã chạy
   thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
@@ -1334,6 +1334,30 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   Nhãn `KHỚP (chia nhiều dòng)` (trước đây ghi nhầm "chia nhiều PO"). Các trường hợp nhiều PO giữ nguyên thuật toán cũ.
 - **Kết quả bộ thử** (`476` + inbound 19 dòng / 4 PO): 5/5 dòng đúng PO, 15 dòng inbound điền số nguyên, Σ theo dòng HĐ = 16.800 / 9.000 /
   2.200 / 4.100 / 4.200; tổng tiền 47.685.100 khớp. Hồi quy 32 bộ + Inkava + Unitex không đổi.
+
+## VN. Vanessa — hóa đơn scan có kẻ ô, OCR từng ô (từ v11.22, 23.10.2026)
+
+- **Nhận diện** (`isVanessaText`, chỉ trên nhánh `ocr`): `VANESSA INTERNATIONAL` + `INVOICE`. Trước: OCR cả trang → bộ đọc chung không ra
+  dòng hàng → `scan`.
+- **`ocrTableRows(file, {colorWord})`** (`src/app-all.js`, cạnh `ocrPdfPages`): trang 1 scale 4; lượt 1 OCR cả trang lấy từng chữ + bbox;
+  mốc dòng = chữ Amount (`/^U[S5s$§].{0,2}\d|^\d+\.\d{2}$/`, nửa phải trang); dải dòng = bbox ± 55 % chiều cao; mép trái = x1 chữ màu
+  (`WHITE`, `BISCUIT`), mép phải = x0 Amount, lấy **trung vị** cả bảng cho dòng OCR thiếu chữ; đường kẻ dọc = cột điểm tối ≥ 55 % chiều cao
+  dải; các đoạn giữa đường kẻ → OCR từng ô bằng **worker riêng** (`ocrCellWorker`, không làm bẩn tham số worker chính): phóng 3–4×, PSM 7 →
+  7 nhị phân → 8 → 13 → 10 → 8; ô có nét chữ hẹp (< 16 px × scale) thử PSM 10 trước. Ô ra `^\d*\.\d{1,4}$` (< 100) = Price, ô trái = Qty,
+  trước nữa = Size; thiếu Price → lấy số thập phân cuối trong chữ OCR cả trang của dải dòng. Amount: OCR ô với whitelist `0-9.US$`.
+- **`readVanessa(lines, rows)`**: số HĐ `NO. H9424`, ngày `OCT 21,2026` / `SEP42026`; PO `VIH\d{7}` hoặc `VANESSA-\d{3,5}` (mã cũ →
+  `poOld`, inbound một PO thì dùng PO đó); mã `B\d{6}-\d` (sửa `[B8]?\d{6}-?\d`); màu = chữ sau mã; `SURCHARGE` → `surchargeHeader`,
+  `amountInclSur: false`. Ràng buộc thành tiền = SL × đơn giá: thiếu đơn giá → thành tiền / SL; thiếu SL → thành tiền / đơn giá; lệch →
+  thử đơn giá `0.` + chữ số (`04` → 0,4) rồi SL = round(thành tiền / đơn giá). `size` + `sizeOcr: true`; `LL` → `L`.
+- **`fixOcrSizes(inv, rows)`** (đầu `analyzeFab`, chỉ khi có `sizeOcr`): gom dòng theo PO + mã; size hợp lệ = size của các dòng inbound cùng
+  mã; dòng có size không hợp lệ → chọn trong các size chưa dòng nào nhận: trùng đơn giá → trùng số PO → còn đúng một size; ghi chú "Size OCR
+  … — chọn size …". H9258: `0` → 3 (đơn giá 0,287), `84` → 8 (size còn lại).
+- **Kết quả**: H9424 15/15 (không có inbound); H9258 9/9 trùng file điền tay (Surcharge Item 25 + 77 = header 102 → `surMatch`).
+
+## Thay đổi của v11.22 (23.10.2026) — Vanessa scan: OCR từng ô bảng + sửa size theo inbound
+
+- `ocrTableRows` / `ocrCellWorker` (app-all.js), `readVanessa` / `fixOcrSizes` (fab.js), TRAINED_SUPPLIERS + Vanessa. Hồi quy 32 bộ:
+  VANESSA từ ❌ → ✅ (20/32), các bộ khác và set 7–13 không đổi.
 
 ## Thay đổi của v11.21 (23.10.2026) — B&B Apparel, Pioneer Elastic (mẫu riêng), Premier (bộ đọc chung)
 

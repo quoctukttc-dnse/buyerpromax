@@ -211,6 +211,113 @@ async function ocrPdfPages(file) {
   (window.__OCR__ = window.__OCR__ || {})[file.name] = pages;
   return pages;
 }
+/* ---- OCR bảng theo ô cho hóa đơn scan có kẻ ô (Vanessa): tesseract đọc cả trang thường bỏ sót các ô size / số lượng / đơn giá nhỏ.
+   Cách làm: vẽ trang 1 ở scale 4 → OCR lượt 1 lấy toạ độ từng chữ → mỗi dòng hàng lấy mốc là ô Amount ("US$24.00") → trong dải dòng đó
+   dò đường kẻ dọc giữa cột màu và cột Amount để cắt 3 ô (Size, Qty, Price) → OCR từng ô (phóng 3–4 lần, PSM 7/8, lọc ký tự cho phép). */
+let OCR_CELL_WORKER = null;
+/* worker riêng cho OCR từng ô: đổi whitelist / PSM liên tục, không làm bẩn tham số của worker đọc cả trang */
+async function ocrCellWorker() {
+  if (OCR_CELL_WORKER) return OCR_CELL_WORKER;
+  await ocrWorker();
+  const opts = { legacyCore: false, legacyLang: false };
+  if (OCR_CFG.workerPath) opts.workerPath = OCR_CFG.workerPath;
+  if (OCR_CFG.corePath) opts.corePath = OCR_CFG.corePath;
+  if (OCR_CFG.langPath) opts.langPath = OCR_CFG.langPath;
+  OCR_CELL_WORKER = await Tesseract.createWorker(OCR_CFG.langs, 1, opts);
+  return OCR_CELL_WORKER;
+}
+async function ocrTableRows(file, opts) {
+  const o = Object.assign({ page: 1, scale: 4, anchor: /^U[S5s\$§].{0,2}\d|^\d+\.\d{2}$/, colorWord: /^[A-Z]{3,}$/ }, opts || {});
+  const data = new Uint8Array(await file.arrayBuffer());
+  const pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
+  const worker = await ocrWorker();
+  const cw = await ocrCellWorker();
+  const page = await pdf.getPage(Math.min(o.page, pdf.numPages));
+  const vp = page.getViewport({ scale: o.scale });
+  const canvas = document.createElement('canvas'); canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
+  const ctx = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport: vp }).promise;
+  ocrStatus(`Đang OCR bảng ${file.name}…`);
+  const { data: d } = await worker.recognize(canvas, {}, { blocks: true, text: false });
+  const words = [];
+  for (const b of (d.blocks || [])) for (const pg of (b.paragraphs || [])) for (const ln of (pg.lines || [])) for (const w of (ln.words || []))
+    if (w.text && w.text.trim()) words.push({ x0: w.bbox.x0, y0: w.bbox.y0, x1: w.bbox.x1, y1: w.bbox.y1, text: w.text.trim() });
+  const im = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const dark = (x, y) => { const i = (y * canvas.width + x) * 4; return (im[i] + im[i + 1] + im[i + 2]) / 3 < 190; };
+  const cellOcr = async (x0, x1, y0, y1, wl, psm, k, binar) => {
+    const m = 5, w = Math.round(x1 - x0 - 2 * m), h = Math.round(y1 - y0 - 2 * m);
+    if (!(w > 8) || !(h > 8)) return '';
+    const c2 = document.createElement('canvas'); c2.width = w * k + 40; c2.height = h * k + 40;
+    const g = c2.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c2.width, c2.height);
+    g.imageSmoothingEnabled = true; g.drawImage(canvas, x0 + m, y0 + m, w, h, 20, 20, w * k, h * k);
+    if (binar) { const id = g.getImageData(0, 0, c2.width, c2.height); const px = id.data; for (let i = 0; i < px.length; i += 4) { const v = (px[i] + px[i + 1] + px[i + 2]) / 3 < 150 ? 0 : 255; px[i] = px[i + 1] = px[i + 2] = v; } g.putImageData(id, 0, 0); }
+    await cw.setParameters({ tessedit_char_whitelist: wl, tessedit_pageseg_mode: psm });
+    const r = await cw.recognize(c2, {}, { text: true });
+    return String(r.data.text || '').replace(/\s+/g, ' ').trim();
+  };
+  const inkWidth = (x0, x1, y0, y1) => { let a = -1, b = -1; for (let x = Math.round(x0) + 6; x < Math.round(x1) - 6; x++) { let c = 0; for (let y = Math.round(y0) + 6; y < Math.round(y1) - 6; y++) if (dark(x, y)) c++; if (c >= 2) { if (a < 0) a = x; b = x; } } return a < 0 ? 0 : b - a; };
+  const tryCell = async (x0, x1, y0, y1, wl, ok) => {
+    let vars = [['7', 3, false], ['7', 3, true], ['8', 4, false], ['13', 3, false], ['10', 4, false], ['8', 3, true]];
+    if (inkWidth(x0, x1, y0, y1) < 16 * o.scale) vars = [['10', 4, false], ['10', 4, true]].concat(vars);   // một ký tự → đọc kiểu 1 ký tự trước
+    let last = '';
+    for (const [psm, k, bin] of vars) { const t = await cellOcr(x0, x1, y0, y1, wl, psm, k, bin); if (t && ok(t)) return t; if (t && !last) last = t; }
+    return last;
+  };
+  const anchors = words.filter((w) => o.anchor.test(w.text) && w.x0 > canvas.width * 0.55).sort((a, b) => a.y0 - b.y0);
+  const rows = [];
+  const median = (arr) => { const a = arr.slice().sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : NaN; };
+  /* mép trái / phải của vùng 3 ô: tính theo từng dòng rồi lấy trung vị cho cả bảng (dòng nào OCR mất chữ màu thì dùng trung vị) */
+  const geo = anchors.map((a) => {
+    const h = a.y1 - a.y0, y0 = Math.max(0, a.y0 - h * 0.55), y1 = Math.min(canvas.height, a.y1 + h * 0.55);
+    const band = words.filter((w) => w.y0 >= y0 - 4 && w.y1 <= y1 + 4 && w.x1 <= a.x0 + 2).sort((p, q) => p.x0 - q.x0);
+    const colorW = band.filter((w) => o.colorWord.test(w.text) && w.x1 < a.x0 - 40).pop();
+    return { a, h, y0, y1, band, left: colorW ? colorW.x1 + 6 : NaN, right: a.x0 - 4 };
+  });
+  const mLeft = median(geo.map((g) => g.left).filter((v) => !isNaN(v))), mRight = median(geo.map((g) => g.right));
+  for (const g of geo) {
+    const { a, h, y0, y1, band } = g;
+    if (rows.length && Math.abs(rows[rows.length - 1].y - (y0 + y1) / 2) < h) continue;   // cùng dòng
+    const text = band.concat([a]).map((w) => w.text).join(' ');
+    const left = (!isNaN(g.left) && (isNaN(mLeft) || Math.abs(g.left - mLeft) < canvas.width * 0.04)) ? g.left : (isNaN(mLeft) ? (band.length ? band[band.length - 1].x1 + 6 : a.x0 - 1) : mLeft);
+    const right = Math.abs(g.right - mRight) < canvas.width * 0.04 ? g.right : mRight;
+    /* đường kẻ dọc trong dải dòng, giữa cột màu và cột Amount */
+    const vl = [];
+    for (let x = Math.round(left); x < Math.round(right); x++) { let c = 0; for (let y = Math.round(y0); y < Math.round(y1); y++) if (dark(x, y)) c++; if (c > (y1 - y0) * 0.55) vl.push(x); }
+    const lines = []; for (const x of vl) { if (lines.length && x - lines[lines.length - 1][1] <= 4) lines[lines.length - 1][1] = x; else lines.push([x, x]); }
+    const xs = lines.map(([s, e]) => (s + e) / 2).filter((x) => x > left + 15 && x < right - 15);
+    const row = { y: (y0 + y1) / 2, text, size: '', qty: '', price: '', amount: '', amountWord: a.text, cells: xs.length };
+    /* các ô giữa hai mép: OCR từng ô, ô nào ra dạng đơn giá (có dấu chấm, < 100) là Price; ô kế bên trái là Qty, trước nữa là Size
+       (không tin số đường kẻ vì có khi dính thêm đường biên cột màu / cột Amount) */
+    const edges = [left].concat(xs).concat([right]);
+    const segs = []; for (let i = 0; i + 1 < edges.length; i++) if (edges[i + 1] - edges[i] > 20) segs.push([edges[i], edges[i + 1]]);
+    const got = [];
+    for (const [sx0, sx1] of segs) got.push({ sx0, sx1, t: await tryCell(sx0, sx1, y0, y1, 'XSML0123456789.', (x) => /\d/.test(x) || /^(XXS|XS|S|M|L|XL|XXL)$/.test(x)) });
+    const isPrice = (x) => /^\d*\.\d{1,4}$/.test(x) && Number(x) < 100;
+    let pi = -1; for (let i = got.length - 1; i >= 0; i--) if (isPrice(got[i].t)) { pi = i; break; }
+    if (pi < 0 && got.length >= 3) pi = got.length - 1;
+    if (pi >= 0) {
+      const pc = got[pi], qc = got[pi - 1], sc = got[pi - 2];
+      row.price = isPrice(pc.t) ? pc.t : await tryCell(pc.sx0, pc.sx1, y0, y1, '0123456789.', isPrice);
+      if (qc) row.qty = /^\d{1,6}$/.test(qc.t) ? qc.t : await tryCell(qc.sx0, qc.sx1, y0, y1, '0123456789', (x) => /^\d{1,6}$/.test(x));
+      if (sc) row.size = /^(XXS|XS|S|M|L|XL|XXL|\d{1,2}|\d{2}[A-K]{1,2})$/.test(sc.t) ? sc.t : await tryCell(sc.sx0, sc.sx1, y0, y1, 'XSML0123456789', (x) => /^(XXS|XS|S|M|L|XL|XXL|\d{1,2}|\d{2}[A-K]{1,2})$/.test(x));
+    } else if (got.length === 1) {
+      const tk = got[0].t.split(' ').filter(Boolean);
+      if (tk.length >= 3) { row.size = tk[0]; row.qty = tk[1]; row.price = tk[2]; } else if (tk.length === 2) { row.qty = tk[0]; row.price = tk[1]; }
+    }
+    if (!row.price) {
+      /* không cắt được ô → lấy từ chữ OCR cả trang trong dải dòng: đơn giá là số thập phân cuối cùng trước Amount */
+      const bw = band.filter((w) => w.x0 >= left - 10).map((w) => w.text);
+      let pi2 = -1; for (let i = bw.length - 1; i >= 0; i--) if (/^\d*\.\d{2,4}$/.test(bw[i])) { pi2 = i; break; }
+      if (pi2 >= 0) { row.price = bw[pi2]; if (!row.qty && /^\d{1,6}$/.test(bw[pi2 - 1] || '')) row.qty = bw[pi2 - 1]; if (!row.size && pi2 >= 2 && /^(XXS|XS|S|M|L|XL|XXL|\d{1,2}|\d{2}[A-K]{1,2})$/.test(bw[pi2 - 2] || '')) row.size = bw[pi2 - 2]; }
+    }
+    row.segs = got.map((g) => g.t);
+    row.amount = await tryCell(a.x0 - 4, Math.min(canvas.width, a.x1 + 30), y0, y1, '0123456789.US$', (t) => /\d+\.\d{2}/.test(t));
+    rows.push(row);
+  }
+  ocrStatus('');
+  return rows;
+}
+
 function linesFromPages(pages) {
   const out = [];
   for (const items of pages) {
@@ -676,7 +783,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -753,6 +860,12 @@ async function classify(file) {
         ocrStatus('');
         out = { kind: 'scan', score: 0, lines, why: 'OCR lỗi: ' + OCR_FAIL + ' (cần mạng để tải bộ OCR)' }; CACHE.set(file, out); return out;
       }
+    }
+    /* Vanessa (mould cup, Hồng Kông): hóa đơn scan có kẻ ô — OCR lại từng ô Size / Qty / Price / Amount */
+    if (ocr && isVanessaText(lines.join(' '))) {
+      let vn = null;
+      try { const rowsV = await ocrTableRows(file, { colorWord: /^[A-Z]{3,}$/ }); vn = readVanessa(lines, rowsV); } catch (e) { vn = null; }
+      if (vn && vn.inv.items.length) { vn.ocr = true; vn.inv.ocr = true; out = { kind: 'fab', score: 9, fab: vn, lines, ocr: true, pos: [...new Set(vn.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* Capital Tricot (vải, Thái Lan): INVOICE + PACKING LIST theo kiện trong cùng một PDF → mẫu riêng (fab.js) */
     if (!ocr && isCapitalText(lines.join(' '))) {

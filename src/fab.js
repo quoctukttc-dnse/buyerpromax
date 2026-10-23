@@ -1802,6 +1802,72 @@ function readPioneerPkl(lines, fname) {
   return { profile: 'PIONEER', supplier: 'Pioneer Elastic', role: 'pkl', file: fname || '', inv: { items: [] }, pkl: { groups, unit: 'M', level: 'lot' }, pklOnly: true, pklNo };
 }
 
+
+/* =====================  VANESSA INTERNATIONAL (HK) — mould cup, hóa đơn SCAN có kẻ ô  =====================
+   Bảng: PO# | Art.No. | Col | Size | Qty(Pairs) | Unit Price(USD) | Amount(USD-EXW); dòng "DYEING SURCHARGE (WHITE)" / "LEFTOVER
+   SURCHARGE" chỉ có Amount → phụ phí mức tổng (SAP ghi Surcharge Item vào một dòng bất kỳ → amountInclSur=false).
+   Chữ lấy từ OCR cả trang (số HĐ, ngày, PO, mã hàng, màu) + OCR từng ô (ocrTableRows) cho size / số lượng / đơn giá / thành tiền; ba số
+   này ràng buộc nhau (thành tiền = SL × đơn giá) nên ô nào OCR hỏng thì suy từ hai ô còn lại. */
+const isVanessaText = (t) => /VANESSA\s*INTERNATIONAL/i.test(t) && /INVOICE/i.test(t);
+function readVanessa(lines, rows) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isVanessaText(t)) return null;
+  const no = (t.match(/\bNO\.?\s*[:：]?\s*(H\d{4,})\b/i) || t.match(/\b(H\d{4,})\b/) || [])[1] || '';
+  let invDate = parseDateCell((t.match(/\bDATE\s*[:：]?\s*([A-Z]{3,9}\.?\s*\d{1,2},?\s*\d{4})/i) || [])[1] || '') || '';
+  if (!invDate) { const md = t.match(/\bDATE\s*[:：]?\s*([A-Z]{3})[A-Z]*\.?\s*(\d{5,6})\b/i); if (md && MONTHS.indexOf(md[1].toUpperCase()) >= 0) invDate = dmy(md[2].slice(0, -4), MONTHS.indexOf(md[1].toUpperCase()) + 1, md[2].slice(-4)); }   // "SEP42026" (OCR mất dấu cách)
+  const unitHdr = /Qty\s*\(\s*Yards?\s*\)/i.test(t) ? 'YD' : 'PAA';
+  const num = (x) => { const m = String(x || '').replace(/[^\d.]/g, '').match(/\d+(?:\.\d+)?/); return m ? Number(m[0]) : NaN; };
+  const money = (x) => { const m = String(x || '').replace(/[,]/g, '').match(/(\d+)\.(\d{2})\b/); return m ? Number(m[1] + '.' + m[2]) : NaN; };
+  const items = [];
+  let surchargeHeader = 0;
+  const poAll = (t.match(/\b(VIH\d{7}|VANESSA-\d{3,5})\b/g) || []);
+  const poMode = poAll.sort((a, b) => poAll.filter((x) => x === b).length - poAll.filter((x) => x === a).length)[0] || '';
+  for (const r of rows || []) {
+    const txt = String(r.text || '');
+    let amount = money(r.amount); if (isNaN(amount)) amount = money(r.amountWord); if (isNaN(amount)) amount = money(txt.split(' ').pop());
+    if (/SURCHARGE/i.test(txt)) { if (!isNaN(amount)) surchargeHeader = r3(surchargeHeader + amount); continue; }
+    const pm = txt.match(/\b(VIH\d{7}|VANESSA-\d{3,5})\b/);
+    const poRaw = pm ? pm[1] : poMode;
+    /* mã hàng B221588-2; OCR có thể mất chữ B / dấu gạch ("82217994" → B221799-4) */
+    let art = (txt.match(/\bB\d{6}-\d\b/) || [])[0] || '';
+    if (!art) { const m2 = txt.match(/\b[B8]?(\d{6})-?(\d)\b/); if (m2) art = 'B' + m2[1] + '-' + m2[2]; }
+    if (!art) continue;
+    const after = txt.slice(txt.indexOf(art.slice(1, 7)) + 7).replace(/^[-\d]\s*/, '');
+    const cw = (after.match(/\b[A-Z]{3,}(?:\s+[A-Z]{3,})?/) || [])[0] || '';
+    const colorText = cw.replace(/^WHTE$/, 'WHITE').replace(/\bI89\b/, 'I89');
+    const colorFull = ((after.match(/\b([A-Z0-9]{2,4}\s+)?[A-Z]{3,}\b/) || [])[0] || colorText).trim();
+    let qty = num(r.qty), price = num(r.price);
+    let size = String(r.size || '').trim().toUpperCase();
+    if (!/^(XXS|XS|S|M|L|XL|XXL|\d{1,2}|\d{2}[A-K]{1,2})$/.test(size)) { const s2 = size.replace(/(.)\1+/g, '$1'); if (/^(XXS|XS|S|M|L|XL|XXL)$/.test(s2)) size = s2; }   // "LL" → L
+    /* ràng buộc thành tiền = SL × đơn giá: sửa ô hỏng */
+    if (!isNaN(amount)) {
+      if ((isNaN(price) || price <= 0) && qty > 0) price = Math.round(amount / qty * 10000) / 10000;
+      else if ((isNaN(qty) || qty <= 0) && price > 0) qty = Math.round(amount / price);
+      else if (qty > 0 && price > 0 && Math.abs(qty * price - amount) > 0.011) {
+        const p2 = Number('0.' + String(r.price || '').replace(/[^\d]/g, ''));   // "04" → 0.4 (mất dấu chấm)
+        if (p2 > 0 && Math.abs(qty * p2 - amount) <= 0.011) price = p2;
+        else if (Math.abs(Math.round(amount / price) * price - amount) <= 0.011) qty = Math.round(amount / price);
+      }
+    }
+    if (!(qty > 0)) continue;
+    items.push({
+      poRaw, po: RE_SAPPO_FAB.test(poRaw) ? poRaw : '', poOld: !!poRaw && !RE_SAPPO_FAB.test(poRaw),
+      article: art, colorText: colorText || colorFull, colorCode: '', colorShort: colorFull || colorText, size,
+      desc: [art, colorFull || colorText, size ? 'size ' + size : ''].filter(Boolean).join(' · '),
+      qtyByUnit: { [unitHdr]: qty, PAA: qty, PCS: qty }, unit: unitHdr, qty, price, surcharge: 0, amount: isNaN(amount) ? r3(qty * price) : amount,
+      code: art + ' · ' + (colorFull || colorText) + (size ? ' · ' + size : ''), sizeOcr: true, ocrRow: { size: r.size, qty: r.qty, price: r.price, amount: r.amount },
+    });
+  }
+  if (!items.length) return null;
+  const total = r3(items.reduce((a, x) => a + (isNaN(x.amount) ? 0 : x.amount), 0) + surchargeHeader);
+  return {
+    profile: 'VANESSA', supplier: 'Vanessa',
+    inv: { no, invNo: no, invDate, items, currency: 'USD', unitDefault: unitHdr, surchargeHeader, total, totalQty: r3(items.reduce((a, x) => a + x.qty, 0)), amountInclSur: false },
+    pkl: null,
+  };
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);
@@ -1821,8 +1887,39 @@ function readFab(wb) {
    Trả về đúng dạng {lines, VAL} như analyze() của trimming để dùng lại
    toàn bộ phần báo cáo.
    ===================================================================== */
+/* Size đọc bằng OCR (Vanessa) có thể sai ("0", "84", trống): sửa theo inbound trước khi dò — các dòng cùng PO + mã có size nào
+   chưa dòng nào của chứng từ "nhận"; chọn theo đơn giá, rồi theo số PO đúng bằng, rồi còn đúng một size. */
+function fixOcrSizes(inv, rows) {
+  if (!rows || !inv || !inv.items.some((x) => x.sizeOcr)) return;
+  const groups = new Map();
+  inv.items.forEach((it) => { const k = poSap(it.po || it.poRaw) + '|' + AZ(it.article); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); });
+  for (const [, its] of groups) {
+    const it0 = its[0];
+    let rs = rows.filter((r) => r.size && artHit(it0.article, r.material, r.desc, r.spec, r.supRef) && (!it0.po || poSame(r.poV, it0.po)));
+    if (!rs.length) rs = rows.filter((r) => r.size && artHit(it0.article, r.material, r.desc, r.spec, r.supRef));
+    const sizes = [...new Set(rs.map((r) => String(r.size).replace(/\s+/g, '').toUpperCase()))];
+    if (!sizes.length) continue;
+    const sure = its.filter((x) => !x.sizeOcr || sizes.includes(String(x.size || '').toUpperCase()));
+    const unsure = its.filter((x) => !sure.includes(x));
+    if (!unsure.length) continue;
+    const claimed = new Set(sure.map((x) => String(x.size).toUpperCase()));
+    let free = sizes.filter((z) => !claimed.has(z));
+    for (const it of unsure) {
+      const cand = (f) => free.filter((z) => rs.some((r) => String(r.size).replace(/\s+/g, '').toUpperCase() === z && f(r)));
+      let pick = cand((r) => !isNaN(r.price) && !isNaN(it.price) && Math.abs(r.price - it.price) < 1e-6);
+      if (pick.length !== 1) { const p2 = (pick.length ? pick : free).filter((z) => rs.some((r) => String(r.size).replace(/\s+/g, '').toUpperCase() === z && Math.abs((isNaN(r.qty) ? -1 : r.qty) - it.qty) < 0.01)); if (p2.length === 1) pick = p2; }
+      if (pick.length !== 1 && free.length === 1 && unsure.length === 1) pick = free.slice();
+      if (pick.length === 1) {
+        it.sizeNote = `Size OCR "${it.size || '(trống)'}" không có trên PO — chọn size ${pick[0]} theo ${free.length === 1 ? 'size còn lại' : 'đơn giá / số PO'}. `;
+        it.size = pick[0]; it.desc = it.desc.replace(/ · size [^·]*$/, '') + ' · size ' + pick[0]; it.code = it.code.replace(/ · [^·]*$/, '') + ' · ' + pick[0];
+        free = free.filter((z) => z !== pick[0]);
+      }
+    }
+  }
+}
 function analyzeFab(inv, pkl, rows, opts) {
   opts = opts || {};
+  try { fixOcrSizes(inv, rows); } catch (e) { /* bỏ qua */ }
   const EPS = 0.01;
   const cur = inv.currency || 'USD';
   const pTol = cur === 'VND' ? 0.5 : 1e-6;      // sai số cho phép của đơn giá
@@ -1879,7 +1976,7 @@ function analyzeFab(inv, pkl, rows, opts) {
     const preC = (r) => (opts.preConsumed && opts.preConsumed.get(r.r)) || 0;   // các hóa đơn trước đã lấy (cùng file inbound, chạy nối tiếp)
     const roomRaw = (r) => (r.unltd ? Infinity : (isNaN(r.overTol) ? (isNaN(r.qty) ? 0 : r.qty) : r.overTol) - (isNaN(r.deliv) ? 0 : r.deliv) - (consumed.get(r) || 0) - preC(r));
     /* ---- 1. lọc theo PO (bù 0 cho đủ 7 chữ số) ---- */
-    let usedPo = it.po, poNote = '';
+    let usedPo = it.po, poNote = it.sizeNote || '';
     const poWanted = (it.poList && it.poList.length) ? it.poList : [usedPo];
     let poRows = rows ? rows.filter((r) => poWanted.some((p) => poSame(r.poV, p))) : [];
     if (rows && !poRows.length && opts.poIdx) {

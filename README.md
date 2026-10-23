@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.21 — 22 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.22 — 23 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -171,6 +171,21 @@ SURCHARGE | Quantity | Unit Price | Amount`; số hóa đơn nằm ở ô sau nh
 đọc PO = *CUSTOMER PO.*, article = *QUALITY P/N*, màu = *COLOUR*, dò inbound theo PO + article + màu; surcharge dòng so với *Surcharge Item*.
 Bộ thử `77FZ10L024SAV` + `UNI0000700`: 6/6 dòng đúng (330 / 348 / 397 / 113 / 110 / 126 m); 3 dòng `1SR0206SN` báo `LỆCH GIÁ TRỊ` **thật**:
 hóa đơn 2,62 USD/m, PO SAP 2,70 USD/m (lệch 27,92 USD trên cả hóa đơn) — cần hỏi lại chủ hàng / người đặt PO.
+
+## Vanessa — hóa đơn SCAN có kẻ ô, OCR từng ô (v11.22)
+
+Hóa đơn mould cup của Vanessa International (HK) chỉ có bản scan (`SKM_C227i…pdf`, `H9258.pdf`): OCR cả trang đọc được tiêu đề, số HĐ
+(`H9424`), PO (`VIH0007800` / mã cũ `VANESSA-3109`), mã hàng (`B221588-2`), màu, cột Amount, nhưng các ô nhỏ **Size / Qty / Unit Price**
+bị đọc thành chữ rác (`LL wo ss`). Trước v11.22 báo "PDF dạng ảnh — OCR đọc được chữ nhưng không nhận ra bảng hàng".
+Cách mới (`ocrTableRows` trong `src/app-all.js`): vẽ trang ở scale 4 → OCR cả trang lấy toạ độ chữ → mỗi dòng hàng lấy mốc là ô Amount
+(`US$24.00`) → trong dải dòng dò **đường kẻ dọc** giữa cột màu và cột Amount để cắt từng ô → OCR từng ô bằng worker riêng (phóng 3–4 lần,
+PSM 7/8/10/13, lọc ký tự cho phép, ô một ký tự đọc kiểu một ký tự); ô nào ra dạng đơn giá (`0.65`) là Price, ô bên trái là Qty, trước nữa
+là Size; không cắt được ô thì lấy số từ chữ OCR cả trang. `readVanessa` (`src/fab.js`) ràng buộc **thành tiền = SL × đơn giá** để sửa ô
+hỏng (mất dấu chấm `04` → 0,4; thiếu SL → SL = thành tiền / đơn giá); dòng `DYEING / LEFTOVER SURCHARGE` → phụ phí mức tổng ↔ Surcharge
+Item. Size OCR sai (`0`, `84`, trống) được sửa theo inbound trước khi dò (`fixOcrSizes`: size nào của PO chưa dòng nào nhận, chọn theo đơn
+giá / số PO / size còn lại). Mã hàng mất chữ B (`82217994` → `B221799-4`), ngày `SEP42026` (mất dấu cách) đọc được.
+Kết quả: `H9424` 15/15 dòng đúng số lượng và size (40 L, 23 XL, 141 M, …); `H9258` + inbound điền tay: 9/9 dòng trùng 100 % (lô 07.10
+lên 20/32 bộ trùng). OCR một hóa đơn mất khoảng 60–90 giây, có hiện tiến độ.
 
 ## B&B Apparel, Premier Elastic, Pioneer Elastic — ba bộ có inbound điền tay (v11.21)
 
