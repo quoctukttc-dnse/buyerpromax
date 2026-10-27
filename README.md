@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.24 — 24 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.25 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -171,6 +171,20 @@ SURCHARGE | Quantity | Unit Price | Amount`; số hóa đơn nằm ở ô sau nh
 đọc PO = *CUSTOMER PO.*, article = *QUALITY P/N*, màu = *COLOUR*, dò inbound theo PO + article + màu; surcharge dòng so với *Surcharge Item*.
 Bộ thử `77FZ10L024SAV` + `UNI0000700`: 6/6 dòng đúng (330 / 348 / 397 / 113 / 110 / 126 m); 3 dòng `1SR0206SN` báo `LỆCH GIÁ TRỊ` **thật**:
 hóa đơn 2,62 USD/m, PO SAP 2,70 USD/m (lệch 27,92 USD trên cả hóa đơn) — cần hỏi lại chủ hàng / người đặt PO.
+
+## Avery Dennison — nhãn giấy, HĐ GTGT Viettel + DELIVERY NOTE theo size (v11.25)
+
+Hóa đơn GTGT (Viettel) ghi mỗi dòng: Sales Order `149684907`, Delivery # `1947154515`, Customer PO `AVV0117400/522881/234556` (bị ngắt
+thành `AVV0117400/5` ở dòng trên và `22881/234556` ở dòng dưới dòng số), tên hàng `PT25-LE`, mã nội bộ `1-323012-000-02`, SL × đơn giá.
+DELIVERY NOTE (PDF chữ) chia từng dòng theo `;COLOR:SIZE:QTY` (`;SOFT CLOUD BLUE:2:26`). Inbound SAP: PO `AVV0117400`, Supplier Ref
+`PT25-LE`, Specification `522881-PT25-LE-TYP -2-PO 234556` (đơn Scavi · size · số PO). Công cụ: hóa đơn GTGT là chứng từ chính
+(`readAveryVat`), DELIVERY NOTE là packing list (`readAveryDn`, ghép theo Delivery #); **luật chung mới `expandBySizes`**: dòng chứng từ ghi
+gộp nhiều size mà packing list có nhóm theo size cùng khóa và tổng đúng bằng → tách thành từng dòng theo size trước khi dò; mỗi dòng dò
+trong PO theo token {đơn Scavi, số PO} + size. Bộ `1C26TNT#00247665` (3 dòng, 940 cái) + ZMME 279 dòng: 27/27 dòng size `KHỚP`, mỗi dòng
+đúng Specification và size, Σ Invoice Quantity 940, tổng tiền 250.980 đ khớp.
+
+**Quy ước số hóa đơn GTGT (chốt 27.10.2026):** luôn ghi `KÝ HIỆU#` + số bù đủ 8 chữ số (`1C26TKV#00000599`, `1C26TFT#00000878`,
+`1C26TVN#00000476`) cho mọi chủ hàng — mọi bộ đọc HĐ GTGT đều dùng `padStart(8, '0')`.
 
 ## Mainetti — nhãn / móc treo, một PDF gộp nhiều hóa đơn + phiếu xuất kho (v11.23)
 

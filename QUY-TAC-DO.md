@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.24)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.25)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -972,9 +972,9 @@ tổng `Invoice Quantity` ≠ hóa đơn → `LỆCH SL` kèm nhắc "thả kèm
 
 ## G12. Chủ hàng chưa được huấn luyện → đề nghị liên hệ (từ v11.7, 08.10.2026)
 
-- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 24 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
+- **Danh sách** `TRAINED_SUPPLIERS` (đầu `src/app-all.js`): 25 mẫu riêng (ITL, Inkava, Thiên Gia, Techwork, New Style – BLAO,
   Hengyu, Yubo, Capital Tricot, Carvico, Suzhou Celeb, Cheung Hing, Chuangjie, Yibei, Luen Hing, Hoa Nghiêm, Best Pacific PDF,
-  Inkava gia công, Inkava PO SAP, Fujian Unitex, Kiyohara, B&B Apparel, Pioneer Elastic, Vanessa, Mainetti) + các chủ hàng đã chạy
+  Inkava gia công, Inkava PO SAP, Fujian Unitex, Kiyohara, B&B Apparel, Pioneer Elastic, Vanessa, Mainetti, Avery Dennison) + các chủ hàng đã chạy
   thử bằng bộ đọc chung ( Chuangjie, Derun, DJIC,
   Uwork, Freetex, Baikai, Honggang, Hing Yip, Hoa Nghiêm, Best Pacific, Junye, Luen Hing, Pioneer, PT Winner, S&M, Seamless,
   Stretchline, SunPo, Yibei, Brugnoli, AIM High, Chain Guan, Paddies, Prestige, Vinity). So khớp sau khi bỏ dấu tiếng Việt,
@@ -1375,6 +1375,26 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   DSM + Customer Articel Code. Điểm: `it.sku && r.sku` → ±3. Text VNPT ở dạng NFD → `normalize('NFC')` trước khi so chữ `Nhãn`.
 - **Kết quả**: 424/441 KHỚP (416 + 4 chia nhiều dòng + 4 giao thiếu), 16 LỖI (PO không có trong inbound), 1 VƯỢT DUNG SAI thật; Σ IQ / Σ tiền
   từng INB = hóa đơn. Ghi chú "PO còn N dòng màu khác" chỉ liệt kê màu khi inbound có màu.
+
+## AD. Avery Dennison — HĐ GTGT Viettel + DELIVERY NOTE (từ v11.25, 27.10.2026)
+
+- **`readAveryVat`** (`isAveryVatText`: AVERY DENNISON + HĐ GTGT + `Delivery #`/`Sales Order`): dòng số `STT SO(8–10 số) DN(9–11 số) … SL ĐG TT VND`
+  (dấu phẩy thập phân); PO khách = `([A-Z]{3}\d{7})/(\d*)` ở dòng trên + `^(\d+)/(\d{5,7})` ở dòng dưới → `order` = mảnh ghép (`5`+`22881`),
+  `poNum`; mã hàng = chuỗi giữa `..` và `.` trong mô tả (`LANDS' END..PT25-LE.7CP…`); trang 2 lặp dòng → bỏ trùng theo STT + SL + TT.
+  Item: `po`, `article`, `refTokens = [order, poNum]`, `pklNo` = DN, `pklKey = 'AVERY|PO|order|poNum'`, `sizeSplit: true`.
+- **`readAveryDn`** (`isAveryDnText`): dòng đầu `SL SL EA 1-323012-000-02 PT25-LE 149684907 1.1 AVV0117400/` + ghép mảnh PO khách ở 1–3
+  dòng kế (`522881/23455` + `6`); các dòng `;COLOR:SIZE:QTY` → nhóm `key = itemKey|size`, `size`, `color`, `total`; genpkl cùng profile,
+  ghép theo `pklNo` = DN.
+- **`expandBySizes(inv, pkl)`** (đầu `analyzeFab`, luật chung): item có `sizeSplit` + `pklKey`; các nhóm `g.itemKey === it.pklKey` có `size`
+  và Σ total = SL dòng → thay dòng bằng từng dòng size (qty, amount = qty × giá, `pklKey = g.key`). Không khớp tổng → giữ nguyên dòng gộp
+  (rơi về splitSize nếu tổng PO bằng).
+- **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
+  234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
+
+## Thay đổi của v11.25 (27.10.2026) — Avery Dennison + tách dòng theo size của packing list + chốt bù 8 số
+
+- Mục AD; `expandBySizes`; quy ước số HĐ GTGT `KÝ HIỆU#` + 8 chữ số áp dụng cho tất cả (đã sẵn trong mọi bộ đọc, ghi vào tài liệu).
+  Hồi quy 32 bộ + set 7–15 không đổi.
 
 ## Thay đổi của v11.24 (23.10.2026) — Mainetti ghép inbound theo model + S/V + size + SKU
 

@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.24 · 23.10.2026 · 24 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.25 · 27.10.2026 · 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -200,6 +200,9 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li><b>Mainetti</b> (v11.23): HĐ GTGT nhãn / móc treo; một file PDF gộp nhiều hóa đơn được <b>tách tự động theo số HĐ</b> thành từng mục
         (tên file kèm <code>[HĐ 21264]</code>); mô tả ngắt dòng được nối lại; phiếu xuất kho PDF chữ đọc thành packing list theo OD và ghép với hóa đơn
         cùng Lệnh giao hàng. Đối chiếu inbound theo model + loại nhãn (S1/S2/S3) + phiên bản + size + <em>Customer SKU Code</em> (v11.24).</li>
+        <li><b>Avery Dennison</b> (v11.25): HĐ GTGT Viettel (PO khách <code>AVV0117400/522881/234556</code> bị ngắt dòng) + DELIVERY NOTE chia theo size
+        → mỗi dòng hóa đơn được tách thành từng size theo phiếu giao hàng rồi dò inbound theo đơn Scavi + số PO + size. Số HĐ GTGT luôn ghi
+        <code>KÝ HIỆU#</code> + 8 chữ số cho mọi chủ hàng.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
@@ -2321,6 +2324,124 @@ function readMainettiPxk(lines, fname) {
   return { profile: 'MAINETTI', supplier: 'Mainetti', role: 'pkl', file: fname || '', inv: { items: [] }, pkl: { groups, unit: 'PCS', level: 'lot' }, pklOnly: true, pklNo: od };
 }
 
+
+/* =====================  AVERY DENNISON RIS VIỆT NAM — nhãn giấy, HĐ GTGT Viettel + DELIVERY NOTE  =====================
+   HĐ GTGT: STT | Sales Order 149684907 | Delivery # 1947154515 | Customer PO "AVV0117400/522881/234556" (bị ngắt: "AVV0117400/5" ở dòng
+   trên + "22881/234556" ở dòng dưới dòng số) | tên hàng PT25-LE | mã nội bộ 1-323012-000-02 | SL | ĐG | TT | VND. Inbound SAP: PO AVV0117400,
+   Supplier Ref PT25-LE, Specification "522881-PT25-LE-TYP -2-PO 234556" (đơn Scavi 522881 · size 2 · PO 234556) → dò theo token
+   {522881, 234556} + size. Size lấy từ DELIVERY NOTE (";SOFT CLOUD BLUE:2:26") → tách dòng hóa đơn theo size (expandBySizes). */
+const isAveryVatText = (t) => /AVERY\s*DENNISON/i.test(t) && /H[ÓO]A Đ[ƠO]N GI[ÁA] TR[ỊI] GIA T[ĂA]NG|VAT\s*INVOICE/i.test(t) && /Delivery\s*#|Sales\s*Order/i.test(t);
+function readAveryVat(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).normalize('NFC').replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isAveryVatText(t)) return null;
+  const serial = (t.match(/K[ýy]\s*hi[ệe]u[^:\n]*:\s*([A-Z0-9]{5,})/i) || [])[1] || '';
+  const no = (t.match(/S[ốo]\s*\(\s*No\.?\s*\)\s*:?\s*(\d{3,})/i) || [])[1] || '';
+  const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : no;
+  const dm = t.match(/Ng[àa]y\s*(?:\(date\))?\s*(\d{1,2})\s*th[áa]ng\s*(?:\(month\))?\s*(\d{1,2})\s*n[ăa]m\s*(?:\(year\))?\s*(\d{4})/i);
+  const invDate = dm ? dmy(dm[1], dm[2], dm[3]) : '';
+  const NUM = /^(\d{1,3})\s+(\d{8,10})\s+(\d{9,11})\s+(.*?)\s*([\d.]+,\d{2})\s+([\d.]+,\d{2})\s+([\d.]+,\d{2})\s+(VND|USD)$/;
+  const items = [];
+  const seen = new Set();
+  for (let i = 0; i < all.length; i++) {
+    const m = all[i].match(NUM);
+    if (!m) continue;
+    const stt = m[1];
+    if (seen.has(stt + '|' + m[5] + '|' + m[7])) continue;   // trang 2 lặp lại
+    seen.add(stt + '|' + m[5] + '|' + m[7]);
+    const qty = viNum(m[5]), price = viNum(m[6]), amount = viNum(m[7]);
+    if (!(qty > 0)) continue;
+    const prev = all[i - 1] || '', next = all[i + 1] || '';
+    /* PO khách: "AVV0117400/5" (dòng trên) + "22881/234556" (dòng dưới) */
+    const mp = (prev + ' ' + all[i]).match(/\b([A-Z]{3}\d{7})\/(\d*)/);
+    const po = mp ? mp[1] : '';
+    const frag = mp ? mp[2] : '';
+    const mn = next.match(/^(\d+)\/(\d{5,7})\b/) || (prev + ' ' + all[i] + ' ' + next).match(/\b([A-Z]{3}\d{7})\/(\d{5,7})\/(\d{5,7})/);
+    let order = '', poNum = '';
+    if (mn && mn.length === 3) { order = frag + mn[1]; poNum = mn[2]; }
+    else if (mn && mn.length === 4) { order = mn[2]; poNum = mn[3]; }
+    const ctx = [all[i - 3], all[i - 2], prev, all[i], next, all[i + 2], all[i + 3]].filter(Boolean).join(' ');
+    const article = (ctx.match(/\.\.([A-Z0-9][A-Z0-9-]{2,})\./) || ctx.match(/\b([A-Z]{1,2}\d{2}[A-Z]?-[A-Z]{2,3})\b/) || [])[1] || '';
+    const item = (ctx.match(/\b(\d-\d{6}-\d{3})\b/) || [])[1] || '';
+    const refTokens = [order, poNum].filter(Boolean);
+    items.push({
+      poRaw: po, po: poSap(po), article: article || item, colorText: '', colorCode: '', colorShort: '', size: '',
+      order, poNum, item, dn: m[3], so: m[2], refTokens: refTokens.length ? refTokens : undefined, refText: refTokens.join(' '),
+      desc: [article, item, order && poNum ? `đơn ${order} / PO ${poNum}` : '', 'DN ' + m[3]].filter(Boolean).join(' · '),
+      qtyByUnit: { PCS: qty }, unit: 'PCS', qty, price, surcharge: 0, amount,
+      code: (article || item) + (order ? ' · ' + order + '/' + poNum : ''), pklNo: m[3], pklKey: 'AVERY|' + poSap(po) + '|' + order + '|' + poNum, sizeSplit: true,
+    });
+  }
+  if (!items.length) return null;
+  const total = viNum((t.match(/C[ộo]ng ti[ềe]n h[àa]ng[^:\n]*:\s*([\d.]+,\d{2})/i) || [])[1]);
+  return {
+    profile: 'AVERY', supplier: 'Avery Dennison', vat: true,
+    inv: { no: invNo, invNo, invDate, serial, items, currency: 'VND', unitDefault: 'PCS', surchargeHeader: 0, total, totalQty: r3(items.reduce((a, x) => a + x.qty, 0)), amountInclSur: true },
+    pkl: null,
+  };
+}
+/* DELIVERY NOTE Avery: "289 289 EA 1-323012-000-02 PT25-LE 149684907 1.1 AVV0117400/" + "… 522881/23455" + "6" + ";COLOR:SIZE:QTY" */
+const isAveryDnText = (t) => /AVERY\s*DENNISON/i.test(t) && /DELIVERY\s*NOTE/i.test(t) && /DELIVERY\s*NUMBER/i.test(t);
+function readAveryDn(lines, fname) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).normalize('NFC').replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isAveryDnText(t)) return null;
+  const dn = (t.match(/DELIVERY\s*NUMBER\s*(\d{8,12})/i) || [])[1] || '';
+  const groups = [];
+  let cur = null;
+  for (let i = 0; i < all.length; i++) {
+    const L = all[i];
+    const mh = L.match(/^(\d+)\s+(\d+)\s+(EA|PCS|PC)\s+(\d-\d{6}-\d{3}(?:-\d{2})?)\s+(\S+)\s+(\d{8,10})\s+([\d.]+)\s+([A-Z]{3}\d{7})\/(\d*)$/i);
+    if (mh) {
+      /* ghép mảnh PO khách ở 1–2 dòng kế: "522881/23455" + "6" */
+      let frag = mh[9], k = i + 1;
+      while (k < all.length && k <= i + 3 && !/^;/.test(all[k])) {
+        const toks = all[k].split(' ');
+        const last = toks[toks.length - 1];
+        if (/^\d+(?:\/\d*)?$/.test(last) && !/^\d-\d{6}/.test(last)) frag += last;
+        if (/\d{5,}\/\d{6}/.test(frag)) break;
+        k++;
+      }
+      const mm = frag.match(/^(\d+)\/(\d{5,7})/);
+      cur = { po: poSap(mh[8]), poRaw: mh[8], order: mm ? mm[1] : '', poNum: mm ? mm[2] : '', article: mh[5], item: mh[4], qty: Number(mh[1]) };
+      continue;
+    }
+    const ms = L.match(/^;([^:;]+):([^:;]+):(\d+)$/);
+    if (ms && cur) {
+      const size = ms[2].trim().toUpperCase(), q = Number(ms[3]);
+      if (!(q > 0)) continue;
+      const itemKey = 'AVERY|' + cur.po + '|' + cur.order + '|' + cur.poNum;
+      const key = itemKey + '|' + size;
+      let g = groups.find((x) => x.key === key);
+      if (!g) { g = { key, itemKey, po: cur.po, poRaw: cur.poRaw, article: cur.article, color: ms[1].trim(), size, lot: 'DN ' + dn, unit: 'PCS', rolls: [], total: 0, pklNo: dn, order: cur.order, poNum: cur.poNum }; groups.push(g); }
+      g.total = r3(g.total + q);
+    }
+  }
+  if (!groups.length) return null;
+  return { profile: 'AVERY', supplier: 'Avery Dennison', role: 'pkl', file: fname || '', inv: { items: [] }, pkl: { groups, unit: 'PCS', level: 'lot' }, pklOnly: true, pklNo: dn };
+}
+/* Luật chung: dòng chứng từ ghi gộp nhiều size (sizeSplit) + packing list có nhóm theo size cùng khóa và tổng đúng bằng SL dòng
+   → tách thành từng dòng theo size trước khi dò inbound (Avery: HĐ ghi 289, DELIVERY NOTE chia 2:26, 4:26, …). */
+function expandBySizes(inv, pkl) {
+  if (!inv || !pkl || !pkl.groups || !inv.items.some((x) => x.sizeSplit && x.pklKey)) return;
+  const out = [];
+  for (const it of inv.items) {
+    const gs = it.sizeSplit && it.pklKey ? pkl.groups.filter((g) => g.itemKey === it.pklKey && g.size) : [];
+    const sum = r3(gs.reduce((a, g) => a + g.total, 0));
+    if (gs.length >= 1 && Math.abs(sum - it.qty) <= 0.01) {
+      gs.forEach((g) => {
+        const q = g.total;
+        out.push(Object.assign({}, it, {
+          size: g.size, colorText: g.color || it.colorText, colorShort: g.color || it.colorShort, qty: q, qtyByUnit: { [it.unit]: q },
+          amount: isNaN(it.price) ? NaN : r3(q * it.price), code: it.code + ' · size ' + g.size, desc: it.desc + ' · size ' + g.size + (g.color ? ' ' + g.color : ''),
+          pklKey: g.key, sizeSplit: false, splitFrom: it.qty,
+        }));
+      });
+    } else out.push(it);
+  }
+  inv.items = out;
+}
+
 function readFab(wb) {
   const p = fabProfile(wb);
   if (p === 'TECHWORK') return readTechwork(wb);
@@ -2372,6 +2493,7 @@ function fixOcrSizes(inv, rows) {
 }
 function analyzeFab(inv, pkl, rows, opts) {
   opts = opts || {};
+  try { expandBySizes(inv, pkl); } catch (e) { /* bỏ qua */ }
   try { fixOcrSizes(inv, rows); } catch (e) { /* bỏ qua */ }
   const EPS = 0.01;
   const cur = inv.currency || 'USD';
@@ -4741,7 +4863,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/], ['Avery Dennison', /AVERY\s*DENNISON/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -4847,6 +4969,15 @@ async function classify(file) {
     if (!ocr && isInkavaGiaCongText(lines.join(' '))) {
       let ig = null; try { ig = readInkavaGiaCong(lines); } catch (e) { ig = null; }
       if (ig && ig.inv.items.length) { out = { kind: 'fab', score: 9, fab: ig, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
+    /* Avery Dennison: HĐ GTGT Viettel (chứng từ chính) + DELIVERY NOTE (packing list theo size) */
+    if (!ocr && isAveryVatText(lines.join('\n'))) {
+      let av = null; try { av = readAveryVat(lines); } catch (e) { av = null; }
+      if (av && av.inv.items.length) { out = { kind: 'fab', score: 9, fab: av, lines, pos: [...new Set(av.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    if (!ocr && isAveryDnText(lines.join('\n'))) {
+      let ad = null; try { ad = readAveryDn(lines, file.name); } catch (e) { ad = null; }
+      if (ad) { out = { kind: 'genpkl', score: 6, gen: ad, lines, pos: [...new Set(ad.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* Phiếu xuất kho Mainetti (PDF chữ) → packing list theo OD */
     if (!ocr && isMainettiPxkText(lines.join('\n'))) {

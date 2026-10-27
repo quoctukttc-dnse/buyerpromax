@@ -784,7 +784,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/], ['Avery Dennison', /AVERY\s*DENNISON/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -890,6 +890,15 @@ async function classify(file) {
     if (!ocr && isInkavaGiaCongText(lines.join(' '))) {
       let ig = null; try { ig = readInkavaGiaCong(lines); } catch (e) { ig = null; }
       if (ig && ig.inv.items.length) { out = { kind: 'fab', score: 9, fab: ig, lines, pos: [] }; CACHE.set(file, out); return out; }
+    }
+    /* Avery Dennison: HĐ GTGT Viettel (chứng từ chính) + DELIVERY NOTE (packing list theo size) */
+    if (!ocr && isAveryVatText(lines.join('\n'))) {
+      let av = null; try { av = readAveryVat(lines); } catch (e) { av = null; }
+      if (av && av.inv.items.length) { out = { kind: 'fab', score: 9, fab: av, lines, pos: [...new Set(av.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    if (!ocr && isAveryDnText(lines.join('\n'))) {
+      let ad = null; try { ad = readAveryDn(lines, file.name); } catch (e) { ad = null; }
+      if (ad) { out = { kind: 'genpkl', score: 6, gen: ad, lines, pos: [...new Set(ad.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* Phiếu xuất kho Mainetti (PDF chữ) → packing list theo OD */
     if (!ocr && isMainettiPxkText(lines.join('\n'))) {
