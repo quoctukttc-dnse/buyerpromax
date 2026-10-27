@@ -1580,14 +1580,17 @@ function readInkavaPo(lines) {
 }
 /* chọn dòng inbound theo mã tham chiếu: (1) Supplier Ref trùng hẳn → (2) mọi token của HĐ nằm trong Supplier Ref + mô tả
    → (3) mọi token của Supplier Ref nằm trong mã HĐ (HĐ ghi dài hơn: "REF_01 Printing L15xW15MM," ⊇ "REF_01") */
+/* token số dài hơn vẫn khớp token số ngắn nếu đuôi trùng (≥ 4 chữ số): Avery ghi đơn "948126", SAP ghi "8126" */
+const tokEq = (a, b) => a === b || (/^\d{4,}$/.test(a) && /^\d{4,}$/.test(b) && (a.endsWith(b) || b.endsWith(a)));
+const tokHas = (set, x) => set.has(x) || [...set].some((y) => tokEq(x, y));
 function refPick(it, rows) {
   const k = AZ(it.refText), inv = new Set(it.refTokens || []);
   if (!k || !inv.size) return rows;
   const ex = rows.filter((r) => AZ(r.supRef) === k);
   if (ex.length) return ex;
-  const sub = rows.filter((r) => { const rt = new Set(TOK([r.supRef, r.desc, r.spec, r.sku, r.dsm, r.custArt].map((v) => String(v || '')).join(' '))); return [...inv].every((x) => rt.has(x)); });
+  const sub = rows.filter((r) => { const rt = new Set(TOK([r.supRef, r.desc, r.spec, r.sku, r.dsm, r.custArt].map((v) => String(v || '')).join(' '))); return [...inv].every((x) => tokHas(rt, x)); });
   if (sub.length) return sub;
-  return rows.filter((r) => { const rt = TOK(r.supRef); return rt.length && rt.some((x) => /\d/.test(x) || x.length >= 4) && rt.every((x) => inv.has(x)); });
+  return rows.filter((r) => { const rt = TOK(r.supRef); return rt.length && rt.some((x) => /\d/.test(x) || x.length >= 4) && rt.every((x) => tokHas(inv, x)); });
 }
 
 
@@ -2011,7 +2014,8 @@ function readAveryVat(lines) {
     const mp = (prev + ' ' + all[i]).match(/\b([A-Z]{3}\d{7})\/(\d*)/);
     const po = mp ? mp[1] : '';
     const frag = mp ? mp[2] : '';
-    const mn = next.match(/^(\d+)\/(\d{5,7})\b/) || (prev + ' ' + all[i] + ' ' + next).match(/\b([A-Z]{3}\d{7})\/(\d{5,7})\/(\d{5,7})/);
+    /* mảnh PO khách ở dòng dưới: "22881/234556" (Lands' End: đơn Scavi / số PO) hoặc "48126-UGW" (Haddad: số đơn - mã màu) */
+    const mn = next.match(/^(\d+)[\/-]([0-9A-Z]{2,7})\b/) || (prev + ' ' + all[i] + ' ' + next).match(/\b([A-Z]{3}\d{7})\/(\d{5,7})[\/-]([0-9A-Z]{2,7})\b/);
     let order = '', poNum = '';
     if (mn && mn.length === 3) { order = frag + mn[1]; poNum = mn[2]; }
     else if (mn && mn.length === 4) { order = mn[2]; poNum = mn[3]; }
@@ -2043,35 +2047,41 @@ function readAveryDn(lines, fname) {
   if (!isAveryDnText(t)) return null;
   const dn = (t.match(/DELIVERY\s*NUMBER\s*(\d{8,12})/i) || [])[1] || '';
   const groups = [];
+  const addGroup = (c, size, color, q) => {
+    const itemKey = 'AVERY|' + c.po + '|' + c.order + '|' + c.poNum;
+    const key = itemKey + '|' + size;
+    let g = groups.find((x) => x.key === key);
+    if (!g) { g = { key, itemKey, po: c.po, poRaw: c.poRaw, article: c.article, color, size, lot: 'DN ' + dn, unit: 'PCS', rolls: [], total: 0, pklNo: dn, order: c.order, poNum: c.poNum }; groups.push(g); }
+    g.total = r3(g.total + q);
+  };
   let cur = null;
   for (let i = 0; i < all.length; i++) {
     const L = all[i];
-    const mh = L.match(/^(\d+)\s+(\d+)\s+(EA|PCS|PC)\s+(\d-\d{6}-\d{3}(?:-\d{2})?)\s+(\S+)\s+(\d{8,10})\s+([\d.]+)\s+([A-Z]{3}\d{7})\/(\d*)$/i);
+    /* "289 289 EA 1-323012-000-02 PT25-LE 149684907 1.1 AVV0117400/" · Haddad có thêm cột SHIP SET: "… 149883106 1 1.1 AVV0138700/" */
+    const mh = L.match(/^(\d+)\s+(\d+)\s+(EA|PCS|PC)\s+(\d-\d{6}-\d{3}(?:-\d{2})?)\s+(\S+)\s+(\d{8,10})\s+(?:\d+\s+)?([\d.]+)\s+([A-Z]{3}\d{7})\/([0-9A-Z-]*)$/i);
     if (mh) {
-      /* ghép mảnh PO khách ở 1–2 dòng kế: "522881/23455" + "6" */
+      /* ghép mảnh PO khách ở 1–3 dòng kế: "522881/23455" + "6" (Lands' End) hoặc "948132-70V" (Haddad) */
       let frag = mh[9], k = i + 1;
       while (k < all.length && k <= i + 3 && !/^;/.test(all[k])) {
         const toks = all[k].split(' ');
         const last = toks[toks.length - 1];
-        if (/^\d+(?:\/\d*)?$/.test(last) && !/^\d-\d{6}/.test(last)) frag += last;
-        if (/\d{5,}\/\d{6}/.test(frag)) break;
+        if (/^[0-9][0-9A-Z\/-]*$/.test(last) && !/^\d-\d{6}/.test(last) && !/\.\./.test(last)) frag += last; else break;
         k++;
       }
-      const mm = frag.match(/^(\d+)\/(\d{5,7})/);
-      cur = { po: poSap(mh[8]), poRaw: mh[8], order: mm ? mm[1] : '', poNum: mm ? mm[2] : '', article: mh[5], item: mh[4], qty: Number(mh[1]) };
+      const mm = frag.match(/^(\d{4,})\/(\d{5,7})/) || frag.match(/^(\d{4,})-([0-9A-Z]{2,7})$/);
+      if (cur && !cur.sized) addGroup(cur, '', '', cur.qty);   // dòng trước không chia size → một nhóm tổng
+      cur = { po: poSap(mh[8]), poRaw: mh[8], order: mm ? mm[1] : '', poNum: mm ? mm[2] : '', article: mh[5], item: mh[4], qty: Number(mh[1]), sized: false };
       continue;
     }
-    const ms = L.match(/^;([^:;]+):([^:;]+):(\d+)$/);
+    /* ";SOFT CLOUD BLUE:2:26" (màu:size:SL) hoặc "; 8A/XS : 1011" (size : SL) */
+    const ms = L.match(/^;\s*([^:;]+?)\s*:\s*([^:;]+?)\s*:\s*(\d+)\s*$/) || L.match(/^;\s*([^:;]+?)\s*:\s*(\d+)\s*$/);
     if (ms && cur) {
-      const size = ms[2].trim().toUpperCase(), q = Number(ms[3]);
-      if (!(q > 0)) continue;
-      const itemKey = 'AVERY|' + cur.po + '|' + cur.order + '|' + cur.poNum;
-      const key = itemKey + '|' + size;
-      let g = groups.find((x) => x.key === key);
-      if (!g) { g = { key, itemKey, po: cur.po, poRaw: cur.poRaw, article: cur.article, color: ms[1].trim(), size, lot: 'DN ' + dn, unit: 'PCS', rolls: [], total: 0, pklNo: dn, order: cur.order, poNum: cur.poNum }; groups.push(g); }
-      g.total = r3(g.total + q);
+      const color = ms.length === 4 ? ms[1].trim() : '', size = (ms.length === 4 ? ms[2] : ms[1]).trim().toUpperCase(), q = Number(ms[ms.length - 1]);
+      if (!(q > 0) || /^TOTAL$/i.test(size)) continue;
+      cur.sized = true; addGroup(cur, size, color, q);
     }
   }
+  if (cur && !cur.sized) addGroup(cur, '', '', cur.qty);
   if (!groups.length) return null;
   return { profile: 'AVERY', supplier: 'Avery Dennison', role: 'pkl', file: fname || '', inv: { items: [] }, pkl: { groups, unit: 'PCS', level: 'lot' }, pklOnly: true, pklNo: dn };
 }

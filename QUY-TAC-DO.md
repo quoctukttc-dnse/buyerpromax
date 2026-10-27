@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.25)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.26)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1390,6 +1390,13 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   (rơi về splitSize nếu tổng PO bằng).
 - **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
   234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
+
+## Thay đổi của v11.26 (27.10.2026) — Avery khách Haddad: PO khách số đơn-mã màu, DN có SHIP SET, token đuôi
+
+- `readAveryVat`: mảnh PO khách dòng dưới `^(\d+)[\/-]([0-9A-Z]{2,7})` (`48126-UGW`) → order `948126`, poNum `UGW`. `readAveryDn`: dòng đầu
+  cho phép cột SHIP SET (`(?:\d+\s+)?`), mảnh PO ghép tới 3 dòng gồm chữ (`948132-70V`), dòng size 2 trường `; size : SL` hoặc 3 trường
+  `;màu:size:SL`, dòng không chia size → nhóm tổng (`addGroup(c, '', '', qty)`). `refPick`: `tokEq` — hai token số ≥ 4 chữ số khớp khi
+  trùng đuôi (`948126` ~ `8126`). Kết quả 15/15; set16 (Lands' End) vẫn 27/27; hồi quy không đổi.
 
 ## Thay đổi của v11.25 (27.10.2026) — Avery Dennison + tách dòng theo size của packing list + chốt bù 8 số
 

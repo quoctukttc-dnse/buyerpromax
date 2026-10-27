@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.25 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.26 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -182,6 +182,12 @@ DELIVERY NOTE (PDF chữ) chia từng dòng theo `;COLOR:SIZE:QTY` (`;SOFT CLOUD
 gộp nhiều size mà packing list có nhóm theo size cùng khóa và tổng đúng bằng → tách thành từng dòng theo size trước khi dò; mỗi dòng dò
 trong PO theo token {đơn Scavi, số PO} + size. Bộ `1C26TNT#00247665` (3 dòng, 940 cái) + ZMME 279 dòng: 27/27 dòng size `KHỚP`, mỗi dòng
 đúng Specification và size, Σ Invoice Quantity 940, tổng tiền 250.980 đ khớp.
+
+**Khách Haddad (v11.26):** cùng Avery nhưng khách khác in khác: PO khách `AVV0138700/948126-UGW` (số đơn + mã màu, bị ngắt `AVV0138700/9`
++ `48126-UGW`), inbound ghi Specification `HAD-RFID-12 STICKER/8126/P1/UGW` (đơn chỉ còn 4 số cuối) → token số dài khớp token ngắn khi
+trùng đuôi (`tokEq`); DELIVERY NOTE có thêm cột SHIP SET (`149883106 1 1.1`), chia size dạng `; 8A/XS : 1011` (không có màu) hoặc không chia
+size (chỉ `;Total:`) → không chia thì packing list là một nhóm tổng và dòng hóa đơn được tách theo số PO từng size (`splitSize`). Bộ
+`1C26TNT#00247861` (5 size, 6.041) và `#00247894` (2 màu × 5 size, 12.074): 15/15 dòng `KHỚP`, mỗi dòng đúng Specification + size.
 
 **Quy ước số hóa đơn GTGT (chốt 27.10.2026):** luôn ghi `KÝ HIỆU#` + số bù đủ 8 chữ số (`1C26TKV#00000599`, `1C26TFT#00000878`,
 `1C26TVN#00000476`) cho mọi chủ hàng — mọi bộ đọc HĐ GTGT đều dùng `padStart(8, '0')`.
