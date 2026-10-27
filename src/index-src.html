@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.26 · 27.10.2026 · 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.27 · 27.10.2026 · 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -203,7 +203,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li><b>Avery Dennison</b> (v11.25): HĐ GTGT Viettel (PO khách <code>AVV0117400/522881/234556</code> bị ngắt dòng) + DELIVERY NOTE chia theo size
         → mỗi dòng hóa đơn được tách thành từng size theo phiếu giao hàng rồi dò inbound theo đơn Scavi + số PO + size. Số HĐ GTGT luôn ghi
         <code>KÝ HIỆU#</code> + 8 chữ số cho mọi chủ hàng. Khách Haddad (v11.26): PO khách dạng số đơn + mã màu (<code>948126-UGW</code>), phiếu giao
-        hàng có hoặc không chia size đều đọc được.</li>
+        hàng có hoặc không chia size đều đọc được. Khách Lacoste (v11.27): PO khách trơn, mã nội bộ dạng chữ, dòng hóa đơn giữ nhiều mã ứng viên để dò Supplier Ref.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;

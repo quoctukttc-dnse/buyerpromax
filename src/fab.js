@@ -2011,7 +2011,7 @@ function readAveryVat(lines) {
     if (!(qty > 0)) continue;
     const prev = all[i - 1] || '', next = all[i + 1] || '';
     /* PO khách: "AVV0117400/5" (dòng trên) + "22881/234556" (dòng dưới) */
-    const mp = (prev + ' ' + all[i]).match(/\b([A-Z]{3}\d{7})\/(\d*)/);
+    const mp = (prev + ' ' + all[i]).match(/\b([A-Z]{3}\d{7})\/(\d*)/) || (prev + ' ' + all[i]).match(/\b([A-Z]{3}\d{7})\b()/);   // Lacoste: chỉ "AVV0128700"
     const po = mp ? mp[1] : '';
     const frag = mp ? mp[2] : '';
     /* mảnh PO khách ở dòng dưới: "22881/234556" (Lands' End: đơn Scavi / số PO) hoặc "48126-UGW" (Haddad: số đơn - mã màu) */
@@ -2020,13 +2020,17 @@ function readAveryVat(lines) {
     if (mn && mn.length === 3) { order = frag + mn[1]; poNum = mn[2]; }
     else if (mn && mn.length === 4) { order = mn[2]; poNum = mn[3]; }
     const ctx = [all[i - 3], all[i - 2], prev, all[i], next, all[i + 2], all[i + 3]].filter(Boolean).join(' ');
-    const article = (ctx.match(/\.\.([A-Z0-9][A-Z0-9-]{2,})\./) || ctx.match(/\b([A-Z]{1,2}\d{2}[A-Z]?-[A-Z]{2,3})\b/) || [])[1] || '';
-    const item = (ctx.match(/\b(\d-\d{6}-\d{3})\b/) || [])[1] || '';
+    /* tên hàng: ô "Tên hàng (Customer item name)" thường đứng một mình ở dòng dưới ("FG001T"); mô tả "LANDS' END..PT25-LE.7CP…" / "PL.LACOSTE/DEVANLAY.FG001T.traceability..PSR7501T.." */
+    const nameLine = [next, all[i + 2], all[i - 1]].find((x) => x && /^[A-Z]{1,3}\d{2,4}[A-Z]{0,3}(?:-[A-Z]{2,3})?$/.test(x.trim())) || '';
+    const article = nameLine.trim() || (ctx.match(/\.\.([A-Z0-9][A-Z0-9-]{2,})\./) || ctx.match(/\b([A-Z]{1,2}\d{2}[A-Z]?-[A-Z]{2,3})\b/) || [])[1] || '';
+    const item = (ctx.match(/\b(\d-\d{6}-\d{3})\b/) || ctx.match(/\b([A-Z]{2}\d{6}[A-Z])\b/) || [])[1] || '';
+    const descCodes = [...new Set((ctx.match(/\.\.([A-Z0-9][A-Z0-9-]{2,})\.\.?/g) || []).map((x) => x.replace(/\./g, '')))];
     const refTokens = [order, poNum].filter(Boolean);
+    const altArticles = [...new Set([nameLine.trim(), item].concat(descCodes).filter((x) => x && x !== (article || item)))];
     items.push({
-      poRaw: po, po: poSap(po), article: article || item, colorText: '', colorCode: '', colorShort: '', size: '',
+      poRaw: po, po: poSap(po), article: article || item, altArticles, colorText: '', colorCode: '', colorShort: '', size: '',
       order, poNum, item, dn: m[3], so: m[2], refTokens: refTokens.length ? refTokens : undefined, refText: refTokens.join(' '),
-      desc: [article, item, order && poNum ? `đơn ${order} / PO ${poNum}` : '', 'DN ' + m[3]].filter(Boolean).join(' · '),
+      desc: [article, item, descCodes.filter((x) => x !== article).join(' '), order && poNum ? `đơn ${order} / PO ${poNum}` : '', 'DN ' + m[3]].filter(Boolean).join(' · '),
       qtyByUnit: { PCS: qty }, unit: 'PCS', qty, price, surcharge: 0, amount,
       code: (article || item) + (order ? ' · ' + order + '/' + poNum : ''), pklNo: m[3], pklKey: 'AVERY|' + poSap(po) + '|' + order + '|' + poNum, sizeSplit: true,
     });
@@ -2058,7 +2062,7 @@ function readAveryDn(lines, fname) {
   for (let i = 0; i < all.length; i++) {
     const L = all[i];
     /* "289 289 EA 1-323012-000-02 PT25-LE 149684907 1.1 AVV0117400/" · Haddad có thêm cột SHIP SET: "… 149883106 1 1.1 AVV0138700/" */
-    const mh = L.match(/^(\d+)\s+(\d+)\s+(EA|PCS|PC)\s+(\d-\d{6}-\d{3}(?:-\d{2})?)\s+(\S+)\s+(\d{8,10})\s+(?:\d+\s+)?([\d.]+)\s+([A-Z]{3}\d{7})\/([0-9A-Z-]*)$/i);
+    const mh = L.match(/^(\d+)\s+(\d+)\s+(EA|PCS|PC)\s+(\S+)\s+(\S+)\s+(\d{8,10})\s+(?:\d+\s+)?([\d.]+)\s+([A-Z]{3}\d{7})\/?([0-9A-Z-]*)$/i);   // mã nội bộ 1-323012-000-02 hoặc CB592682A (Lacoste)
     if (mh) {
       /* ghép mảnh PO khách ở 1–3 dòng kế: "522881/23455" + "6" (Lands' End) hoặc "948132-70V" (Haddad) */
       let frag = mh[9], k = i + 1;
@@ -2290,7 +2294,7 @@ function analyzeFab(inv, pkl, rows, opts) {
       if (byMat.length) { if (!poRows.length) { poRows = byMat; usedPo = byMat[0].poV; poNote += 'Dò theo mã Material ghi trên chứng từ. '; } matBy = true; }
     }
     let pool = matBy ? poRows.filter((r) => mats.includes(AZ(r.material)))
-      : poRows.filter((r) => artHit(it.article, r.material, r.desc, r.spec, r.supRef) || (it.gen && refHit(r, invText)));
+      : poRows.filter((r) => artHit(it.article, r.material, r.desc, r.spec, r.supRef) || (it.altArticles || []).some((a) => artHit(a, r.material, r.desc, r.spec, r.supRef)) || (it.gen && refHit(r, invText)));   // altArticles: chứng từ ghi nhiều mã (tên hàng / mã nội bộ / mã trong mô tả — Avery)
     /* chứng từ ghi đơn vị (pc / doz / set): cùng mã nhưng khác đơn vị là mặt hàng khác (Cheung Hing: sticker tính cái, nhãn tính tá) */
     if (pool.length > 1 && it.unit) {
       const sameU = pool.filter((r) => unitKey(r.unit) === unitKey(it.unit));

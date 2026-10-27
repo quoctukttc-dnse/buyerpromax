@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.26)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.27)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1390,6 +1390,13 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   (rơi về splitSize nếu tổng PO bằng).
 - **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
   234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
+
+## Thay đổi của v11.27 (27.10.2026) — Avery khách Lacoste: PO khách trơn, mã nội bộ chữ, nhiều mã ứng viên
+
+- `readAveryVat`: PO khách không có `/` (`AVV0128700`), mã nội bộ `[A-Z]{2}\d{6}[A-Z]` (CB592682A), tên hàng đứng riêng một dòng
+  (`FG001T`), mã trong mô tả giữa `..` (`PSR7501T`); `altArticles` = các mã còn lại. `analyzeFab`: pool theo `artHit(article)` **hoặc** một
+  trong `altArticles`. `readAveryDn`: mã nội bộ bất kỳ (`\S+`), PO không có `/`; dòng `;JOBID:…` 7 trường không phải size → nhóm tổng.
+- Lacoste: HĐ 1 dòng 49.709 = DN; chưa có inbound để kiểm bước ghép. set16 27/27, set17 15/15 không đổi.
 
 ## Thay đổi của v11.26 (27.10.2026) — Avery khách Haddad: PO khách số đơn-mã màu, DN có SHIP SET, token đuôi
 
