@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.27)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.28)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1390,6 +1390,11 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   (rơi về splitSize nếu tổng PO bằng).
 - **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
   234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
+
+## Thay đổi của v11.28 (28.10.2026) — Inkava: dòng hóa đơn đơn vị SET
+
+- `parseInvoice` (app-all.js) `reQty`: thêm `SET|Sets?|Bộ|Cuộn|Tấm|Đôi|KG|M` trước ba số SL ĐG TT — trước đây dòng care label tính theo SET
+  bị bỏ qua, file INB thiếu 18 dòng của 3 PO. HĐ 709: 8/8 KHỚP, 51 dòng, Σ 66.085. Hồi quy 32 bộ + set 1–17 không đổi.
 
 ## Thay đổi của v11.27 (27.10.2026) — Avery khách Lacoste: PO khách trơn, mã nội bộ chữ, nhiều mã ứng viên
 

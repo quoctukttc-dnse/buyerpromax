@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.27 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.28 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -245,6 +245,15 @@ lên 20/32 bộ trùng). OCR một hóa đơn mất khoảng 60–90 giây, có 
   đơn giá/m = giá/100, phụ phí dòng cộng vào thành tiền ↔ Surcharge Item. Packing list PDF riêng (`readPioneerPkl`, cùng mã lô HET + PO)
   ghép theo PO + mã + màu. Bộ `MF2616171` (19 dòng, 9 PO): 19/19 đúng, khớp 100 % điền tay (trước đây 5 dòng CẦN KIỂM TAY). Bộ cũ
   `MF2615049` + PKL: 5/5 đúng, 1 cảnh báo thật: dòng PEA0014500 hóa đơn cộng phụ phí 130 USD nhưng PO không có Surcharge Item.
+
+## Inkava phụ liệu — hóa đơn 709: dòng tính theo SET bị bỏ sót (v11.28)
+
+Hóa đơn `1C26TKV#00000709` (8 dòng, 5 PO `DUY0102300/2400/2500/2600/3100`, 5 packing list Excel): file INB xuất ra chỉ có 33 dòng của 3 PO,
+thiếu PO DUY0102300, DUY0103100 và dòng `ALABPRWV0277` của DUY0102400 (22.877 bộ). Nguyên nhân: bộ đọc hóa đơn Inkava chỉ nhận dòng số
+có đơn vị `Cái / PCS / Chiếc`, còn ba dòng care label ghi đơn vị **SET** nên bị bỏ ngay từ bước đọc (hóa đơn chỉ còn 5 dòng). Sửa `reQty`
+nhận thêm `SET / Bộ / Cuộn / Tấm / Đôi / KG / M`. Sau sửa: 8/8 dòng `KHỚP`, 51 dòng inbound điền đủ, Σ Invoice Quantity 66.085 = Tổng số
+lượng hóa đơn, tổng tiền 29.631.878 đ khớp. Packing list có cột `Spec.` thay cho `Color` (DUY0102300, DUY0103100) và nhiều dòng cùng size khác
+Reference (`B10813` + `B_B10813` + `B10842`) đều gộp đúng theo Material + Size.
 
 ## Inkava phụ liệu — hóa đơn 695: mã vật tư bị in tách, packing list không có size (v11.20)
 

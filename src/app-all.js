@@ -444,7 +444,7 @@ function parseInvoice(lines) {
 
   // line items — mã hàng nằm giữa dấu "/" đầu tiên và "//": "… / LB 5873 // TRIMMINGVN-0725"
   const rePo = /\b([A-Z]{4,}(?:VN)?)-(\d{3,5})\b/;
-  const reQty = /(?:C[áa]i|PCS|Pcs|Chi[ếe]c|PC)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)/;
+  const reQty = /(?:C[áa]i|PCS|Pcs|Chi[ếe]c|PC|SET|Sets?|B[ộo]|Cu[ộo]n|T[ấa]m|Đ[ôo]i|KG|M)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)/;   // HĐ 709: nhãn care label tính theo SET
 
   const items = [];
   let pendingCode = null, pendingPo = null, cur = null, buf = [];
