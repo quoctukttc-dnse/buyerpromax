@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.28 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.29 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -245,6 +245,16 @@ lên 20/32 bộ trùng). OCR một hóa đơn mất khoảng 60–90 giây, có 
   đơn giá/m = giá/100, phụ phí dòng cộng vào thành tiền ↔ Surcharge Item. Packing list PDF riêng (`readPioneerPkl`, cùng mã lô HET + PO)
   ghép theo PO + mã + màu. Bộ `MF2616171` (19 dòng, 9 PO): 19/19 đúng, khớp 100 % điền tay (trước đây 5 dòng CẦN KIỂM TAY). Bộ cũ
   `MF2615049` + PKL: 5/5 đúng, 1 cảnh báo thật: dòng PEA0014500 hóa đơn cộng phụ phí 130 USD nhưng PO không có Surcharge Item.
+
+## Inkava phụ liệu — hóa đơn 717: hai dòng cùng mã, khác đơn giá (nhãn đen / nhãn trắng) (v11.29)
+
+Hóa đơn `1C26TKV#00000717` có 2 dòng cùng mã `ALABPRWV0277` trên cùng PO DUY0103000, chỉ khác đơn giá (534 = nhãn đen BLACK, 730 = nhãn
+trắng WHITE); inbound có 5 dòng size × 2 màu với hai mức giá. Trước v11.29 mỗi dòng hóa đơn ghép với cả 10 dòng inbound → báo `LỆCH GIÁ TRỊ`
+"534 ≠ 534/730" dù chủ hàng giao đủ và đúng giá. Sửa: (1) khi hóa đơn có nhiều dòng **cùng mã + cùng PO nhưng khác đơn giá**, mỗi dòng chỉ
+lấy các dòng inbound có đúng đơn giá của mình (mở rộng luật tách theo giá của Thiên Gia); (2) packing list Excel được nhóm theo **Spec /
+Color**, nhóm nào có tổng đúng bằng dòng hóa đơn thì dùng (BLACK 8.178 / WHITE 5.642); (3) Spec packing list ngắn hơn Spec inbound
+(`BLACK Care label (8.3 - 2.5cm)` ⊂ `… - BASIC JERSEY`) vẫn khớp theo tiền tố. Kết quả: 2/2 `KHỚP`, 10 dòng inbound điền đúng từng màu
+và size, Σ 13.820, tổng tiền 8.485.712 đ khớp.
 
 ## Inkava phụ liệu — hóa đơn 709: dòng tính theo SET bị bỏ sót (v11.28)
 

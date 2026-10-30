@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.28)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.29)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1390,6 +1390,15 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   (rơi về splitSize nếu tổng PO bằng).
 - **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
   234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
+
+## Thay đổi của v11.29 (30.10.2026) — nhiều dòng hóa đơn cùng mã khác đơn giá (Inkava HĐ 717)
+
+- `analyze` (luồng trimming / Inkava): `sameCodeOtherPrice` — có dòng khác cùng PO + cùng mã nhưng khác đơn giá → `R.hit` chỉ giữ dòng
+  inbound có `price === it.price` (`R.byPrice`), như `priceNarrow` của Thiên Gia.
+- Packing list Excel (`xMap`): thêm bước nhóm theo `norm(spec || ref || color)`; đúng một nhóm có tổng = SL dòng → lấy nhóm đó (ghi chú
+  "gộp N nhóm Spec — đã lấy đúng nhóm …"). Khóa Material + Size + Spec chấp nhận Spec packing list là tiền tố của Spec inbound (hoặc ngược
+  lại) khi chỉ có một ứng viên.
+- HĐ 717: 2/2 KHỚP, 10 dòng, Σ 13.820. Hồi quy 32 bộ + set 1–21 không đổi.
 
 ## Thay đổi của v11.28 (28.10.2026) — Inkava: dòng hóa đơn đơn vị SET
 

@@ -1672,8 +1672,11 @@ function analyze(inv, pkl, rows, po, pklx) {
     R.inPo = rowsOf(rp.sap);
     R.matchBy = 'mã hàng';
     R.hit = matchByCode(R, R.inPo);
-    /* Thiên Gia: cùng PO có thể có hai mặt hàng trùng kích thước (L100xW35 giá 270 và 365) → tách bằng đơn giá */
-    if (it.priceNarrow && R.hit.length > 1 && !isNaN(it.price)) {
+    /* Thiên Gia: cùng PO có thể có hai mặt hàng trùng kích thước (L100xW35 giá 270 và 365) → tách bằng đơn giá.
+       Inkava HĐ 717: hai dòng cùng mã ALABPRWV0277 cùng PO, khác đơn giá (534 nhãn đen / 730 nhãn trắng) → mỗi dòng chỉ lấy
+       các dòng inbound có đúng đơn giá của mình */
+    const sameCodeOtherPrice = resolved.some((Q) => Q !== R && (Q.rp.sap || '') === (rp.sap || '') && norm(Q.it.code) === norm(it.code) && !isNaN(Q.it.price) && Q.it.price !== it.price);
+    if ((it.priceNarrow || sameCodeOtherPrice) && R.hit.length > 1 && !isNaN(it.price)) {
       const hp = R.hit.filter((x) => x.price === it.price);
       if (hp.length && hp.length < R.hit.length) { R.hit = hp; R.narrowedByWord = true; R.alt = []; R.byPrice = true; }
     }
@@ -1820,6 +1823,20 @@ function analyze(inv, pkl, rows, po, pklx) {
               }
             }
           }
+          /* nhiều dòng hóa đơn cùng mã khác màu / spec (Inkava HĐ 717: nhãn đen 534, nhãn trắng 730): nhóm packing list theo Spec / Color,
+             nhóm nào có tổng đúng bằng SL dòng (và đơn giá dòng ứng với spec đó trên inbound) thì lấy nhóm đó */
+          if (!done) {
+            for (const x of sets) {
+              const bySpec = {};
+              x.r.forEach((rw) => { const k = norm(rw.spec || rw.ref || rw.color || '?'); bySpec[k] = (bySpec[k] || 0) + rw.qty; });
+              const okS = Object.keys(bySpec).filter((k) => Math.abs(bySpec[k] - it.qty) < 0.001);
+              if (okS.length === 1 && Object.keys(bySpec).length > 1) {
+                rws = x.r.filter((rw) => norm(rw.spec || rw.ref || rw.color || '?') === okS[0]); done = true;
+                xNote = `Packing list${sets.length > 1 ? ` (sheet ${x.lab})` : ''} gộp ${Object.keys(bySpec).length} nhóm Spec (tổng ${fmt(sum(x.r))}) — đã lấy đúng nhóm "${(x.r.find((rw) => norm(rw.spec || rw.ref || rw.color || '?') === okS[0]) || {}).spec || okS[0]}" = ${fmt(it.qty)}. `;
+                break;
+              }
+            }
+          }
           if (!done) {
             if (sets.length > 1) {
               const best = sets.slice().sort((x, y) => Math.abs(sum(x.r) - it.qty) - Math.abs(sum(y.r) - it.qty))[0];
@@ -1871,7 +1888,14 @@ function analyze(inv, pkl, rows, po, pklx) {
       const g1 = {}, rest = [];
       hit.forEach((h) => {
         h.setQty = null;
-        const k = matKeys(h.material).map((m) => m + '|' + sz(h) + '|' + norm(h.spec)).find((x) => left[x] != null);
+        /* khóa đủ Material + Size + Spec; Spec packing list có thể ngắn hơn Spec inbound ("BLACK Care label (8.3 - 2.5cm)" ⊂ "… - BASIC JERSEY") */
+        let k = matKeys(h.material).map((m) => m + '|' + sz(h) + '|' + norm(h.spec)).find((x) => left[x] != null);
+        if (!k && h.spec) {
+          const hs = norm(h.spec);
+          const pres = matKeys(h.material).map((m) => m + '|' + sz(h) + '|');
+          const cands = Object.keys(left).filter((x) => pres.some((p) => x.startsWith(p)) && (() => { const sp = x.slice(x.lastIndexOf('|') + 1); return sp && (hs.startsWith(sp) || sp.startsWith(hs)); })());
+          if (cands.length === 1) k = cands[0];
+        }
         if (k) (g1[k] = g1[k] || []).push(h); else rest.push(h);
       });
       Object.entries(g1).forEach(([k, hs]) => give(hs, (want) => { const v = Math.min(left[k], want); left[k] -= v; return v; }));
