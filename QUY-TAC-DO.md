@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.29)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.30)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1390,6 +1390,14 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   (rơi về splitSize nếu tổng PO bằng).
 - **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
   234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
+
+## Thay đổi của v11.30 (03.11.2026) — packing list Excel: nhóm theo cột "Quantity shipped" (Inkava HĐ 730)
+
+- `readPklx`: `C.ship` = cột sau `Quantity` có tiêu đề `Quantity shipped` / `Quantity` / `Thực xuất`; giá trị ô công thức lấy `.result`
+  (`cellV`). Dòng có số shipped mở nhóm (`grpHead = {hid, ship, sum}`); mỗi dòng ghi `ship`, `inShip` (= dòng đầu nhóm đang hiện), `grp`.
+- `analyze` (xMap `sets`): thêm phương án `"sheet" (theo nhóm cột Quantity shipped, N dòng)` = các dòng `inShip === true`, chỉ khi mọi
+  nhóm có `sum == ship` (hoặc nhóm ẩn); đặt trước phương án "bỏ dòng lọc ẩn" để được ưu tiên khi cùng khớp tổng.
+- HĐ 730: PO DUY0106100 42 dòng = 9.636 (trước 21 dòng = 5.938); 8/8 KHỚP. Hồi quy 32 bộ + set 1–21 không đổi.
 
 ## Thay đổi của v11.29 (30.10.2026) — nhiều dòng hóa đơn cùng mã khác đơn giá (Inkava HĐ 717)
 

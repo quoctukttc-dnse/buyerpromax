@@ -1135,19 +1135,28 @@ function readPklx(ws, fname) {
     size: col(/^(0\s*)?Size\b/i), spec: col(/^(0\s*)?Spec/i), qty: col(/^Quantity$/i), order: col(/Order\s*No/i),
   };
   if (!C.mat || !C.qty) return null;
+  /* cột "Quantity shipped" / "Quantity" thứ hai (HĐ 730, PO DUY0106100): số ở dòng đầu nhóm = tổng Quantity của dòng đó + các dòng
+     (thường bị lọc ẩn) ngay dưới cho tới dòng có số kế tiếp → dòng nào thuộc nhóm có dòng đầu đang hiện là hàng giao đợt này */
+  C.ship = 0;
+  for (let c = C.qty + 1; c <= 25; c++) { const t = txt(hr, c); if (/^Quantity\s*shipped$/i.test(t) || /^Quantity$/i.test(t) || /^Th[ựu]c\s*xu[ấa]t$/i.test(t)) { C.ship = c; break; } }
   const rows = [];
-  let hidden = 0;
+  let hidden = 0, grpHead = null;   // grpHead: { hid, ship }
   for (let r = hr + 1; r <= ws.rowCount; r++) {
     if (/^total/i.test(txt(r, C.desc || 1)) || /^total/i.test(txt(r, 3)) || /^total/i.test(txt(r, 4))) break;
     /* dòng bị lọc ẩn: có khi là "không giao" (ô Total dùng SUBTOTAL), có khi chỉ là đang lọc để xem
        → giữ lại, đánh dấu hid để lúc đối chiếu thử cả hai cách tính */
     const hid = !!ws.getRow(r).hidden;
     const mat = txt(r, C.mat);
-    const q = num(ws.getCell(r, C.qty).value);
+    const cellV = (c) => { const v = ws.getCell(r, c).value; return v && typeof v === 'object' && !(v instanceof Date) && 'result' in v ? v.result : v; };   // ô công thức (SUMIF) → lấy kết quả
+    const q = num(cellV(C.qty));
     if (!mat || !/^[A-Z]{4,}[A-Z0-9]*\d{3,}$/i.test(mat.replace(/\s+/g, '')) || isNaN(q) || q <= 0) continue;
+    const shipV = C.ship ? num(cellV(C.ship)) : NaN;
+    if (!isNaN(shipV) && shipV > 0) grpHead = { hid, ship: shipV, sum: 0 };
+    if (grpHead) grpHead.sum += q;
     rows.push({
       material: mat.replace(/\s+/g, '').toUpperCase(), ref: txt(r, C.ref), spec: txt(r, C.spec),
       size: txt(r, C.size).replace(/\s+/g, '').toUpperCase().replace(/^UNKNOWN$/, ''), order: txt(r, C.order).trim(), qty: q, sheet: ws.name, hid,
+      ship: !isNaN(shipV) && shipV > 0 ? shipV : NaN, inShip: grpHead ? !grpHead.hid : undefined, grp: grpHead,
     });
     if (hid) hidden++;
   }
@@ -1799,6 +1808,10 @@ function analyze(inv, pkl, rows, po, pklx) {
           const ordered = sheetNames.slice().sort((x, y) => (x === 'Sheet') - (y === 'Sheet'));   // ưu tiên sheet thực giao
           ordered.forEach((n) => {
             const all = rws.filter((rw) => (rw.sheet || '') === n);
+            /* nhóm theo cột "Quantity shipped": dòng đầu nhóm đang hiện → cả nhóm (kể cả dòng ẩn phía dưới) là hàng giao đợt này */
+            const grpOk = all.some((rw) => rw.inShip !== undefined) && all.filter((rw) => rw.grp).every((rw) => Math.abs(rw.grp.sum - rw.grp.ship) < 0.5 || rw.grp.hid);
+            const shipRows = grpOk ? all.filter((rw) => rw.inShip === true) : [];
+            if (shipRows.length && shipRows.length < all.length) sets.push({ n, lab: `"${n}" (theo nhóm cột Quantity shipped, ${shipRows.length} dòng)`, r: shipRows });
             const vis = all.filter((rw) => !rw.hid);
             if (vis.length && vis.length < all.length) sets.push({ n, lab: `"${n}" (bỏ ${all.length - vis.length} dòng lọc ẩn)`, r: vis });
             sets.push({ n, lab: `"${n}"`, r: all });

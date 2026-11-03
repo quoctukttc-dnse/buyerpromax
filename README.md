@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.29 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.30 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -245,6 +245,16 @@ lên 20/32 bộ trùng). OCR một hóa đơn mất khoảng 60–90 giây, có 
   đơn giá/m = giá/100, phụ phí dòng cộng vào thành tiền ↔ Surcharge Item. Packing list PDF riêng (`readPioneerPkl`, cùng mã lô HET + PO)
   ghép theo PO + mã + màu. Bộ `MF2616171` (19 dòng, 9 PO): 19/19 đúng, khớp 100 % điền tay (trước đây 5 dòng CẦN KIỂM TAY). Bộ cũ
   `MF2615049` + PKL: 5/5 đúng, 1 cảnh báo thật: dòng PEA0014500 hóa đơn cộng phụ phí 130 USD nhưng PO không có Surcharge Item.
+
+## Inkava phụ liệu — hóa đơn 730: packing list có cột "Quantity shipped" theo nhóm (v11.30)
+
+Hóa đơn `1C26TKV#00000730`, PO DUY0106100 giao 9.636 nhưng tool chỉ ghi 5.938. Packing list của PO này (sheet `Sheet (2)`, 276 dòng = cả
+PO 42.837) có cột **Quantity shipped** là công thức SUMIF: số ở dòng đầu nhóm = tổng Quantity của dòng đó cộng các dòng cùng nhóm ngay dưới
+(cùng Material + Size, khác Reference / Spec), các dòng dưới bị **lọc ẩn**. Ví dụ size 36 french rose: 22 (hiện) + 22 + 46 + 80 (ẩn) = 170.
+Tool cũ chỉ có hai cách tính "mọi dòng" (42.837) và "dòng đang hiện" (5.938) nên không khớp 9.636. Sửa `readPklx`: đọc cột `Quantity
+shipped` / `Quantity` thứ hai / `Thực xuất` (lấy kết quả ô công thức), gắn mỗi dòng vào nhóm của dòng đầu gần nhất có số; thêm cách tính
+"theo nhóm cột Quantity shipped" = mọi dòng thuộc nhóm có dòng đầu đang hiện (kể cả dòng ẩn), chỉ dùng khi tổng mỗi nhóm đúng bằng số
+shipped. Kết quả: PO DUY0106100 42 dòng inbound, Σ 9.636; cả hóa đơn 8/8 `KHỚP`, 73 dòng, Σ 38.090, tổng tiền 5.322.484 đ khớp.
 
 ## Inkava phụ liệu — hóa đơn 717: hai dòng cùng mã, khác đơn giá (nhãn đen / nhãn trắng) (v11.29)
 
