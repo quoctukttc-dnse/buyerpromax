@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.31 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.32 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -246,7 +246,7 @@ lên 20/32 bộ trùng). OCR một hóa đơn mất khoảng 60–90 giây, có 
   ghép theo PO + mã + màu. Bộ `MF2616171` (19 dòng, 9 PO): 19/19 đúng, khớp 100 % điền tay (trước đây 5 dòng CẦN KIỂM TAY). Bộ cũ
   `MF2615049` + PKL: 5/5 đúng, 1 cảnh báo thật: dòng PEA0014500 hóa đơn cộng phụ phí 130 USD nhưng PO không có Surcharge Item.
 
-## Inkava phụ liệu — hóa đơn 747: cột "Quantity Ship", nhóm giao một phần (v11.31)
+## Inkava phụ liệu — hóa đơn 747: cột "Quantity Ship", nhóm giao một phần (v11.32)
 
 Packing list DUY0111500 (591 dòng, 575 dòng lọc ẩn) có **ba cột số**: `Quantity` (từng dòng theo Reference), `Quantity` (tổng nhóm theo
 mã) và `Quantity Ship` (số giao đợt này). Mã `ALABPRWV0496` nhóm 167 dòng, PO 88.141 nhưng chỉ giao 9.161; mã `ALABPRWV0551` 117 dòng, PO

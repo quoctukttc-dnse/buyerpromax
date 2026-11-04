@@ -2303,7 +2303,16 @@ function analyzeFab(inv, pkl, rows, opts) {
     /* mã tham chiếu theo tập token (Inkava PO số thuần): lọc tiếp trong nhóm PO (+ Material nếu HĐ có ghi) */
     if (it.refTokens && it.refTokens.length) pool = refPick(it, pool.length ? pool : poRows);
     const artOK = pool.length > 0;
-    if (!pool.length) pool = poRows;
+    /* mã tham chiếu KHÔNG có trong PO nhưng PO có cả "họ mã" đó (HĐ 272A053, PO chỉ có 272A052 / 272A054 …) → thiếu dòng thật;
+       không quay về dò cả PO, vì điểm đơn giá sẽ ghép nhầm sang mã khác cùng giá, ăn chỗ của dòng đó (Inkava HĐ 729) */
+    let refAbsent = '';
+    if (!artOK && it.refTokens && it.refTokens.length && poRows.length) {
+      const codeT = it.refTokens.filter((x) => /\d/.test(x) && /[A-Z]/.test(x) && x.length >= 5);
+      const rowT = [...new Set(poRows.map((r) => TOK([r.supRef, r.desc, r.spec].join(' '))).flat())];
+      const fam = codeT.length ? rowT.filter((y) => codeT.some((x) => y !== x && y.length === x.length && y.slice(0, 4) === x.slice(0, 4))) : [];
+      if (fam.length) refAbsent = `Mã ${codeT.join(' / ')} không có trong PO ${usedPo || it.po} (PO có các mã cùng họ: ${fam.sort().slice(0, 6).join(', ')}${fam.length > 6 ? '…' : ''}) — không ghép theo đơn giá để khỏi lấy nhầm dòng khác. `;
+    }
+    if (!pool.length && !refAbsent) pool = poRows;
     /* size ghi trên chứng từ: giữ đúng size (nếu inbound có cột size) */
     let sizeBy = false, sizeMiss = false;
     let docSize = it.size || '';
@@ -2541,6 +2550,9 @@ function analyzeFab(inv, pkl, rows, opts) {
     } else if (!hit.length && sizeMiss) {
       status = 'THIẾU DÒNG';
       note += `PO ${usedPo} có mã "${it.article}" nhưng không có size ${docSize} (các size trong PO: ${[...new Set(poRows.map((r) => r.size).filter(Boolean))].slice(0, 12).join(', ')})`;
+    } else if (!hit.length && refAbsent) {
+      status = 'THIẾU DÒNG';
+      note += refAbsent + 'Cần bổ sung dòng này vào PO trên SAP hoặc hỏi lại chủ hàng.';
     } else if (!hit.length) {
       status = 'THIẾU DÒNG';
       note += `PO ${usedPo} có ${poRows.length} dòng nhưng không dòng nào khớp article "${it.article}" + màu "${String(it.colorText).split(/[\r\n]/)[0]}"`;

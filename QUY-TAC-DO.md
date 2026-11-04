@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.31)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.32)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1391,7 +1391,7 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
 - **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
   234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
 
-## Thay đổi của v11.31 (04.11.2026) — packing list Excel: cột "Quantity Ship" và nhóm giao một phần (Inkava HĐ 747)
+## Thay đổi của v11.32 (04.11.2026) — packing list Excel: cột "Quantity Ship" và nhóm giao một phần (Inkava HĐ 747)
 
 - `readPklx`: chọn cột shipped theo thứ tự `Quantity Ship*` > `Thực xuất` > `Quantity` thứ hai (chỉ nhận cột có số); cột `Quantity` thứ hai
   còn lại = tổng nhóm (`C.grpTot`); dòng đầu nhóm = có số ở cột shipped hoặc cột tổng nhóm (nhóm giao 0 → không thuộc đợt). Mỗi dòng giữ
@@ -1400,6 +1400,17 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   `xRows` có dòng `partial` (kể cả khi tổng sau chia đã bằng hóa đơn nên không qua bước chọn set).
 - HĐ 747: 11/11 KHỚP, Σ 190.921; HĐ 695 (set11) lên 34/34 (nhóm 2.342 của PO DUY0105800 nay theo cột tổng nhóm). Hồi quy 32 bộ +
   set 1–22 không đổi.
+## Thay đổi của v11.31 (04.11.2026) — mã HĐ không có trong PO thì không ghép theo đơn giá (Inkava PO SAP, HĐ 729)
+
+- **Lỗi:** HĐ `1C26TKV#00000729` (PO `4500019628`) có 3 mã `272A053`, `272A100`, `272A129` không có trong PO. Lọc theo mã tham chiếu
+  (`refPick`) ra rỗng → công cụ quay về dò cả PO, điểm **đơn giá trùng** (+1) ghép nhầm sang dòng khác cùng giá (`272A053` @170.000 →
+  dòng `272A054`; `272A129` @187.000 → chia vào `272A138` + `272A055`), ăn chỗ của dòng thật → `272A054`, `272A138` báo `VƯỢT DUNG SAI` oan.
+- **Luật:** chứng từ có mã tham chiếu (`refTokens`) mà không dòng nào trong PO khớp, **trong khi PO có mã cùng họ** (token cùng độ dài,
+  cùng 4 ký tự đầu, vd `272A052`/`272A054` với `272A053`) → mã thật sự không có trong PO: **không** quay về dò cả PO, báo `THIẾU DÒNG`
+  kèm các mã cùng họ có trong PO. Mã không có "họ" nào trong PO (mã HĐ ghi khác hẳn Supplier Ref) vẫn dò như cũ.
+- **Kết quả HĐ 729:** 6 `KHỚP` · 13 `KHỚP (giao thiếu)` · 3 `THIẾU DÒNG` thật · 10 `LỆCH GIÁ TRỊ` thật — 10 mã `271A…` (HD 0.2MM, SS27)
+  hóa đơn ghi đơn giá **100.300 đ** trong khi PO trên SAP là **7.300–8.200 đ** (lệch 92.000–93.000 đ/cái, tổng 20.032.150 đ trên 217 cái); 3 mã thiếu dòng trị giá 14.917.500 đ — cộng lại đúng bằng chênh lệch 102.430.100 − 67.480.450.
+  Bộ cũ (Inkava 636, Yubo 8Oct/1827, Thiên Gia 357, Chain Guan) không đổi.
 
 ## Thay đổi của v11.30 (03.11.2026) — packing list Excel: nhóm theo cột "Quantity shipped" (Inkava HĐ 730)
 
