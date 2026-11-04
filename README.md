@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.30 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.31 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -245,6 +245,18 @@ lên 20/32 bộ trùng). OCR một hóa đơn mất khoảng 60–90 giây, có 
   đơn giá/m = giá/100, phụ phí dòng cộng vào thành tiền ↔ Surcharge Item. Packing list PDF riêng (`readPioneerPkl`, cùng mã lô HET + PO)
   ghép theo PO + mã + màu. Bộ `MF2616171` (19 dòng, 9 PO): 19/19 đúng, khớp 100 % điền tay (trước đây 5 dòng CẦN KIỂM TAY). Bộ cũ
   `MF2615049` + PKL: 5/5 đúng, 1 cảnh báo thật: dòng PEA0014500 hóa đơn cộng phụ phí 130 USD nhưng PO không có Surcharge Item.
+
+## Inkava phụ liệu — hóa đơn 747: cột "Quantity Ship", nhóm giao một phần (v11.31)
+
+Packing list DUY0111500 (591 dòng, 575 dòng lọc ẩn) có **ba cột số**: `Quantity` (từng dòng theo Reference), `Quantity` (tổng nhóm theo
+mã) và `Quantity Ship` (số giao đợt này). Mã `ALABPRWV0496` nhóm 167 dòng, PO 88.141 nhưng chỉ giao 9.161; mã `ALABPRWV0551` 117 dòng, PO
+68.757, giao 25.000 — Inkava **không ghi giao dòng nào**. Tool v11.30 lấy cột `Quantity` thứ hai làm shipped và chỉ thấy dòng đầu nhóm
+(4.141) → `LỆCH SL` / `LỆCH PKL`. Sửa: ưu tiên cột `Quantity Ship(ped)` > `Thực xuất` (có số) > `Quantity` thứ hai (tổng nhóm); nhóm có
+`Quantity Ship` nhỏ hơn tổng nhóm là **giao một phần** → chia số giao theo thứ tự dòng packing list (dòng đầu lấy đủ số PO, dư sang dòng
+kế), kèm cảnh báo "⚠ Packing list chỉ ghi TỔNG giao … không ghi giao dòng nào — đã chia theo thứ tự dòng, kiểm lại". Kết quả HĐ 747:
+11/11 `KHỚP`, 20 dòng inbound, Σ 190.921 = Tổng số lượng hóa đơn, tổng tiền 36.030.180 đ khớp. Lưu ý cho buyer: với hai mã giao một phần,
+inbound ghi theo thứ tự dòng packing list (0496: 4.141 + 1.731 + 337 + 670 + 1.063 + 708 + 511); nếu Inkava thực giao cho đơn khác thì sửa
+tay hoặc yêu cầu Inkava ghi rõ dòng giao.
 
 ## Inkava phụ liệu — hóa đơn 730: packing list có cột "Quantity shipped" theo nhóm (v11.30)
 

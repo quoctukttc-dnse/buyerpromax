@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.30)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.31)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1390,6 +1390,16 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   (rơi về splitSize nếu tổng PO bằng).
 - **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
   234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
+
+## Thay đổi của v11.31 (04.11.2026) — packing list Excel: cột "Quantity Ship" và nhóm giao một phần (Inkava HĐ 747)
+
+- `readPklx`: chọn cột shipped theo thứ tự `Quantity Ship*` > `Thực xuất` > `Quantity` thứ hai (chỉ nhận cột có số); cột `Quantity` thứ hai
+  còn lại = tổng nhóm (`C.grpTot`); dòng đầu nhóm = có số ở cột shipped hoặc cột tổng nhóm (nhóm giao 0 → không thuộc đợt). Mỗi dòng giữ
+  `qtyPo`; nhóm có `ship < sum` → `partial`, chia `ship` FIFO theo thứ tự dòng của nhóm (`rw.qty` = phần được chia, dòng còn lại 0).
+- `analyze`: `grpOk` chấp nhận nhóm `partial` / nhóm ship 0; set "theo nhóm Quantity shipped" chỉ lấy dòng `qty > 0`; ghi chú ⚠ khi
+  `xRows` có dòng `partial` (kể cả khi tổng sau chia đã bằng hóa đơn nên không qua bước chọn set).
+- HĐ 747: 11/11 KHỚP, Σ 190.921; HĐ 695 (set11) lên 34/34 (nhóm 2.342 của PO DUY0105800 nay theo cột tổng nhóm). Hồi quy 32 bộ +
+  set 1–22 không đổi.
 
 ## Thay đổi của v11.30 (03.11.2026) — packing list Excel: nhóm theo cột "Quantity shipped" (Inkava HĐ 730)
 

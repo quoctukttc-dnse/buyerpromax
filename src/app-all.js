@@ -1137,10 +1137,25 @@ function readPklx(ws, fname) {
   if (!C.mat || !C.qty) return null;
   /* cột "Quantity shipped" / "Quantity" thứ hai (HĐ 730, PO DUY0106100): số ở dòng đầu nhóm = tổng Quantity của dòng đó + các dòng
      (thường bị lọc ẩn) ngay dưới cho tới dòng có số kế tiếp → dòng nào thuộc nhóm có dòng đầu đang hiện là hàng giao đợt này */
-  C.ship = 0;
-  for (let c = C.qty + 1; c <= 25; c++) { const t = txt(hr, c); if (/^Quantity\s*shipped$/i.test(t) || /^Quantity$/i.test(t) || /^Th[ựu]c\s*xu[ấa]t$/i.test(t)) { C.ship = c; break; } }
+  C.ship = 0; C.grpTot = 0;
+  {
+    /* ưu tiên "Quantity Ship(ped)" > "Thực xuất" (có số) > cột "Quantity" thứ hai; cột "Quantity" thứ hai còn lại là tổng nhóm (HĐ 747:
+       Quantity | Quantity (tổng nhóm) | Quantity Ship | Thực xuất) */
+    const hasNum = (c) => { for (let r = hr + 1; r <= Math.min(ws.rowCount, hr + 400); r++) { const v = ws.getCell(r, c).value; const n = v && typeof v === 'object' && 'result' in v ? v.result : v; if (typeof n === 'number' && n > 0) return true; } return false; };
+    let q2 = 0, shipCol = 0, thuc = 0;
+    for (let c = C.qty + 1; c <= 25; c++) {
+      const t = txt(hr, c);
+      if (/^Quantity\s*ship/i.test(t) && !shipCol) shipCol = c;
+      else if (/^Th[ựu]c\s*xu[ấa]t$/i.test(t) && !thuc) thuc = c;
+      else if (/^Quantity$/i.test(t) && !q2) q2 = c;
+    }
+    if (shipCol && hasNum(shipCol)) { C.ship = shipCol; C.grpTot = q2; }
+    else if (thuc && hasNum(thuc)) { C.ship = thuc; C.grpTot = q2; }
+    else if (q2) C.ship = q2;
+  }
   const rows = [];
-  let hidden = 0, grpHead = null;   // grpHead: { hid, ship }
+  const groups = [];
+  let hidden = 0, grpHead = null;   // grpHead: { hid, ship, sum, rows }
   for (let r = hr + 1; r <= ws.rowCount; r++) {
     if (/^total/i.test(txt(r, C.desc || 1)) || /^total/i.test(txt(r, 3)) || /^total/i.test(txt(r, 4))) break;
     /* dòng bị lọc ẩn: có khi là "không giao" (ô Total dùng SUBTOTAL), có khi chỉ là đang lọc để xem
@@ -1151,14 +1166,24 @@ function readPklx(ws, fname) {
     const q = num(cellV(C.qty));
     if (!mat || !/^[A-Z]{4,}[A-Z0-9]*\d{3,}$/i.test(mat.replace(/\s+/g, '')) || isNaN(q) || q <= 0) continue;
     const shipV = C.ship ? num(cellV(C.ship)) : NaN;
-    if (!isNaN(shipV) && shipV > 0) grpHead = { hid, ship: shipV, sum: 0 };
-    if (grpHead) grpHead.sum += q;
-    rows.push({
+    const grpTotV = C.grpTot ? num(cellV(C.grpTot)) : NaN;
+    /* dòng đầu nhóm: có số ở cột shipped, hoặc có số ở cột tổng nhóm (nhóm giao 0 — không thuộc đợt này) */
+    if ((!isNaN(shipV) && shipV > 0) || (!isNaN(grpTotV) && grpTotV > 0)) { grpHead = { hid, ship: !isNaN(shipV) && shipV > 0 ? shipV : 0, sum: 0, rows: [] }; groups.push(grpHead); }
+    const row = {
       material: mat.replace(/\s+/g, '').toUpperCase(), ref: txt(r, C.ref), spec: txt(r, C.spec),
-      size: txt(r, C.size).replace(/\s+/g, '').toUpperCase().replace(/^UNKNOWN$/, ''), order: txt(r, C.order).trim(), qty: q, sheet: ws.name, hid,
-      ship: !isNaN(shipV) && shipV > 0 ? shipV : NaN, inShip: grpHead ? !grpHead.hid : undefined, grp: grpHead,
-    });
+      size: txt(r, C.size).replace(/\s+/g, '').toUpperCase().replace(/^UNKNOWN$/, ''), order: txt(r, C.order).trim(), qty: q, qtyPo: q, sheet: ws.name, hid,
+      ship: !isNaN(shipV) && shipV > 0 ? shipV : NaN, inShip: grpHead ? (!grpHead.hid && grpHead.ship > 0) : undefined, grp: grpHead,
+    };
+    if (grpHead) { grpHead.sum += q; grpHead.rows.push(row); }
+    rows.push(row);
     if (hid) hidden++;
+  }
+  /* nhóm giao MỘT PHẦN (HĐ 747: mã ALABPRWV0496 nhóm 72 dòng tổng 88.141, Quantity Ship 9.161; không ghi giao dòng nào):
+     chia số giao theo thứ tự dòng của packing list (dòng đầu lấy đủ, dư thì sang dòng kế), các dòng còn lại = 0 */
+  for (const g of groups) {
+    if (g.hid || !(g.ship > 0) || g.ship >= g.sum - 0.5) continue;
+    g.partial = true; let left = g.ship;
+    for (const rw of g.rows) { const take = Math.min(left, rw.qtyPo); rw.qty = Math.round(take * 1000) / 1000; rw.partial = true; left = Math.round((left - take) * 1000) / 1000; }
   }
   return { po, poFrom, rows, hidden, total: rows.reduce((a, b) => a + b.qty, 0) };
 }
@@ -1809,9 +1834,9 @@ function analyze(inv, pkl, rows, po, pklx) {
           ordered.forEach((n) => {
             const all = rws.filter((rw) => (rw.sheet || '') === n);
             /* nhóm theo cột "Quantity shipped": dòng đầu nhóm đang hiện → cả nhóm (kể cả dòng ẩn phía dưới) là hàng giao đợt này */
-            const grpOk = all.some((rw) => rw.inShip !== undefined) && all.filter((rw) => rw.grp).every((rw) => Math.abs(rw.grp.sum - rw.grp.ship) < 0.5 || rw.grp.hid);
-            const shipRows = grpOk ? all.filter((rw) => rw.inShip === true) : [];
-            if (shipRows.length && shipRows.length < all.length) sets.push({ n, lab: `"${n}" (theo nhóm cột Quantity shipped, ${shipRows.length} dòng)`, r: shipRows });
+            const grpOk = all.some((rw) => rw.inShip !== undefined) && all.filter((rw) => rw.grp).every((rw) => Math.abs(rw.grp.sum - rw.grp.ship) < 0.5 || rw.grp.hid || rw.grp.partial || !(rw.grp.ship > 0));
+            const shipRows = grpOk ? all.filter((rw) => rw.inShip === true && rw.qty > 0) : [];
+            if (shipRows.length && shipRows.length < all.length) sets.push({ n, lab: `"${n}" (theo nhóm cột Quantity shipped, ${shipRows.length} dòng)`, r: shipRows, partial: shipRows.some((rw) => rw.partial) });
             const vis = all.filter((rw) => !rw.hid);
             if (vis.length && vis.length < all.length) sets.push({ n, lab: `"${n}" (bỏ ${all.length - vis.length} dòng lọc ẩn)`, r: vis });
             sets.push({ n, lab: `"${n}"`, r: all });
@@ -1822,6 +1847,7 @@ function analyze(inv, pkl, rows, po, pklx) {
           if (ok) {
             rws = ok.r; done = true;
             if (sets.length > 1) xNote = `Packing list có ${sets.length} cách tính cho mã này (${desc()}) — đã lấy ${ok.lab} = ${fmt(it.qty)} khớp hóa đơn. `;
+            if (ok.partial) xNote += `⚠ Packing list chỉ ghi TỔNG giao ${fmt(it.qty)} cho nhóm mã này (${ok.r.filter((rw) => rw.qty > 0).length} dòng), không ghi giao dòng nào — đã chia theo thứ tự dòng packing list, kiểm lại nếu Inkava giao đơn khác. `;
           }
           if (!done) {
             for (const x of sets) {
@@ -1863,6 +1889,10 @@ function analyze(inv, pkl, rows, po, pklx) {
           }
         } else if (anyHid && !it.qty) { /* không có SL hóa đơn để chọn → giữ mọi dòng */ }
         xRows = rws;
+        if (xRows.some((rw) => rw.partial) && !/chỉ ghi TỔNG giao/.test(xNote)) {
+          const g0 = xRows.find((rw) => rw.partial).grp;
+          xNote += `⚠ Packing list chỉ ghi TỔNG giao ${fmt(g0.ship)} cho nhóm mã này (${g0.rows.length} dòng, PO ${fmt(g0.sum)}), không ghi giao dòng nào — đã chia theo thứ tự dòng packing list, kiểm lại nếu Inkava giao đơn khác. `;
+        }
       }
     }
     let xMap = null;
