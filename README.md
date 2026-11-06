@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.32 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.33 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -323,6 +323,15 @@ cùng PO + mã (HĐ 632: 3 dòng khác mã trong ngoặc, HĐ 649: 5 dòng) cộ
 148 dòng, tổng Invoice Quantity từng hóa đơn đúng bằng Tổng số lượng trên hóa đơn. Cảnh báo **thật** còn lại: 10 dòng `VƯỢT DUNG SAI`
 (HĐ 638/639/667, ví dụ PO 4500018344 giao 10.043 > 9.858) và 1 dòng `LỆCH GIÁ TRỊ` (HĐ 639: PO 4500013475 `KNIT-FW26-340988` đơn giá
 2.200 ≠ PO 2.860 — cùng mã này trên PO 4500018343 đúng 2.200, có thể hóa đơn ghi nhầm PO).
+
+## Fujian Unitex — mẫu hóa đơn thứ hai, không có cột CUSTOMER PO. (v11.33)
+
+Hóa đơn `FJ20261027928` (PO UNI0001000, 2 dòng × 7 m) in theo mẫu khác bộ đã huấn luyện: cột `CUSTOMER COLOR P/N` chứa luôn PO SAP
+(`UNI0001000`), không có cột `CUSTOMER PO.` và `SURCHARGE`, số lượng ghi `7` (không kèm "M", tiêu đề `Quantity（M)` dấu ngoặc toàn góc), đơn
+giá số thuần, ngày là ô kiểu Date. Trước v11.33 tool đòi có `CUSTOMER PO` mới nhận là Unitex → rơi về bộ đọc chung, không lấy được số HĐ
+(`INB_CHUA-CO-SO-HD_…`). Sửa: nhận diện Unitex chỉ cần `UNITEX` + `QUALITY P/N`; không có cột PO thì tìm cột có giá trị dạng PO SAP
+(`[A-Z]{3}\d{7}`) ở các dòng dưới tiêu đề. Kết quả: số HĐ `FJ20261027928`, ngày 27.10.2026, 2/2 dòng `KHỚP (giao thiếu)` (7/968 và 7/275 m),
+tổng 39,046 USD khớp; bộ `77FZ10L024SAV` cũ không đổi.
 
 ## Best Pacific — hóa đơn PDF, và gộp nhiều hóa đơn vào một file INB (v11.14)
 

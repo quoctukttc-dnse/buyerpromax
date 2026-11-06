@@ -227,7 +227,7 @@ function fabProfile(wb) {
   if (/SCAVI\s*CODE/.test(t) && /PACKING LIST/.test(t)) return 'YUBO';
   if (/CELEB\s*TEXTILES/.test(t) && /INVOICE\s*NO/.test(t) && /PO\s*NO\./.test(t) && /DESCRIPTION OF GOODS/.test(t)) return 'CELEB';
   if (/CHEUNG\s*HING/.test(t) && /INVOICE/.test(t) && /UNIT\s*PRICE/.test(t) && /DESCRIPTION/.test(t) && !/PACKING\s*LIST/.test(t)) return 'CHEUNGHING';
-  if (/UNITEX/.test(t) && /QUALITY\s*P\/N/.test(t) && /CUSTOMER\s*PO/.test(t)) return 'UNITEX';
+  if (/UNITEX/.test(t) && /QUALITY\s*P\/N/.test(t)) return 'UNITEX';   // có hoặc không có cột CUSTOMER PO. (HĐ FJ20261027928: PO ở cột CUSTOMER COLOR P/N)
   return '';
 }
 
@@ -1098,6 +1098,10 @@ function readUnitex(wb) {
   }
   const C = { po: colBy(wi, hr, /CUSTOMER\s*PO/i), art: colBy(wi, hr, HR), color: colBy(wi, hr, /^COLOU?R$/i), comp: colBy(wi, hr, /COMPONENT/i),
     spec: colBy(wi, hr, /WIDTH/i), sur: colBy(wi, hr, /SURCHARGE/i), qty: colBy(wi, hr, /QUANTITY/i), price: colBy(wi, hr, /UNIT\s*PRICE/i), amt: colBy(wi, hr, /AMOUNT/i) };
+  /* mẫu không có cột CUSTOMER PO.: PO SAP (UNI0001000) nằm ở cột CUSTOMER COLOR P/N → tìm cột có giá trị dạng PO SAP ở dòng dưới tiêu đề */
+  if (!C.po) {
+    for (let c = 1; c <= 20 && !C.po; c++) for (let r = hr + 1; r <= Math.min(wi.rowCount, hr + 6); r++) { if (/^[A-Z]{3}\d{7}$/.test(T(wi, r, c))) { C.po = c; break; } }
+  }
   if (!C.po || !C.qty) return null;
   const money = (t) => { const m = String(t || '').replace(/,/g, '').match(/-?\d+(?:\.\d+)?/); return m ? Number(m[0]) : NaN; };
   const cur = (() => { for (let r = hr + 1; r <= wi.rowCount; r++) { const m = T(wi, r, C.price).match(/^([A-Z]{3})\b/); if (m) return m[1]; } return 'USD'; })();

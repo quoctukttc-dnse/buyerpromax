@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.32)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.33)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1390,6 +1390,12 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   (rơi về splitSize nếu tổng PO bằng).
 - **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
   234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
+
+## Thay đổi của v11.33 (06.11.2026) — Unitex mẫu không có cột CUSTOMER PO.
+
+- `fabProfile`: `'UNITEX'` khi có `UNITEX` + `QUALITY P/N` (bỏ điều kiện `CUSTOMER PO`). `readUnitex`: `C.po` không có → quét cột có ô
+  dạng `^[A-Z]{3}\d{7}$` trong 6 dòng dưới tiêu đề (cột CUSTOMER COLOR P/N). Số lượng không kèm đơn vị → M; ngày ô Date → parseDateCell.
+- HĐ FJ20261027928: 2/2 KHỚP (giao thiếu). Hồi quy 32 bộ + set8/12/16/23 không đổi.
 
 ## Thay đổi của v11.32 (04.11.2026) — packing list Excel: cột "Quantity Ship" và nhóm giao một phần (Inkava HĐ 747)
 
