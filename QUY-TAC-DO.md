@@ -1399,20 +1399,23 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   (`PC10006400`) gán cho mọi dòng hàng phía trên chưa có PO (một hóa đơn có thể nhiều PO, mỗi PO một dòng STT sau nhóm hàng của nó).
 - **`pcThread(desc)`**: brand UNISPUN/UNITEX/UNICORE, Recycled, Tex, `n/m` / `nD`, `NNNNm` → `code` = `SSP402` / `TXP150D` / `PPC40` + `-RE` +
   `-5000`; `sap` = `UNISPUN-RECYCLED-40/2(TEX27)` (theo sheet ẩn của PKL, có thể là tên vật tư SAP). Item: `article = code`, `altArticles`
-  = [`sap`, `UNITEX 200D`, `UNITEX-200D`, `TXP200D`], `colorText = colorCode = mã màu`, `unit = PCS`, `pklKey = 'PHUCUONG|PO|AZ(code)|AZ(màu)'`,
+  = [`sap`, `UNITEX 200D`, `UNITEX-200D`, `TXP200D`], **`refTokens = [brand, …TOK(count)]`** (`UNITEX 200D` · `UNISPUN 40 2` · `UNICORE TEX 40`;
+  SAP Supplier Ref `UNITEX RECYCED 200D/1 (TEX24)` / `THREAD UNISPUN REC 40/2` / `UNICORE RECYCLED TEX 40 (TICKET 80)` → `refPick` rule 2),
+  `colorText = colorCode = mã màu` (Color SAP `G17C BLUE`), `unit = ROL` (Cuộn ↔ Base Unit ROL), `pklKey = 'PHUCUONG|PO|AZ(code)|AZ(màu)'`,
   `hasSapPo`, `amountInclSur`. Số HĐ `serial#8 số`, ngày từ `Ngày (Date) 04 tháng (month) 11 năm (year) 2026`.
 - **`readPhuCuongPkl`** (`isPhuCuongPklText`: PHÚ CƯỜNG + PACKING LIST/DELIVERY NOTE trong 12 dòng đầu): tiêu đề `PO NO … DESCRIPTION … COLOR …
   QUANTITY`; PO SAP tách từ `R…-PC10006400-SS27`; `itemKey = 'PHUCUONG|PO|AZ(code)|AZ(màu)'`, `key = itemKey|thùng`, dừng ở `TOTAL` / `TỔNG`.
   Trả `pkl.splitByPo = true`.
 - **`buildGroups` (app-all.js)**: genpkl có `splitByPo` + profile → gắn vào **mọi** chứng từ cùng profile có PO trùng, chỉ các nhóm thuộc PO
   của chứng từ đó (sao chép nhóm), không qua bước chọn "best" một hóa đơn.
-- Kết quả set25: 8/8 HĐ, 29/29 dòng khớp PKL (38 kiện cho 7 HĐ, Σ 2.674; 30 kiện riêng cho HĐ 5267, Σ 2.521). Chưa có inbound.
+- Kết quả set25: 8/8 HĐ, 29/29 dòng khớp PKL (38 kiện cho 7 HĐ, Σ 2.674; 30 kiện riêng cho HĐ 5267, Σ 2.521); inbound ZMME 29 dòng →
+  29/29 KHỚP, 8 file INB đúng PO, Σ IQ = Σ Quantity.
 
 ## Thay đổi của v11.34 (07.11.2026) — mẫu riêng Chỉ May Phú Cường
 
 - `readPhuCuong` / `pcThread` / `readPhuCuongPkl` (fab.js); hook PDF trước Mainetti PXK, hook Excel sau Cheung Hing PKL; `TRAINED_SUPPLIERS`
   thêm `Phú Cường`; genpkl `splitByPo` gắn một file PKL vào nhiều hóa đơn theo PO.
-- Set25: 8 HĐ Phú Cường đọc đúng, 29/29 dòng khớp hai file PKL (38 + 30 kiện). Hồi quy 32 bộ không đổi.
+- Set25: 8 HĐ Phú Cường đọc đúng, 29/29 dòng khớp hai file PKL (38 + 30 kiện) và 29/29 KHỚP inbound ZMME. Hồi quy 32 bộ không đổi.
 
 ## Thay đổi của v11.33 (06.11.2026) — Unitex mẫu không có cột CUSTOMER PO.
 

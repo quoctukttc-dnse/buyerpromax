@@ -187,7 +187,12 @@ Packing list Excel (`PKL SCAVI - 04.11.2026 38 KIEN.xlsx`, `readPhuCuongPkl`): m
 hóa đơn Phú Cường cùng PO, mỗi hóa đơn chỉ lấy các thùng thuộc PO của nó (`splitByPo`).
 Bộ thử 8 hóa đơn `1C26TPC#00005260 … #00005267` (29 dòng, 8 PO `PC10006100 … PC10007000`) + PKL 38 kiện: 8/8 đọc đúng số HĐ, ngày, PO,
 29/29 dòng ra mã + màu; 7 hóa đơn (19 dòng, 2.674 cuộn) khớp packing list 38 kiện **từng dòng**; HĐ `#00005267` (PO PC10006100,
-10 dòng, 2.521 cuộn) khớp file PKL riêng 30 kiện (dòng tổng ghi `TỔNG`) → 29/29 dòng khớp packing list. Chưa có inbound ZMME để kiểm tra khóa dò.
+10 dòng, 2.521 cuộn) khớp file PKL riêng 30 kiện (dòng tổng ghi `TỔNG`) → 29/29 dòng khớp packing list.
+Inbound ZMME `PHUCUONG01 04.11` (29 dòng, 8 PO, đơn vị ROL): Supplier Ref của SAP viết khác hóa đơn (`UNITEX RECYCED 200D/1 (TEX24)` sai
+chính tả + thêm `/1`, `THREAD UNISPUN REC 40/2`, `UNICORE RECYCLED TEX 40 (TICKET 80)`) nên tool dò theo **tập token {hãng chỉ, chi số}**
+(`UNITEX` + `200D`, `UNISPUN` + `40` + `2`, `UNICORE` + `TEX` + `40`) rồi chấm màu (`G17C` ↔ cột Color `G17C BLUE`); Cuộn ↔ ROL.
+Kết quả **29/29 KHỚP**, 8 file `INB_1C26TPC-0000526x_04.11.2026.xlsx` mỗi file đúng các dòng PO của nó, Σ Invoice Quantity = Σ Quantity
+(1.222 / 72 / 130 / 18 / 20 / 14 / 1.198 / 2.521), tổng tiền 8 hóa đơn khớp inbound. Không có lệch thật.
 
 ## Avery Dennison — nhãn giấy, HĐ GTGT Viettel + DELIVERY NOTE theo size (v11.25)
 

@@ -2058,14 +2058,17 @@ function readPhuCuong(lines) {
   const out = items.map((x) => {
     const th = pcThread(x.desc);
     const po = x.po || (pos.length === 1 ? pos[0] : '');
-    const unit = /^Cu[ộo]n|C[áa]i|Chi[ếe]c|PCS|PC$/i.test(x.unitRaw) ? 'PCS' : unitKey(x.unitRaw);
+    const unit = /^Cu[ộo]n$/i.test(x.unitRaw) ? 'ROL' : (/^C[áa]i|Chi[ếe]c|PCS|PC$/i.test(x.unitRaw) ? 'PCS' : unitKey(x.unitRaw));   // SAP: Base Unit ROL (cuộn)
+    /* dò inbound theo tập token {hãng chỉ, chi số}: UNITEX 200D ↔ Supplier Ref "UNITEX RECYCED 200D/1 (TEX24)" (SAP viết sai chính tả, thêm "/1");
+       UNISPUN 40/2 ↔ "THREAD UNISPUN REC 40/2"; UNICORE Tex 40 ↔ "UNICORE RECYCLED TEX 40 (TICKET 80)" */
+    const refTokens = th.brand ? [th.brand].concat(TOK(th.count.replace(/^TEX(\d)/, 'TEX $1'))) : [];   // 'TEX40' → TEX + 40 (SAP ghi "TEX 40")
     const article = th.code || x.desc.replace(/^Ch[ỉi]\s+May\s+/i, '');
     const alts = [...new Set([th.sap, th.brand && th.count ? th.brand + ' ' + th.count : '', th.brand && th.count ? th.brand + '-' + th.count : '', th.code ? th.code.split('-')[0] : ''].filter((a) => a && a !== article))];
     const colorText = th.color;
     return {
       poRaw: x.poRaw || po, po, article, altArticles: alts.length ? alts : undefined, colorText, colorCode: colorText, colorShort: colorText, size: '',
       desc: [x.desc.replace(/^Ch[ỉi]\s+May\s+/i, ''), th.code ? 'mã ' + th.code : '', x.style ? 'style ' + x.style : ''].filter(Boolean).join(' · '),
-      style: x.style, season: x.season, thread: th,
+      style: x.style, season: x.season, thread: th, refTokens: refTokens.length ? refTokens : undefined, refText: refTokens.join(' '),
       qtyByUnit: { [unit]: x.qty }, unit, qty: x.qty, price: x.price, surcharge: 0, amount: x.amount, code: (th.code || article) + ' · ' + colorText,
       pklKey: 'PHUCUONG|' + po + '|' + AZ(th.code || article) + '|' + AZ(colorText),
     };
@@ -2073,7 +2076,7 @@ function readPhuCuong(lines) {
   const tm = t.match(/C[ộo]ng ti[ềe]n h[àa]ng[^:\n]*:\s*([\d.]+(?:,\d+)?)/i);
   return {
     profile: 'PHUCUONG', supplier: 'Phú Cường', vat: true,
-    inv: { no: invNo, invNo, invDate, serial, items: out, currency: 'VND', unitDefault: 'PCS', surchargeHeader: 0, total: tm ? viNum(tm[1]) : NaN, amountInclSur: true, hasSapPo: true },
+    inv: { no: invNo, invNo, invDate, serial, items: out, currency: 'VND', unitDefault: 'ROL', surchargeHeader: 0, total: tm ? viNum(tm[1]) : NaN, amountInclSur: true, hasSapPo: true },
     pkl: null,
   };
 }
@@ -2106,7 +2109,7 @@ function readPhuCuongPkl(wb, fname) {
       const itemKey = 'PHUCUONG|' + po + '|' + AZ(code) + '|' + AZ(color);
       const key = itemKey + '|' + AZ(ctn);
       let g = groups.find((x) => x.key === key);
-      if (!g) { g = { key, itemKey, po, poRaw: tPo, article: code, color, style: pm[1] || '', lot: ctn ? 'Thùng ' + ctn : '(không ghi thùng)', unit: 'PCS', rolls: [], total: 0 }; groups.push(g); }
+      if (!g) { g = { key, itemKey, po, poRaw: tPo, article: code, color, style: pm[1] || '', lot: ctn ? 'Thùng ' + ctn : '(không ghi thùng)', unit: 'ROL', rolls: [], total: 0 }; groups.push(g); }
       g.rolls.push({ no: String(g.rolls.length + 1), qty: q });
       g.total = r3(g.total + q);
     }
@@ -2115,7 +2118,7 @@ function readPhuCuongPkl(wb, fname) {
   return {
     profile: 'PHUCUONG', supplier: 'Phú Cường', role: 'pkl', file: fname || '',
     inv: { no: '', invNo: invNo || '', invDate: '', items: [], currency: 'VND', unitDefault: 'PCS', total: NaN },
-    pkl: { groups, unit: 'PCS', level: 'lot', soft: false, splitByPo: true },
+    pkl: { groups, unit: 'ROL', level: 'lot', soft: false, splitByPo: true },
     pklOnly: true,
   };
 }
