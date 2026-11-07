@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.33 · 06.11.2026 · 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.34 · 07.11.2026 · 26 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -208,6 +208,9 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         → mỗi dòng hóa đơn được tách thành từng size theo phiếu giao hàng rồi dò inbound theo đơn Scavi + số PO + size. Số HĐ GTGT luôn ghi
         <code>KÝ HIỆU#</code> + 8 chữ số cho mọi chủ hàng. Khách Haddad (v11.26): PO khách dạng số đơn + mã màu (<code>948126-UGW</code>), phiếu giao
         hàng có hoặc không chia size đều đọc được. Khách Lacoste (v11.27): PO khách trơn, mã nội bộ dạng chữ, dòng hóa đơn giữ nhiều mã ứng viên để dò Supplier Ref.</li>
+        <li><b>Chỉ May Phú Cường</b> (v11.34): HĐ GTGT MISA (<code>1C26TPC#00005260</code>) tên hàng in ngắt 3 dòng, mã màu ở cuối (<code>G17C</code>);
+        <b>PO SAP đứng riêng một dòng STT sau các dòng hàng</b> (<code>3 R76201A13769-PC10006400-SS27</code>) được gán cho các dòng hàng phía trên. Mã hàng quy về mã
+        packing list (<code>UNITEX 200D</code> → <code>TXP200D-RE-5000</code>). Packing list Excel một file cho cả lô (mỗi dòng một thùng) được gắn vào từng hóa đơn theo PO.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;
@@ -2334,6 +2337,140 @@ function readMainettiPxk(lines, fname) {
   }
   if (!groups.length) return null;
   return { profile: 'MAINETTI', supplier: 'Mainetti', role: 'pkl', file: fname || '', inv: { items: [] }, pkl: { groups, unit: 'PCS', level: 'lot' }, pklOnly: true, pklNo: od };
+}
+
+
+/* =====================  CÔNG TY CP CHỈ MAY PHÚ CƯỜNG — chỉ may, HĐ GTGT MISA meInvoice (VND) + packing list Excel theo thùng  =====================
+   HĐ: tên hàng ngắt 3 dòng: "Chỉ May UNITEX Recycled 200D Tex 24 - Tkt" / "1 Cuộn 4,00 42.100,00 168.400" / "120 5000m D15A"
+   (Tkt 120 = số cuộn/thùng · 5000m = chiều dài cuộn · D15A = mã màu). PO đứng RIÊNG một dòng STT sau các dòng hàng của nó:
+   "3 R76201A13769-PC10006400-SS27" (style - PO SAP - mùa) → gán PO cho các dòng hàng phía trên chưa có PO.
+   Mã hàng quy về mã trên packing list: UNISPUN 40/2 → SSP402 · UNITEX 150D → TXP150D · UNICORE Tex 40 → PPC40, thêm "-RE" (Recycled)
+   và "-5000" (m/cuộn): "TXP200D-RE-5000". Tên SAP (sheet ẩn của PKL): "UNITEX-RECYCLED-200D(TEX24)" → altArticles. Cuộn → PCS. */
+const foldVN2 = (t) => String(t == null ? '' : t).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
+const isPhuCuongText = (t) => { const f = foldVN2(t); return /PHU\s*CUONG/.test(f) && /CHI\s*MAY/.test(f) && /HOA DON GIA TRI GIA TANG|VAT\s*INVOICE/.test(f); };
+const PC_PO_LINE = /^(\d{1,3})\s+(R\d{5}[A-Z]\d{5})-([A-Z]{2}\d{8})-([A-Z]{2}\d{2})$/;
+const PC_COLOR = /^[A-Z]\d{2}[A-Z]$/;
+/* "Chỉ May UNITEX Recycled 200D Tex 24 - Tkt 120 5000m D15A" → { code: 'TXP200D-RE-5000', sap: 'UNITEX-RECYCLED-200D(TEX24)', color: 'D15A', len: 5000, tkt: 120 } */
+function pcThread(desc) {
+  const d = String(desc || '').replace(/\s+/g, ' ').trim();
+  const u = d.toUpperCase();
+  const brand = (u.match(/\b(UNISPUN|UNITEX|UNICORE)\b/) || [])[1] || '';
+  const rec = /RECYCLED/.test(u);
+  const tex = (u.match(/\bTEX\s*(\d{2,3})\b/) || [])[1] || '';
+  const toks = d.split(' ');
+  const color = toks.length && PC_COLOR.test(toks[toks.length - 1]) ? toks[toks.length - 1] : '';
+  const len = Number((u.match(/\b(\d{3,5})\s*M\b/) || [])[1] || 0);
+  const tkt = Number((u.match(/\bTKT\s*(\d{2,4})\b/) || [])[1] || 0);
+  let code = '', count = '';
+  if (brand === 'UNISPUN') { const m = u.match(/\b(\d{1,3})\/(\d)\b/); if (m) { count = m[1] + '/' + m[2]; code = 'SSP' + m[1] + m[2]; } }
+  else if (brand === 'UNITEX') { const m = u.match(/\b(\d{2,4})D\b/); if (m) { count = m[1] + 'D'; code = 'TXP' + m[1] + 'D'; } }
+  else if (brand === 'UNICORE') { if (tex) { count = 'TEX' + tex; code = 'PPC' + tex; } }
+  if (code) code += (rec ? '-RE' : '') + (len ? '-' + len : '');
+  const sap = brand ? [brand, rec ? 'RECYCLED' : '', count && brand !== 'UNICORE' ? count : '', brand !== 'UNICORE' && tex ? '(TEX' + tex + ')' : (brand === 'UNICORE' && tex ? 'TEX' + tex : '')].filter(Boolean).join('-').replace(/-\(/, '(') : '';
+  return { brand, code, sap, color, len, tkt, tex, count };
+}
+function readPhuCuong(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).normalize('NFC').replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isPhuCuongText(t)) return null;
+  const serial = (t.match(/K[ýy]\s*hi[ệe]u\s*\(Serial\)\s*:\s*([A-Z0-9]{5,})/i) || t.match(/K[ýy]\s*hi[ệe]u[^:\n]*:\s*([A-Z0-9]{5,})/i) || [])[1] || '';
+  const no = (t.match(/S[ốo]\s*\(\s*No\.?\s*\)\s*:?\s*(\d{3,})/i) || [])[1] || '';
+  const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : no;
+  const dm = t.match(/Ng[àa]y\s*\(Date\)\s*(\d{1,2})\s*th[áa]ng\s*\(month\)\s*(\d{1,2})\s*n[ăa]m\s*\(year\)\s*(\d{4})/i) || t.match(/Ng[àa]y[^\d\n]*(\d{1,2})\s*th[áa]ng[^\d\n]*(\d{1,2})\s*n[ăa]m[^\d\n]*(\d{4})/i);
+  const invDate = dm ? dmy(dm[1], dm[2], dm[3]) : '';
+  const NUM = /^(\d{1,3})\s+(Cu[ộo]n|C[áa]i|Chi[ếe]c|PCS|PC|B[ộo]|Kg|M)\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)$/i;
+  const START = /^Ch[ỉi]\s+May\b/i;
+  const items = [];
+  let on = false, buf = [], cur = null, seenNo = false;
+  for (const L of all) {
+    if (/^STT\s+T[êe]n h[àa]ng/i.test(L)) { on = true; buf = []; cur = null; continue; }
+    if (/^\(No\)\s*\(Name of goods/i.test(L)) continue;
+    if (/^C[ộo]ng ti[ềe]n h[àa]ng/i.test(L) || /^T[ổo]ng ti[ềe]n/i.test(L) || /^Thu[ếe] su[ấa]t/i.test(L)) { on = false; cur = null; buf = []; continue; }
+    if (!on) continue;
+    const pm = L.match(PC_PO_LINE);
+    if (pm) {
+      /* dòng PO: gán cho các dòng hàng phía trên chưa có PO */
+      const po = poSap(pm[3]);
+      items.forEach((x) => { if (!x.poRaw) { x.poRaw = pm[3]; x.po = po; x.style = pm[2]; x.season = pm[4]; } });
+      cur = null; buf = []; continue;
+    }
+    const m = L.match(NUM);
+    if (m) {
+      const qty = viNum(m[3]), price = viNum(m[4]), amount = viNum(m[5]);
+      if (isNaN(qty) || qty <= 0) continue;
+      cur = { stt: m[1], desc: buf.join(' ').replace(/\s+/g, ' ').trim(), unitRaw: m[2], qty, price, amount, poRaw: '', po: '', style: '', season: '' };
+      items.push(cur); buf = []; seenNo = true;
+      continue;
+    }
+    /* dòng chữ: mô tả dở (chưa có mã màu ở cuối) của dòng vừa đọc → nối tiếp; ngược lại là đầu mô tả dòng kế */
+    if (cur && !START.test(L) && !buf.length && !pcThread(cur.desc).color) { cur.desc = (cur.desc + ' ' + L).replace(/\s+/g, ' ').trim(); continue; }
+    buf.push(L);
+  }
+  if (!items.length) return null;
+  const pos = [...new Set(items.map((x) => x.po).filter(Boolean))];
+  const out = items.map((x) => {
+    const th = pcThread(x.desc);
+    const po = x.po || (pos.length === 1 ? pos[0] : '');
+    const unit = /^Cu[ộo]n|C[áa]i|Chi[ếe]c|PCS|PC$/i.test(x.unitRaw) ? 'PCS' : unitKey(x.unitRaw);
+    const article = th.code || x.desc.replace(/^Ch[ỉi]\s+May\s+/i, '');
+    const alts = [...new Set([th.sap, th.brand && th.count ? th.brand + ' ' + th.count : '', th.brand && th.count ? th.brand + '-' + th.count : '', th.code ? th.code.split('-')[0] : ''].filter((a) => a && a !== article))];
+    const colorText = th.color;
+    return {
+      poRaw: x.poRaw || po, po, article, altArticles: alts.length ? alts : undefined, colorText, colorCode: colorText, colorShort: colorText, size: '',
+      desc: [x.desc.replace(/^Ch[ỉi]\s+May\s+/i, ''), th.code ? 'mã ' + th.code : '', x.style ? 'style ' + x.style : ''].filter(Boolean).join(' · '),
+      style: x.style, season: x.season, thread: th,
+      qtyByUnit: { [unit]: x.qty }, unit, qty: x.qty, price: x.price, surcharge: 0, amount: x.amount, code: (th.code || article) + ' · ' + colorText,
+      pklKey: 'PHUCUONG|' + po + '|' + AZ(th.code || article) + '|' + AZ(colorText),
+    };
+  });
+  const tm = t.match(/C[ộo]ng ti[ềe]n h[àa]ng[^:\n]*:\s*([\d.]+(?:,\d+)?)/i);
+  return {
+    profile: 'PHUCUONG', supplier: 'Phú Cường', vat: true,
+    inv: { no: invNo, invNo, invDate, serial, items: out, currency: 'VND', unitDefault: 'PCS', surchargeHeader: 0, total: tm ? viNum(tm[1]) : NaN, amountInclSur: true, hasSapPo: true },
+    pkl: null,
+  };
+}
+
+/* Packing list Excel Phú Cường (một file cho nhiều hóa đơn / PO, mỗi dòng một thùng):
+   NO. | PO NO (R76201A13769-PC10006400-SS27) | DESCRIPTION (TXP200D-RE-5000) | COLOR (D15A) | QUANTITY (Cone) | CARTON NUMBER
+   → nhóm theo PO + mã + màu, lô = thùng; splitByPo: gắn vào từng hóa đơn cùng PO (một file cho cả lô hàng). */
+const isPhuCuongPklText = (t) => { const f = foldVN2(t); return /PHU\s*CUONG/.test(f) && /PACKING\s*LIST|DELIVERY\s*NOTE/.test(f); };
+function readPhuCuongPkl(wb, fname) {
+  let head = '';
+  for (const w of wb.worksheets) for (let r = 1; r <= Math.min(12, w.rowCount); r++) head += rowText(w, r, 12);
+  if (!isPhuCuongPklText(head)) return null;
+  const groups = [];
+  let invNo = '';
+  for (const ws of wb.worksheets) {
+    const hr = findRow(ws, /PO\s*NO.*DESCRIPTION.*COLOR.*QUANTITY/i, 30);
+    if (!hr) continue;
+    for (let r = 1; r < hr; r++) { const m = rowText(ws, r, 12).match(/Invoice\s*No\s*:?\s*\|?\s*([A-Z0-9#\/-]{3,})/i); if (m && m[1] && !/^\|/.test(m[1])) invNo = m[1]; }
+    const C = { no: colBy(ws, hr, /^NO\b/i) || 1, po: colBy(ws, hr, /^PO\s*NO/i) || 2, desc: colBy(ws, hr, /DESCRIPTION/i) || 3, color: colBy(ws, hr, /^COLOU?R/i) || 4,
+      qty: colBy(ws, hr, /^QUANTITY/i) || 5, ctn: colBy(ws, hr, /CARTON|CTN/i) || 6 };
+    for (let r = hr + 1; r <= ws.rowCount; r++) {
+      const tPo = T(ws, r, C.po), code = T(ws, r, C.desc).replace(/\s+/g, ''), color = T(ws, r, C.color).toUpperCase().trim();
+      if (/^TOTAL/i.test(T(ws, r, C.no)) || /^Grand/i.test(T(ws, r, C.no))) break;
+      if (!tPo && !code) continue;
+      const q = N(ws, r, C.qty);
+      if (isNaN(q) || q <= 0 || !code) continue;
+      const pm = tPo.toUpperCase().match(/(R\d{5}[A-Z]\d{5})-([A-Z]{2}\d{8})-([A-Z]{2}\d{2})/) || [];
+      const po = pm[2] ? poSap(pm[2]) : poSap(tPo);
+      const ctn = T(ws, r, C.ctn).trim();
+      const itemKey = 'PHUCUONG|' + po + '|' + AZ(code) + '|' + AZ(color);
+      const key = itemKey + '|' + AZ(ctn);
+      let g = groups.find((x) => x.key === key);
+      if (!g) { g = { key, itemKey, po, poRaw: tPo, article: code, color, style: pm[1] || '', lot: ctn ? 'Thùng ' + ctn : '(không ghi thùng)', unit: 'PCS', rolls: [], total: 0 }; groups.push(g); }
+      g.rolls.push({ no: String(g.rolls.length + 1), qty: q });
+      g.total = r3(g.total + q);
+    }
+  }
+  if (!groups.length) return null;
+  return {
+    profile: 'PHUCUONG', supplier: 'Phú Cường', role: 'pkl', file: fname || '',
+    inv: { no: '', invNo: invNo || '', invDate: '', items: [], currency: 'VND', unitDefault: 'PCS', total: NaN },
+    pkl: { groups, unit: 'PCS', level: 'lot', soft: false, splitByPo: true },
+    pklOnly: true,
+  };
 }
 
 
@@ -4898,7 +5035,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/], ['Avery Dennison', /AVERY\s*DENNISON/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/], ['Avery Dennison', /AVERY\s*DENNISON/], ['Phú Cường', /PHU\s*CUONG/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -5013,6 +5150,11 @@ async function classify(file) {
     if (!ocr && isAveryDnText(lines.join('\n'))) {
       let ad = null; try { ad = readAveryDn(lines, file.name); } catch (e) { ad = null; }
       if (ad) { out = { kind: 'genpkl', score: 6, gen: ad, lines, pos: [...new Set(ad.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    /* Chỉ May Phú Cường: HĐ GTGT MISA, PO SAP đứng riêng một dòng STT sau các dòng hàng */
+    if (!ocr && isPhuCuongText(lines.join('\n'))) {
+      let pc = null; try { pc = readPhuCuong(lines); } catch (e) { pc = null; }
+      if (pc && pc.inv.items.length) { out = { kind: 'fab', score: 9, fab: pc, lines, pos: [...new Set(pc.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* Phiếu xuất kho Mainetti (PDF chữ) → packing list theo OD */
     if (!ocr && isMainettiPxkText(lines.join('\n'))) {
@@ -5148,6 +5290,12 @@ async function classify(file) {
       let hp = null;
       try { hp = readCheungHingPkl(wb, file.name); } catch (e) { hp = null; }
       if (hp) { out = { kind: 'genpkl', score: 6, buf, gen: hp, pos: [...new Set(hp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    /* packing list Excel của Phú Cường (PO NO | DESCRIPTION | COLOR | QUANTITY (Cone) | CARTON NUMBER) — một file cho nhiều hóa đơn */
+    {
+      let pcp = null;
+      try { pcp = readPhuCuongPkl(wb, file.name); } catch (e) { pcp = null; }
+      if (pcp) { out = { kind: 'genpkl', score: 6, buf, gen: pcp, pos: [...new Set(pcp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* packing list Excel của Suzhou Celeb (sheet 发货码单: Lot No. | Roll No. | PO Number | Color | Name | Q'ty(Y)) */
     {
@@ -5574,6 +5722,19 @@ async function buildGroups() {
   for (const p of gpks) { p.gen = cloneFab((await classify(p.file)).gen); p.used = false; }
   const genFabs = fabs.filter((x) => x.isGen);
   for (const p of gpks) {
+    /* packing list một file cho cả lô (Phú Cường: 8 hóa đơn / 8 PO): gắn vào TỪNG hóa đơn cùng mẫu, mỗi hóa đơn chỉ lấy các thùng thuộc PO của nó */
+    if (p.gen.pkl && p.gen.pkl.splitByPo && p.gen.profile) {
+      for (const it of fabs) {
+        if (!it.fab || it.fab.profile !== p.gen.profile || !it.inv) continue;
+        const gs = p.gen.pkl.groups.filter((g) => g.po && it.sapPos.some((x) => poSame(x, g.po)));
+        if (!gs.length) continue;
+        if (!it.fab.pkl) it.fab.pkl = { groups: [], unit: p.gen.pkl.unit, level: 'lot', soft: !!p.gen.pkl.soft, files: [] };
+        it.fab.pkl.groups = it.fab.pkl.groups.concat(gs.map((g) => Object.assign({}, g, { rolls: g.rolls.slice() })));
+        if (!it.fab.pkl.files.includes(p.file.name)) it.fab.pkl.files.push(p.file.name);
+        p.used = true;
+      }
+      if (p.used) continue;
+    }
     let best = null, bs = 0;
     const ptxt = (p.file.name + ' ' + (p.gen.inv.invNo || '')).toUpperCase().replace(/\s+/g, '');
     /* packing list của mẫu riêng (Carvico) chỉ gắn vào chứng từ cùng mẫu; còn lại gắn vào chứng từ bộ đọc chung */

@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.33 — 25 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.34 — 26 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -171,6 +171,23 @@ SURCHARGE | Quantity | Unit Price | Amount`; số hóa đơn nằm ở ô sau nh
 đọc PO = *CUSTOMER PO.*, article = *QUALITY P/N*, màu = *COLOUR*, dò inbound theo PO + article + màu; surcharge dòng so với *Surcharge Item*.
 Bộ thử `77FZ10L024SAV` + `UNI0000700`: 6/6 dòng đúng (330 / 348 / 397 / 113 / 110 / 126 m); 3 dòng `1SR0206SN` báo `LỆCH GIÁ TRỊ` **thật**:
 hóa đơn 2,62 USD/m, PO SAP 2,70 USD/m (lệch 27,92 USD trên cả hóa đơn) — cần hỏi lại chủ hàng / người đặt PO.
+
+## Chỉ May Phú Cường — chỉ may, HĐ GTGT MISA + packing list Excel theo thùng (v11.34)
+
+Hóa đơn GTGT ký hiệu `1C26TPC` (MISA meInvoice, VND): tên hàng in ngắt **3 dòng** quanh dòng số —
+`Chỉ May UNITEX Recycled 200D Tex 24 - Tkt` / `1 Cuộn 4,00 42.100,00 168.400` / `120 5000m D15A` (Tkt 120 = cuộn/thùng, 5000m = chiều dài
+cuộn, `D15A` = **mã màu**). **PO SAP không nằm trên dòng hàng** mà đứng riêng một dòng STT **sau** các dòng hàng của nó:
+`3 R76201A13769-PC10006400-SS27` (style – PO – mùa) → công cụ (`readPhuCuong`, `src/fab.js`) gán PO này cho các dòng hàng phía trên chưa
+có PO. Mã hàng quy về mã trên packing list: `UNISPUN 40/2` → `SSP402`, `UNITEX 150D/200D` → `TXP150D/TXP200D`, `UNICORE Tex 40` → `PPC40`,
+thêm `-RE` (Recycled) và `-5000`/`-3000` (m/cuộn) → `TXP200D-RE-5000`; tên kiểu SAP `UNITEX-RECYCLED-200D(TEX24)` giữ làm mã phụ để dò
+inbound. Cuộn → PCS. Số HĐ ghi `1C26TPC#00005260`.
+
+Packing list Excel (`PKL SCAVI - 04.11.2026 38 KIEN.xlsx`, `readPhuCuongPkl`): một file cho **cả lô nhiều hóa đơn**, mỗi dòng một thùng
+(`PO NO | DESCRIPTION | COLOR | QUANTITY (Cone) | CARTON NUMBER`) → nhóm theo PO + mã + màu, lô = thùng; công cụ gắn file này vào **từng**
+hóa đơn Phú Cường cùng PO, mỗi hóa đơn chỉ lấy các thùng thuộc PO của nó (`splitByPo`).
+Bộ thử 8 hóa đơn `1C26TPC#00005260 … #00005267` (29 dòng, 8 PO `PC10006100 … PC10007000`) + PKL 38 kiện: 8/8 đọc đúng số HĐ, ngày, PO,
+29/29 dòng ra mã + màu; 7 hóa đơn (19 dòng, 2.674 cuộn) khớp packing list **từng dòng** (= tổng 38 thùng). HĐ `#00005267`
+(PO PC10006100, 10 dòng, 2.521 cuộn) **không có thùng nào** trong file PKL này — cần packing list riêng. Chưa có inbound ZMME để kiểm tra khóa dò.
 
 ## Avery Dennison — nhãn giấy, HĐ GTGT Viettel + DELIVERY NOTE theo size (v11.25)
 

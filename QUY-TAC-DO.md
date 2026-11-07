@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.33)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.34)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1390,6 +1390,29 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   (rơi về splitSize nếu tổng PO bằng).
 - **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
   234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
+
+## PC. Chỉ May Phú Cường — HĐ GTGT MISA, PO đứng riêng một dòng + packing list Excel theo thùng (từ v11.34, 07.11.2026)
+
+- **`readPhuCuong`** (`isPhuCuongText`: PHÚ CƯỜNG + CHỈ MAY + HĐ GTGT, chữ bỏ dấu): bảng hàng từ `STT Tên hàng hóa` tới `Cộng tiền hàng`.
+  Dòng số `^(STT) (Cuộn|Cái|…) SL ĐG TT$` (số kiểu Việt `362,00` / `31.000,00`); mô tả = các dòng chữ phía trên + **dòng chữ ngay dưới** khi mô tả
+  chưa kết thúc bằng mã màu `^[A-Z]\d{2}[A-Z]$` (`G17C`). Dòng PO `^(STT) (R\d{5}[A-Z]\d{5})-([A-Z]{2}\d{8})-([A-Z]{2}\d{2})$` → `poSap`
+  (`PC10006400`) gán cho mọi dòng hàng phía trên chưa có PO (một hóa đơn có thể nhiều PO, mỗi PO một dòng STT sau nhóm hàng của nó).
+- **`pcThread(desc)`**: brand UNISPUN/UNITEX/UNICORE, Recycled, Tex, `n/m` / `nD`, `NNNNm` → `code` = `SSP402` / `TXP150D` / `PPC40` + `-RE` +
+  `-5000`; `sap` = `UNISPUN-RECYCLED-40/2(TEX27)` (theo sheet ẩn của PKL, có thể là tên vật tư SAP). Item: `article = code`, `altArticles`
+  = [`sap`, `UNITEX 200D`, `UNITEX-200D`, `TXP200D`], `colorText = colorCode = mã màu`, `unit = PCS`, `pklKey = 'PHUCUONG|PO|AZ(code)|AZ(màu)'`,
+  `hasSapPo`, `amountInclSur`. Số HĐ `serial#8 số`, ngày từ `Ngày (Date) 04 tháng (month) 11 năm (year) 2026`.
+- **`readPhuCuongPkl`** (`isPhuCuongPklText`: PHÚ CƯỜNG + PACKING LIST/DELIVERY NOTE trong 12 dòng đầu): tiêu đề `PO NO … DESCRIPTION … COLOR …
+  QUANTITY`; PO SAP tách từ `R…-PC10006400-SS27`; `itemKey = 'PHUCUONG|PO|AZ(code)|AZ(màu)'`, `key = itemKey|thùng`, dừng ở `TOTAL`.
+  Trả `pkl.splitByPo = true`.
+- **`buildGroups` (app-all.js)**: genpkl có `splitByPo` + profile → gắn vào **mọi** chứng từ cùng profile có PO trùng, chỉ các nhóm thuộc PO
+  của chứng từ đó (sao chép nhóm), không qua bước chọn "best" một hóa đơn.
+- Kết quả set25: 8/8 HĐ, 29 dòng; 19/19 dòng của 7 HĐ khớp PKL (Σ 2.674 = 38 thùng); HĐ 5267 (PC10006100) không có PKL. Chưa có inbound.
+
+## Thay đổi của v11.34 (07.11.2026) — mẫu riêng Chỉ May Phú Cường
+
+- `readPhuCuong` / `pcThread` / `readPhuCuongPkl` (fab.js); hook PDF trước Mainetti PXK, hook Excel sau Cheung Hing PKL; `TRAINED_SUPPLIERS`
+  thêm `Phú Cường`; genpkl `splitByPo` gắn một file PKL vào nhiều hóa đơn theo PO.
+- Set25: 8 HĐ Phú Cường đọc đúng, 7 HĐ khớp PKL từng dòng, HĐ 5267 thiếu PKL. Hồi quy 32 bộ không đổi.
 
 ## Thay đổi của v11.33 (06.11.2026) — Unitex mẫu không có cột CUSTOMER PO.
 

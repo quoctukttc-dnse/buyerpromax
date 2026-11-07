@@ -784,7 +784,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/], ['Avery Dennison', /AVERY\s*DENNISON/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/], ['Avery Dennison', /AVERY\s*DENNISON/], ['Phú Cường', /PHU\s*CUONG/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -899,6 +899,11 @@ async function classify(file) {
     if (!ocr && isAveryDnText(lines.join('\n'))) {
       let ad = null; try { ad = readAveryDn(lines, file.name); } catch (e) { ad = null; }
       if (ad) { out = { kind: 'genpkl', score: 6, gen: ad, lines, pos: [...new Set(ad.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    /* Chỉ May Phú Cường: HĐ GTGT MISA, PO SAP đứng riêng một dòng STT sau các dòng hàng */
+    if (!ocr && isPhuCuongText(lines.join('\n'))) {
+      let pc = null; try { pc = readPhuCuong(lines); } catch (e) { pc = null; }
+      if (pc && pc.inv.items.length) { out = { kind: 'fab', score: 9, fab: pc, lines, pos: [...new Set(pc.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* Phiếu xuất kho Mainetti (PDF chữ) → packing list theo OD */
     if (!ocr && isMainettiPxkText(lines.join('\n'))) {
@@ -1034,6 +1039,12 @@ async function classify(file) {
       let hp = null;
       try { hp = readCheungHingPkl(wb, file.name); } catch (e) { hp = null; }
       if (hp) { out = { kind: 'genpkl', score: 6, buf, gen: hp, pos: [...new Set(hp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    /* packing list Excel của Phú Cường (PO NO | DESCRIPTION | COLOR | QUANTITY (Cone) | CARTON NUMBER) — một file cho nhiều hóa đơn */
+    {
+      let pcp = null;
+      try { pcp = readPhuCuongPkl(wb, file.name); } catch (e) { pcp = null; }
+      if (pcp) { out = { kind: 'genpkl', score: 6, buf, gen: pcp, pos: [...new Set(pcp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* packing list Excel của Suzhou Celeb (sheet 发货码单: Lot No. | Roll No. | PO Number | Color | Name | Q'ty(Y)) */
     {
@@ -1460,6 +1471,19 @@ async function buildGroups() {
   for (const p of gpks) { p.gen = cloneFab((await classify(p.file)).gen); p.used = false; }
   const genFabs = fabs.filter((x) => x.isGen);
   for (const p of gpks) {
+    /* packing list một file cho cả lô (Phú Cường: 8 hóa đơn / 8 PO): gắn vào TỪNG hóa đơn cùng mẫu, mỗi hóa đơn chỉ lấy các thùng thuộc PO của nó */
+    if (p.gen.pkl && p.gen.pkl.splitByPo && p.gen.profile) {
+      for (const it of fabs) {
+        if (!it.fab || it.fab.profile !== p.gen.profile || !it.inv) continue;
+        const gs = p.gen.pkl.groups.filter((g) => g.po && it.sapPos.some((x) => poSame(x, g.po)));
+        if (!gs.length) continue;
+        if (!it.fab.pkl) it.fab.pkl = { groups: [], unit: p.gen.pkl.unit, level: 'lot', soft: !!p.gen.pkl.soft, files: [] };
+        it.fab.pkl.groups = it.fab.pkl.groups.concat(gs.map((g) => Object.assign({}, g, { rolls: g.rolls.slice() })));
+        if (!it.fab.pkl.files.includes(p.file.name)) it.fab.pkl.files.push(p.file.name);
+        p.used = true;
+      }
+      if (p.used) continue;
+    }
     let best = null, bs = 0;
     const ptxt = (p.file.name + ' ' + (p.gen.inv.invNo || '')).toUpperCase().replace(/\s+/g, '');
     /* packing list của mẫu riêng (Carvico) chỉ gắn vào chứng từ cùng mẫu; còn lại gắn vào chứng từ bộ đọc chung */
