@@ -186,8 +186,8 @@ Packing list Excel (`PKL SCAVI - 04.11.2026 38 KIEN.xlsx`, `readPhuCuongPkl`): m
 (`PO NO | DESCRIPTION | COLOR | QUANTITY (Cone) | CARTON NUMBER`) → nhóm theo PO + mã + màu, lô = thùng; công cụ gắn file này vào **từng**
 hóa đơn Phú Cường cùng PO, mỗi hóa đơn chỉ lấy các thùng thuộc PO của nó (`splitByPo`).
 Bộ thử 8 hóa đơn `1C26TPC#00005260 … #00005267` (29 dòng, 8 PO `PC10006100 … PC10007000`) + PKL 38 kiện: 8/8 đọc đúng số HĐ, ngày, PO,
-29/29 dòng ra mã + màu; 7 hóa đơn (19 dòng, 2.674 cuộn) khớp packing list **từng dòng** (= tổng 38 thùng). HĐ `#00005267`
-(PO PC10006100, 10 dòng, 2.521 cuộn) **không có thùng nào** trong file PKL này — cần packing list riêng. Chưa có inbound ZMME để kiểm tra khóa dò.
+29/29 dòng ra mã + màu; 7 hóa đơn (19 dòng, 2.674 cuộn) khớp packing list 38 kiện **từng dòng**; HĐ `#00005267` (PO PC10006100,
+10 dòng, 2.521 cuộn) khớp file PKL riêng 30 kiện (dòng tổng ghi `TỔNG`) → 29/29 dòng khớp packing list. Chưa có inbound ZMME để kiểm tra khóa dò.
 
 ## Avery Dennison — nhãn giấy, HĐ GTGT Viettel + DELIVERY NOTE theo size (v11.25)
 

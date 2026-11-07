@@ -2096,7 +2096,7 @@ function readPhuCuongPkl(wb, fname) {
       qty: colBy(ws, hr, /^QUANTITY/i) || 5, ctn: colBy(ws, hr, /CARTON|CTN/i) || 6 };
     for (let r = hr + 1; r <= ws.rowCount; r++) {
       const tPo = T(ws, r, C.po), code = T(ws, r, C.desc).replace(/\s+/g, ''), color = T(ws, r, C.color).toUpperCase().trim();
-      if (/^TOTAL/i.test(T(ws, r, C.no)) || /^Grand/i.test(T(ws, r, C.no))) break;
+      if (/^(TOTAL|T[ỔO]NG|Grand|Number of)/i.test(T(ws, r, C.no).normalize('NFC'))) break;   // dòng tổng: TOTAL / TỔNG
       if (!tPo && !code) continue;
       const q = N(ws, r, C.qty);
       if (isNaN(q) || q <= 0 || !code) continue;
