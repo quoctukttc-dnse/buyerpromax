@@ -1994,7 +1994,7 @@ function readMainettiPxk(lines, fname) {
    Mã hàng quy về mã trên packing list: UNISPUN 40/2 → SSP402 · UNITEX 150D → TXP150D · UNICORE Tex 40 → PPC40, thêm "-RE" (Recycled)
    và "-5000" (m/cuộn): "TXP200D-RE-5000". Tên SAP (sheet ẩn của PKL): "UNITEX-RECYCLED-200D(TEX24)" → altArticles. Cuộn → PCS. */
 const foldVN2 = (t) => String(t == null ? '' : t).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
-const isPhuCuongText = (t) => { const f = foldVN2(t); return /PHU\s*CUONG/.test(f) && /CHI\s*MAY/.test(f) && /HOA DON GIA TRI GIA TANG|VAT\s*INVOICE/.test(f); };
+const isPhuCuongText = (t) => { const f = foldVN2(t); return /PHU\s*CUONG/.test(f) && !/PHU\s*CUONG\s*PLUS/.test(f) && /CHI\s*MAY/.test(f) && /HOA DON GIA TRI GIA TANG|VAT\s*INVOICE/.test(f); };
 const PC_PO_LINE = /^(\d{1,3})\s+(R\d{5}[A-Z]\d{5})-([A-Z]{2}\d{8})-([A-Z]{2}\d{2})$/;
 const PC_COLOR = /^[A-Z]\d{2}[A-Z]$/;
 /* "Chỉ May UNITEX Recycled 200D Tex 24 - Tkt 120 5000m D15A" → { code: 'TXP200D-RE-5000', sap: 'UNITEX-RECYCLED-200D(TEX24)', color: 'D15A', len: 5000, tkt: 120 } */
@@ -2084,7 +2084,7 @@ function readPhuCuong(lines) {
 /* Packing list Excel Phú Cường (một file cho nhiều hóa đơn / PO, mỗi dòng một thùng):
    NO. | PO NO (R76201A13769-PC10006400-SS27) | DESCRIPTION (TXP200D-RE-5000) | COLOR (D15A) | QUANTITY (Cone) | CARTON NUMBER
    → nhóm theo PO + mã + màu, lô = thùng; splitByPo: gắn vào từng hóa đơn cùng PO (một file cho cả lô hàng). */
-const isPhuCuongPklText = (t) => { const f = foldVN2(t); return /PHU\s*CUONG/.test(f) && /PACKING\s*LIST|DELIVERY\s*NOTE/.test(f); };
+const isPhuCuongPklText = (t) => { const f = foldVN2(t); return /PHU\s*CUONG/.test(f) && !/PHU\s*CUONG\s*PLUS/.test(f) && /PACKING\s*LIST|DELIVERY\s*NOTE/.test(f); };
 function readPhuCuongPkl(wb, fname) {
   let head = '';
   for (const w of wb.worksheets) for (let r = 1; r <= Math.min(12, w.rowCount); r++) head += rowText(w, r, 12);
@@ -2120,6 +2120,118 @@ function readPhuCuongPkl(wb, fname) {
     inv: { no: '', invNo: invNo || '', invDate: '', items: [], currency: 'VND', unitDefault: 'PCS', total: NaN },
     pkl: { groups, unit: 'ROL', level: 'lot', soft: false, splitByPo: true },
     pklOnly: true,
+  };
+}
+
+
+/* =====================  CÔNG TY CP PHỤ LIỆU PHÚ CƯỜNG PLUS — mould cup / hydropad (cặp), HĐ GTGT MISA + PACKING LIST Excel  =====================
+   HĐ: tên hàng ngắt 3 dòng: "Bra cup AF-7198 size 46 màu trắng AF7198 Mould" / "1 Cup REC PE100% PE100% REC PE100%, Triangle, cặp 1.324 15.121,00 20.020.204"
+   / "9810048903-46 5559108 N00A WHITE" → mã khách 9810048903 (Customer Articel Code), SKU 5559108 (Customer SKU Code, 7 số), size 46, màu N00A WHITE,
+   model AF7198 (Supplier Ref). PO ghi một dòng cuối "Theo đơn đặt hàng số PC20002100" → gán cho mọi dòng. cặp ↔ PAA.
+   Inbound: mỗi dòng một SKU (PO + mã khách + màu + size) → dò theo PO + model/mã khách + size + màu, cộng điểm SKU. */
+const isPhuCuongPlusText = (t) => { const f = foldVN2(t); return /PHU\s*CUONG\s*PLUS/.test(f) && /HOA DON GIA TRI GIA TANG|VAT\s*INVOICE/.test(f); };
+function readPhuCuongPlus(lines) {
+  const all = (lines || []).map((x) => String(x == null ? '' : x).normalize('NFC').replace(/\s+/g, ' ').trim());
+  const t = all.join('\n');
+  if (!isPhuCuongPlusText(t)) return null;
+  const serial = (t.match(/K[ýy]\s*hi[ệe]u[^:\n]*:\s*([A-Z0-9]{5,})/i) || [])[1] || '';
+  const no = (t.match(/\bS[ốo]\s*(?:\([^)]*\))?\s*:\s*(\d{3,})/i) || [])[1] || '';
+  const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : no;
+  const dm = t.match(/Ng[àa]y[^\d\n]*(\d{1,2})\s*th[áa]ng[^\d\n]*(\d{1,2})\s*n[ăa]m[^\d\n]*(\d{4})/i);
+  const invDate = dm ? dmy(dm[1], dm[2], dm[3]) : '';
+  const poM = t.match(/Theo đơn đặt hàng số\s*:?\s*([A-Z]{2,3}\d{7,8})/i) || t.match(/\b(PC\d{8})\b/);
+  const poRaw = poM ? poM[1].toUpperCase() : '';
+  const NUM = /^(\d{1,3})\s+(.*?)\s*(c[ặa]p|C[áa]i|Chi[ếe]c|PCS|PC|B[ộo]|Cu[ộo]n|Kg|M)\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)$/i;
+  const TRAIL = /\b\d{7}\b\s+[A-Z]\d{2}[A-Z]\b/;          // "… 5559108 N00A WHITE" — dòng đuôi của mô tả
+  const START = /\bsize\s*\d{2}\b/i;                       // "Bra cup AF-7198 size 46 màu trắng …" — dòng đầu mô tả kế
+  const items = [];
+  let on = false, buf = [], cur = null;
+  for (const L of all) {
+    if (/^STT\s+T[êe]n h[àa]ng/i.test(L)) { on = true; buf = []; cur = null; continue; }
+    if (/^Theo đơn đặt hàng/i.test(L) || /^C[ộo]ng ti[ềe]n h[àa]ng/i.test(L) || /^T[ổo]ng ti[ềe]n/i.test(L) || /^Thu[ếe] su[ấa]t/i.test(L)) { on = false; cur = null; buf = []; continue; }
+    if (/^\d\/\d$/.test(L) || /^tiep theo trang/i.test(L)) continue;
+    if (!on) continue;
+    const m = L.match(NUM);
+    if (m) {
+      const qty = viNum(m[4]), price = viNum(m[5]), amount = viNum(m[6]);
+      if (isNaN(qty) || qty <= 0) continue;
+      cur = { stt: m[1], desc: (buf.join(' ') + ' ' + m[2]).replace(/\s+/g, ' ').trim(), unitRaw: m[3], qty, price, amount };
+      items.push(cur); buf = [];
+      continue;
+    }
+    if (cur && !buf.length && (TRAIL.test(L) || !START.test(L))) { cur.desc = (cur.desc + ' ' + L).replace(/\s+/g, ' ').trim(); cur = TRAIL.test(L) ? null : cur; continue; }
+    buf.push(L);
+  }
+  if (!items.length) return null;
+  const po = poSap(poRaw);
+  const out = items.map((x) => {
+    const d = x.desc;
+    const custArt = (d.match(/\b(98\d{8})\b/) || [])[1] || '';
+    const sku = (d.match(/(?:^|[^\d])(\d{7})(?![\d])/) || [])[1] || '';
+    const size = (d.match(/\bsize\s*(\d{2,3}[A-K]{0,2})\b/i) || d.match(/-(\d{2})\s+\d{7}\b/) || [])[1] || '';
+    const cm = d.match(/\b([A-Z]\d{2}[A-Z])\s+([A-Z]{3,}(?:\s+[A-Z]{3,})?)\s*$/) || d.match(/\b([A-Z]\d{2}[A-Z])\b\s*([A-Z]{3,})?/);
+    const colorCode = cm ? cm[1] : '', colorText = cm ? [cm[1], cm[2] || ''].join(' ').trim() : '';
+    const model = ((d.match(/\b(AF)[-\s]?(\d{4})\b/i) || [])[1] || '') ? d.match(/\b(AF)[-\s]?(\d{4})\b/i).slice(1).join('').toUpperCase() : '';
+    const article = model || custArt || sku;
+    const alts = [...new Set([custArt, model].filter((a) => a && a !== article))];
+    const unit = /^c[ặa]p$/i.test(x.unitRaw) ? 'PAA' : (/^C[áa]i|Chi[ếe]c|PCS|PC$/i.test(x.unitRaw) ? 'PCS' : unitKey(x.unitRaw));
+    const kind = /hydropad/i.test(d) ? 'Hydropad' : (/mould|cup/i.test(d) ? 'Mould cup' : '');
+    return {
+      poRaw, po, article, altArticles: alts.length ? alts : undefined, sku, custArt, size, colorText, colorCode, colorShort: colorCode,
+      desc: [kind, model, custArt ? 'mã khách ' + custArt : '', sku ? 'SKU ' + sku : '', size ? 'size ' + size : '', colorText].filter(Boolean).join(' · '),
+      qtyByUnit: { [unit]: x.qty }, unit, qty: x.qty, price: x.price, surcharge: 0, amount: x.amount, code: (model || custArt) + ' · ' + colorText + (size ? ' · ' + size : ''),
+      pklNo: no, pklKey: 'PCPLUS|' + po + '|' + sku,
+    };
+  });
+  const tm = t.match(/C[ộo]ng ti[ềe]n h[àa]ng[^:\n]*:\s*([\d.]+(?:,\d+)?)/i);
+  return {
+    profile: 'PCPLUS', supplier: 'Phú Cường Plus', vat: true,
+    inv: { no: invNo, invNo, invDate, serial, items: out, currency: 'VND', unitDefault: 'PAA', surchargeHeader: 0, total: tm ? viNum(tm[1]) : NaN, amountInclSur: true, hasSapPo: true },
+    pkl: null,
+  };
+}
+
+/* PACKING LIST Excel Phú Cường Plus (sheet "PACKING LIST", kèm sheet "PGH" phiếu giao hàng — bỏ qua):
+   "INV : 00000113" · "PO# PC20002100" · Lot No. | Carton No. | Carton size | G.W. | Color code ("5559108 N00A WHITE" = SKU + màu) | Size | Qty (pair)
+   → nhóm theo PO + SKU, lô = thùng; ghép hóa đơn theo số INV. */
+const isPhuCuongPlusPklText = (t) => { const f = foldVN2(t); return /PHU\s*CUONG\s*PLUS/.test(f) && /PACKING\s*LIST/.test(f); };
+function readPhuCuongPlusPkl(wb, fname) {
+  let head = '';
+  for (const w of wb.worksheets) for (let r = 1; r <= Math.min(12, w.rowCount); r++) head += rowText(w, r, 10);
+  if (!isPhuCuongPlusPklText(head)) return null;
+  const groups = [];
+  let invNo = '';
+  for (const ws of wb.worksheets) {
+    const hr = findRow(ws, /Carton\s*No.*Colou?r\s*code.*Size.*Qty/i, 30);
+    if (!hr) continue;
+    for (let r = 1; r < hr; r++) { const m = rowText(ws, r, 10).match(/\bINV\s*:?\s*(\d{3,})/i); if (m) invNo = m[1]; }
+    const C = { lot: colBy(ws, hr, /^Lot/i) || 1, ctn: colBy(ws, hr, /^Carton\s*No/i) || 2, color: colBy(ws, hr, /Colou?r\s*code/i) || 5, size: colBy(ws, hr, /^Size/i) || 6, qty: colBy(ws, hr, /^Qty/i) || 7 };
+    let po = '';
+    for (let r = hr + 1; r <= ws.rowCount; r++) {
+      const c1 = T(ws, r, 1).normalize('NFC');
+      if (/^(TOTAL|T[ỔO]NG|Grand)/i.test(c1)) break;
+      const pm = rowText(ws, r, 10).match(/PO\s*#?\s*:?\s*([A-Z]{2,3}\d{7,8})/i);
+      if (pm) { po = poSap(pm[1]); continue; }
+      const cc = T(ws, r, C.color).replace(/\s+/g, ' ').trim();
+      const q = N(ws, r, C.qty);
+      if (!cc || isNaN(q) || q <= 0) continue;
+      const sm = cc.match(/^(\d{7})\s+(.*)$/);
+      const sku = sm ? sm[1] : '', color = sm ? sm[2].trim().toUpperCase() : cc.toUpperCase();
+      const size = T(ws, r, C.size).trim(), ctn = T(ws, r, C.ctn).trim(), lot = T(ws, r, C.lot).trim();
+      const itemKey = 'PCPLUS|' + po + '|' + sku;
+      const key = itemKey + '|' + AZ(ctn);
+      let g = groups.find((x) => x.key === key);
+      if (!g) { g = { key, itemKey, po, poRaw: po, article: sku, sku, color, size, lot: ctn ? 'Thùng ' + ctn + (lot ? ' (lot ' + lot + ')' : '') : '(không ghi thùng)', unit: 'PAA', rolls: [], total: 0 }; groups.push(g); }
+      g.rolls.push({ no: String(g.rolls.length + 1), qty: q });
+      g.total = r3(g.total + q);
+    }
+  }
+  if (!groups.length) return null;
+  return {
+    profile: 'PCPLUS', supplier: 'Phú Cường Plus', role: 'pkl', file: fname || '',
+    inv: { no: invNo, invNo: invNo, invDate: '', items: [], currency: 'VND', unitDefault: 'PAA', total: NaN },
+    pkl: { groups, unit: 'PAA', level: 'lot', soft: false },
+    pklOnly: true, pklNo: invNo,
   };
 }
 

@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.34 — 26 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.35 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -171,6 +171,21 @@ SURCHARGE | Quantity | Unit Price | Amount`; số hóa đơn nằm ở ô sau nh
 đọc PO = *CUSTOMER PO.*, article = *QUALITY P/N*, màu = *COLOUR*, dò inbound theo PO + article + màu; surcharge dòng so với *Surcharge Item*.
 Bộ thử `77FZ10L024SAV` + `UNI0000700`: 6/6 dòng đúng (330 / 348 / 397 / 113 / 110 / 126 m); 3 dòng `1SR0206SN` báo `LỆCH GIÁ TRỊ` **thật**:
 hóa đơn 2,62 USD/m, PO SAP 2,70 USD/m (lệch 27,92 USD trên cả hóa đơn) — cần hỏi lại chủ hàng / người đặt PO.
+
+## Phú Cường Plus — mould cup / hydropad tính theo cặp, HĐ GTGT MISA + PACKING LIST Excel theo thùng (v11.35)
+
+Công ty CP Phụ Liệu Phú Cường Plus (ký hiệu HĐ `1C26TYY`, cùng nhóm nhưng **khác** Chỉ May Phú Cường). Tên hàng in ngắt 3 dòng quanh dòng số:
+`Bra cup AF-7198 size 46 màu trắng AF7198 Mould` / `1 Cup REC PE100% …, Triangle, cặp 1.324 15.121,00 20.020.204` / `9810048903-46 5559108 N00A WHITE`
+→ công cụ (`readPhuCuongPlus`, `src/fab.js`) ghép 3 dòng rồi tách: model `AF7198` (= *Supplier Ref*), mã khách `9810048903` (= *Customer Articel Code*),
+**SKU 7 số `5559108`** (= *Customer SKU Code*, mỗi SKU một dòng inbound theo màu + size), size `46`, màu `N00A WHITE`; đơn vị cặp ↔ PAA. PO ghi một
+dòng cuối `Theo đơn đặt hàng số PC20002100` → gán cho mọi dòng. Dò inbound theo PO + model/mã khách + size + màu, cộng điểm khi trùng SKU.
+PACKING LIST Excel (`PL-PGH_PC20002100-1.xlsx`, sheet *PACKING LIST*; sheet *PGH* phiếu giao hàng bỏ qua): `INV : 00000113`, `PO# PC20002100`,
+`Lot No. | Carton No. | Carton size | G.W. | Color code ("5559108 N00A WHITE") | Size | Qty (pair)` → nhóm theo PO + SKU, lô = thùng, ghép hóa đơn
+theo số INV (`readPhuCuongPlusPkl`).
+Bộ thử 3 hóa đơn `1C26TYY#00000113/114/115` (9 + 14 + 7 = 30 dòng, PO PC20002100 / PC20002300 / PC20004100) + 3 PKL + ZMME 44 dòng: 30/30 dòng
+ghép đúng SKU, 30/30 khớp packing list từng dòng, Invoice Quantity = số hóa đơn (HĐ 113/114 giao một phần PO), 3 file INB đúng số HĐ + ngày.
+Cảnh báo **thật**: HĐ 113, PO PC20002100, hydropad AF7198 L05A BEIGE size 44 / 46 / 48 (SKU 6119917 / 6119918 / 6119919): hóa đơn 13.817 đ/cặp,
+PO SAP 16.424 đ/cặp (hóa đơn thấp hơn PO 21.025.455 đ) — HĐ 114 cùng SKU trên PO PC20002300 lại ghi đúng 16.424; cần hỏi chủ hàng / người đặt PO.
 
 ## Chỉ May Phú Cường — chỉ may, HĐ GTGT MISA + packing list Excel theo thùng (v11.34)
 

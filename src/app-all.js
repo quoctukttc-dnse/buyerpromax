@@ -784,7 +784,7 @@ const TRAINED_SUPPLIERS = [
   ['Pioneer', /\bPIONEER\b/], ['PT Winner', /WINNER/], ['S&M', /\bS\s*&\s*M\b/], ['Seamless', /\bSEAMLESS\b/],
   ['Stretchline', /STRETCHLINE/], ['SunPo', /\bSUN\s*PO\b/], ['Yibei', /\bYIBEI\b/], ['Brugnoli', /BRUGNOLI/],
   ['AIM High', /\bAIM\s*HIGH\b/], ['Chain Guan', /CHAIN\s*GUAN/], ['Paddies', /PADDIES/], ['Prestige', /\bPRESTIGE\b/],
-  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/], ['Avery Dennison', /AVERY\s*DENNISON/], ['Phú Cường', /PHU\s*CUONG/],
+  ['Vinity', /\bVINITY\b/], ['Fujian Unitex', /UNITEX/], ['Kiyohara', /KIYOHARA/], ['B&B Apparel', /B\s*&\s*B\s*APPAREL/], ['Premier Elastic', /\bPREMIER\b/], ['Vanessa', /\bVANESSA\b/], ['Mainetti', /MAINETTI/], ['Avery Dennison', /AVERY\s*DENNISON/], ['Phú Cường Plus', /PHU\s*CUONG\s*PLUS/], ['Phú Cường', /PHU\s*CUONG/],
 ];
 const foldVN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').toUpperCase();
 function trainedSupplierOf(text) {
@@ -899,6 +899,11 @@ async function classify(file) {
     if (!ocr && isAveryDnText(lines.join('\n'))) {
       let ad = null; try { ad = readAveryDn(lines, file.name); } catch (e) { ad = null; }
       if (ad) { out = { kind: 'genpkl', score: 6, gen: ad, lines, pos: [...new Set(ad.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    /* Phú Cường Plus (mould cup / hydropad): HĐ GTGT MISA, SKU 7 số + mã khách + size + màu, PO ở dòng "Theo đơn đặt hàng số" */
+    if (!ocr && isPhuCuongPlusText(lines.join('\n'))) {
+      let pp = null; try { pp = readPhuCuongPlus(lines); } catch (e) { pp = null; }
+      if (pp && pp.inv.items.length) { out = { kind: 'fab', score: 9, fab: pp, lines, pos: [...new Set(pp.inv.items.map((x) => x.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* Chỉ May Phú Cường: HĐ GTGT MISA, PO SAP đứng riêng một dòng STT sau các dòng hàng */
     if (!ocr && isPhuCuongText(lines.join('\n'))) {
@@ -1039,6 +1044,12 @@ async function classify(file) {
       let hp = null;
       try { hp = readCheungHingPkl(wb, file.name); } catch (e) { hp = null; }
       if (hp) { out = { kind: 'genpkl', score: 6, buf, gen: hp, pos: [...new Set(hp.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
+    }
+    /* PACKING LIST Excel của Phú Cường Plus (Lot No. | Carton No. | … | Color code "5559108 N00A WHITE" | Size | Qty (pair)), ghép hóa đơn theo "INV :" */
+    {
+      let ppk = null;
+      try { ppk = readPhuCuongPlusPkl(wb, file.name); } catch (e) { ppk = null; }
+      if (ppk) { out = { kind: 'genpkl', score: 6, buf, gen: ppk, pos: [...new Set(ppk.pkl.groups.map((g) => g.po).filter(Boolean))] }; CACHE.set(file, out); return out; }
     }
     /* packing list Excel của Phú Cường (PO NO | DESCRIPTION | COLOR | QUANTITY (Cone) | CARTON NUMBER) — một file cho nhiều hóa đơn */
     {

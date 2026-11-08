@@ -84,7 +84,7 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.34 · 07.11.2026 · 26 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.35 · 08.11.2026 · 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
   <div class="card">
@@ -211,6 +211,9 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
         <li><b>Chỉ May Phú Cường</b> (v11.34): HĐ GTGT MISA (<code>1C26TPC#00005260</code>) tên hàng in ngắt 3 dòng, mã màu ở cuối (<code>G17C</code>);
         <b>PO SAP đứng riêng một dòng STT sau các dòng hàng</b> (<code>3 R76201A13769-PC10006400-SS27</code>) được gán cho các dòng hàng phía trên. Mã hàng quy về mã
         packing list (<code>UNITEX 200D</code> → <code>TXP200D-RE-5000</code>). Packing list Excel một file cho cả lô (mỗi dòng một thùng) được gắn vào từng hóa đơn theo PO.</li>
+        <li><b>Phú Cường Plus</b> (v11.35): HĐ GTGT MISA mould cup / hydropad tính theo <em>cặp</em> (<code>1C26TYY#00000113</code>), tên hàng ngắt 3 dòng chứa model
+        <code>AF7198</code>, mã khách <code>9810048903</code>, <b>SKU 7 số</b> <code>5559108</code>, size và màu; PO ở dòng cuối <code>Theo đơn đặt hàng số PC20002100</code>.
+        Dò inbound theo PO + model + size + màu, cộng điểm khi trùng Customer SKU Code. PACKING LIST Excel (cột Color code = SKU + màu, mỗi dòng một thùng) ghép theo số INV.</li>
         <li>PO chuẩn hóa về dạng SAP = chữ cái + phần số bù 0 cho đủ 7 chữ số: hóa đơn ghi <code>TEC002400</code> → <code>TEC0002400</code>.
         Nếu vẫn không thấy trong file inbound, công cụ <b>nhắc thả thêm file PO SCAF-SCAX</b>.</li>
         <li>Khóa dò dòng inbound: <b>PO + mã article + màu</b>. Article dò trong <em>Material Description</em> và <em>Supplier Ref</em>;

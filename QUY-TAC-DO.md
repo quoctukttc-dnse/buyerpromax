@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.34)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.35)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1391,6 +1391,20 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
 - **Dò inbound**: `refPick` rule 2 — token {522881, 234556} ⊆ token(Specification `522881-PT25-LE-TYP -2-PO 234556`) → loại các dòng PO
   234168 / 234570; lọc size → đúng 1 dòng. Kết quả 27/27, Σ IQ = 940.
 
+## PP. Phú Cường Plus — mould cup / hydropad theo cặp, SKU 7 số (từ v11.35, 08.11.2026)
+
+- **`readPhuCuongPlus`** (`isPhuCuongPlusText`: PHÚ CƯỜNG PLUS + HĐ GTGT; `isPhuCuongText`/`isPhuCuongPklText` loại trừ PLUS): dòng số
+  `^(STT) (mô tả giữa) (cặp|Cái|…) SL ĐG TT$` (SL `1.324` kiểu Việt); mô tả = dòng chữ phía trên + phần giữa + **dòng đuôi** (có `\d{7} [A-Z]\d{2}[A-Z]`,
+  hoặc dòng kế không mở mô tả mới `size \d{2}`). PO từ `Theo đơn đặt hàng số PC20002100` (một PO/hóa đơn). Số HĐ `Ký hiệu : 1C26TYY` + `Số : 00000113`
+  (cùng dòng với ngày). Item: `article = model AF7198` (`AF[- ]?\d{4}`), `altArticles = [mã khách 98xxxxxxxx]`, `sku` (7 số không dính số khác), `custArt`,
+  `size` (`size 46`), `colorText = "N00A WHITE"`, `colorCode`, `unit = PAA` (cặp), `pklNo` = số HĐ, `pklKey = 'PCPLUS|PO|sku'`.
+- **Dò inbound**: pool theo artHit(AF7198 ∈ Material Description / Supplier Ref `AF7198` · `9810058225 -AF 7198 NEW EVA` · `… CUP AF2125_ …`) ∪ altArticles;
+  lọc size (`docSize && pool.some(r => r.size)`); chấm màu ×3 + SKU (`it.sku === r.sku` +3 / −3) + giá. Mỗi SKU một dòng → 30/30 đúng.
+- **`readPhuCuongPlusPkl`** (`isPhuCuongPlusPklText`): sheet có tiêu đề `Carton No … Color code … Size … Qty`; `INV : 00000113` → `pklNo`; dòng
+  `PO# PC20002100` đặt PO cho các thùng dưới; `Color code` = `SKU màu`; `itemKey = 'PCPLUS|PO|sku'`, `key = itemKey|thùng`, dừng ở `TỔNG`.
+  genpkl cùng profile ghép theo `pklNo` = số HĐ (byPkl +8).
+- Set26: 30/30 KHỚP / KHỚP (giao thiếu), 3 LỆCH GIÁ TRỊ thật (HĐ 113 size 44/46/48: 13.817 ≠ PO 16.424).
+
 ## PC. Chỉ May Phú Cường — HĐ GTGT MISA, PO đứng riêng một dòng + packing list Excel theo thùng (từ v11.34, 07.11.2026)
 
 - **`readPhuCuong`** (`isPhuCuongText`: PHÚ CƯỜNG + CHỈ MAY + HĐ GTGT, chữ bỏ dấu): bảng hàng từ `STT Tên hàng hóa` tới `Cộng tiền hàng`.
@@ -1410,6 +1424,12 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   của chứng từ đó (sao chép nhóm), không qua bước chọn "best" một hóa đơn.
 - Kết quả set25: 8/8 HĐ, 29/29 dòng khớp PKL (38 kiện cho 7 HĐ, Σ 2.674; 30 kiện riêng cho HĐ 5267, Σ 2.521); inbound ZMME 29 dòng →
   29/29 KHỚP, 8 file INB đúng PO, Σ IQ = Σ Quantity.
+
+## Thay đổi của v11.35 (08.11.2026) — mẫu riêng Phú Cường Plus
+
+- `readPhuCuongPlus` / `readPhuCuongPlusPkl` (fab.js), hook PDF + Excel đặt trước Chỉ May Phú Cường; `TRAINED_SUPPLIERS` thêm `Phú Cường Plus`;
+  bộ nhận diện Chỉ May Phú Cường loại trừ chữ PLUS.
+- Set26 (HĐ 113/114/115 + 3 PKL + ZMME): 30/30 dòng đúng SKU, 3 lệch giá thật ở HĐ 113.
 
 ## Thay đổi của v11.34 (07.11.2026) — mẫu riêng Chỉ May Phú Cường
 
