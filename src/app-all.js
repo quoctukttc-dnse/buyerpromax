@@ -736,7 +736,80 @@ function readPoWb(wb) {
 
 
 /* ================= Nhận diện & gom nhóm file ================= */
-const KIND_NAME = { inb: 'File inbound', inv: 'Hóa đơn', pkl: 'Packing list', po: 'PO SCAF-SCAX', fab: 'Chứng từ vải (HĐ+PKL)', pklx: 'Packing list Excel (theo PO)' };
+/* ================= Inkava: TEAM · MO · % lệch (theo công cụ "Đối chiếu hóa đơn Inkava" của buyer) =================
+   TEAM gán theo tiền tố mã tham chiếu trên hóa đơn (ARN-… → ARENA, KNIT-/WTI- → DEC, LCB-/AOMDODQ → HADDAD, MANMADE / PRINTING CARELABEL → MANMADE);
+   không có tiền tố thì lấy theo Supplier Ref của dòng SAP đã ghép. MO lấy từ báo cáo ZMME0018 (cột "Reference" = MOxxxx) theo PO (+ mã tham chiếu
+   khi PO có nhiều MO); file ZMME0032 có cột Reference dạng MO cũng dùng được. % lệch = (SL hóa đơn − SL PO của các dòng đã ghép) / SL hóa đơn,
+   CHECK = OK khi ≤ 3 %. Chỉ hiện cho hóa đơn Inkava; các chủ hàng khác không đổi. */
+const INKAVA_TEAMS = [['ARN', 'ARENA'], ['KNIT', 'DEC'], ['WTI', 'DEC'], ['LCB', 'HADDAD'], ['AOMDODQ', 'HADDAD'], ['MANMADE', 'MANMADE'], ['PRINTING CARELABEL', 'MANMADE']];
+const INKAVA_TOL = 0.03;
+function inkavaTeamFor(ref) {
+  const r = String(ref == null ? '' : ref).toUpperCase().replace(/\s+/g, '');
+  let best = '', bestLen = 0;
+  for (const [p, t] of INKAVA_TEAMS) { const pp = p.replace(/\s+/g, ''); if (r.startsWith(pp) && pp.length > bestLen) { best = t; bestLen = pp.length; } }
+  return best;
+}
+const moLike = (v) => /^MO\s*\d+/i.test(String(v == null ? '' : v).trim());
+/* Báo cáo ZMME0018 (hoặc ZMME0032 có cột Reference = MO): PO → [{ref, refN, mo}] */
+function readMoIndex(ws) {
+  const vals = ws.getRow(1).values || [];
+  const H = {};
+  for (let i = 1; i < vals.length; i++) { const v = String(vals[i] == null ? '' : vals[i]).replace(/\s+/g, ' ').trim().toLowerCase(); if (v && !H[v]) H[v] = i; }
+  const cPo = H['purchasing document'], cRef = H['supplier ref'] || 0;
+  if (!cPo) return null;
+  const looks = (c) => { let n = 0, m = 0; for (let r = 2; r <= Math.min(ws.rowCount, 300); r++) { const v = ws.getCell(r, c).text.trim(); if (v) { n++; if (moLike(v)) m++; } } return n > 0 && m / n > 0.5; };
+  let cMo = H['reference'] && looks(H['reference']) ? H['reference'] : 0;
+  if (!cMo) for (let c = 1; c < vals.length; c++) if (c !== cPo && looks(c)) { cMo = c; break; }
+  if (!cMo) return null;
+  const byPo = {}; let count = 0;
+  for (let r = 2; r <= ws.rowCount; r++) {
+    const po = ws.getCell(r, cPo).text.trim().toUpperCase().replace(/\.0+$/, ''), mo = ws.getCell(r, cMo).text.trim();
+    if (!po || !mo) continue;
+    const ref = cRef ? ws.getCell(r, cRef).text.trim() : '';
+    (byPo[po] = byPo[po] || []).push({ ref, refN: AZ(ref), mo });
+    count++;
+  }
+  return count ? { byPo, count } : null;
+}
+function inkavaMoFor(idx, po, ref) {
+  if (!idx || !po) return { mo: '', note: '' };
+  const list = idx.byPo[String(po).toUpperCase()] || idx.byPo[poSap(po)];
+  if (!list) return { mo: '', note: 'PO không có trong báo cáo MO' };
+  let mos = [...new Set(list.map((a) => a.mo))];
+  if (mos.length > 1) {
+    const r = AZ(ref);
+    const toks = TOK(ref).filter((x) => x.length >= 4);
+    const hit = [...new Set(list.filter((a) => a.refN && r && (a.refN === r || a.refN.startsWith(r) || r.startsWith(a.refN) || toks.some((x) => a.refN.includes(x)))).map((a) => a.mo))];
+    if (hit.length) mos = hit;
+  }
+  return { mo: mos.join(', '), note: mos.length > 1 ? `PO có ${mos.length} MO` : '' };
+}
+/* gộp mọi báo cáo MO đang có (file ZMME0018 đã thả + cột Reference của chính file inbound) */
+function inkavaMoIndex(cInb) {
+  const idx = { byPo: {}, count: 0 };
+  const add = (m) => { if (!m) return; for (const po of Object.keys(m.byPo)) idx.byPo[po] = (idx.byPo[po] || []).concat(m.byPo[po]); idx.count += m.count; };
+  STATE.items.filter((x) => x.kind === 'mo').forEach((x) => add((CACHE.get(x.file) || {}).mo));
+  if (cInb && cInb.mo) add(cInb.mo);
+  return idx.count ? idx : null;
+}
+const isInkavaGroup = (g) => /INKAVA/i.test([g.supName, g.supTrained, g.fabName, g.inv && g.inv.fab && g.inv.fab.supplier].filter(Boolean).join(' '));
+function inkavaInfo(l, moIdx) {
+  const it = l.it || {};
+  const ref = it.refText || it.article || String(it.code || '').split(' · ')[0];
+  const hit0 = (l.hit || [])[0] || {};
+  /* không có tiền tố → tên team nằm trong Supplier Ref / mô tả / Order No của SAP (DTARENA3540 → ARENA, 4600007104-SS27-OW05-ARENA-1) */
+  const sapTxt = AZ([hit0.supRef, hit0.desc, hit0.spec, (l.alloc || []).map((a) => a.r && a.r.desc).join(' ')].filter(Boolean).join(' '));
+  const inTxt = ['ARENA', 'HADDAD', 'MANMADE'].find((t) => sapTxt.includes(t)) || (/(^|[^A-Z])DEC(ATHLON)?(?![A-Z])/.test(AZ(hit0.supRef) + ' ' + AZ(hit0.desc)) ? 'DEC' : '');
+  const team = inkavaTeamFor(ref) || inkavaTeamFor(hit0.supRef) || inkavaTeamFor(hit0.desc) || inTxt || '';
+  const m = inkavaMoFor(moIdx, l.sapPo || it.po, ref);
+  const qty = Number(it.qty), poQty = Number(l.sumQty);
+  const has = l.hasInb && !isNaN(qty) && qty > 0 && !isNaN(poQty) && poQty > 0;
+  const diff = has ? Math.round((qty - poQty) * 1000) / 1000 : null;
+  const pct = has ? (qty - poQty) / qty : null;
+  return { team, mo: m.mo, moNote: m.note, poQty: has ? poQty : null, diff, pct, check: has ? (pct <= INKAVA_TOL + 1e-12 ? 'OK' : '') : '' };
+}
+const fmtPct = (p) => (p == null || isNaN(p)) ? '' : (p > 0 ? '+' : '') + (p * 100).toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 2 }) + '%';
+const KIND_NAME = { inb: 'File inbound', inv: 'Hóa đơn', pkl: 'Packing list', po: 'PO SCAF-SCAX', fab: 'Chứng từ vải (HĐ+PKL)', pklx: 'Packing list Excel (theo PO)' , mo: 'Báo cáo MO (ZMME0018)' };
 const CACHE = new WeakMap();
 const STATE = { po: null, items: [], groups: [], busy: false };
 let RESULT = null;
@@ -1079,8 +1152,14 @@ async function classify(file) {
     const t = (head + ' ' + wb.worksheets.map((w) => w.name).join(' ')).replace(/\s+/g, ' ').toLowerCase();
     const sPo = hits(t, ['po no scax', 'po follow up', 'order quantity', 'agreed lead-time', 'pr no.']);
     const sInb = hits(t, ['purchasing document', 'invoice quantity', 'over tolerance qty', 'act. gds mvmnt date', 'external delivery id']);
-    const kind = sPo === 0 && sInb === 0 ? '' : (sPo >= sInb ? 'po' : 'inb');
-    if (kind === 'inb') {
+    let kind = sPo === 0 && sInb === 0 ? '' : (sPo >= sInb ? 'po' : 'inb');
+    /* báo cáo ZMME0018 (Purchasing Document + cột Reference = MOxxxx, không có Invoice Quantity / Invoice Number) → nguồn số MO cho Inkava */
+    let moIdx = null;
+    if (/purchasing document/.test(t) && !/po no scax|po follow up/.test(t)) { try { moIdx = readMoIndex(ws); } catch (e) { moIdx = null; } }
+    if (moIdx && !/invoice quantity|invoice number/.test(t)) kind = 'mo';   // "Purchase Order Quantity" của ZMME0018 dễ bị nhầm thành file PO SCAF-SCAX
+    if (kind === 'mo') {
+      out = { kind, score: 6, buf, mo: moIdx, pos: Object.keys(moIdx.byPo) };
+    } else if (kind === 'inb') {
       const H = headerIndex(ws);
       const pos = new Set();
       const partners = new Set();
@@ -1095,7 +1174,7 @@ async function classify(file) {
         partners.add(t.toUpperCase());
         if (v && !partnerByPo[v]) partnerByPo[v] = t.toUpperCase();
       }
-      out = { kind, score: sInb, buf, pos: [...pos], partners: [...partners], partnerByPo };   // không giữ workbook để đỡ tốn bộ nhớ
+      out = { kind, score: sInb, buf, pos: [...pos], partners: [...partners], partnerByPo, mo: moIdx };   // không giữ workbook để đỡ tốn bộ nhớ
     } else if (kind === 'po') {
       out = { kind, score: sPo, buf, wb };
     } else {
@@ -1330,6 +1409,7 @@ async function acceptFilesNow(list) {
       continue;
     }
     if (c.kind === 'po') { STATE.po = f; continue; }
+    if (c.kind === 'mo') notices.push(`${f.name}: báo cáo MO (ZMME0018) — ${c.mo.count} dòng, ${Object.keys(c.mo.byPo).length} PO — dùng điền cột MO cho hóa đơn Inkava`);
     const key = f.name + '|' + dirOf(f) + '|' + f.size;
     if (STATE.items.some((x) => x.key === key)) continue;
     STATE.items.push({ file: f, kind: c.kind, dir: dirOf(f), key });
@@ -2357,6 +2437,8 @@ async function run() {
         else rows = readInbRows(wsSap, H);
       }
       const { lines, VAL } = doAnalyze(rows);
+      /* Inkava: TEAM · MO · % lệch (thêm cột, không đổi cách đối chiếu) */
+      if (isInkavaGroup(g)) { const moIdx = inkavaMoIndex(cInb); for (const l of lines) { try { l.ink = inkavaInfo(l, moIdx); } catch (e) { l.ink = null; } } }
       if (g.inb && g.isFab) {
         const nxt = new Map(pre || []);
         for (const l of lines) for (const a of (l.alloc || [])) if (a.r != null) nxt.set(a.r, (nxt.get(a.r) || 0) + a.qty);
@@ -2641,18 +2723,21 @@ function writeInvoiceReport(rs, R, inv, lines, VAL, g, withWidths) {
   if (!isNaN(inv.vat)) put(R++, ['Tiền thuế GTGT (hóa đơn)', inv.vat]);
   if (!isNaN(inv.payment)) put(R++, ['Tổng cộng tiền thanh toán (hóa đơn)', inv.payment]);
   R++;
+  const inkInv = lines.some((l) => l.ink);
   put(R++, ['Item', 'PO (hóa đơn)', 'Loại PO', 'PO SAP', 'SL hóa đơn', 'SL inbound', 'SL packing', 'Lệch SL',
-    'Đơn giá HĐ', 'Đơn giá inbound', 'Thành tiền HĐ', 'Thành tiền inbound', 'Lệch tiền', 'Kết quả', 'Ghi chú'], true, 'FFDDEBF7');
+    'Đơn giá HĐ', 'Đơn giá inbound', 'Thành tiền HĐ', 'Thành tiền inbound', 'Lệch tiền', 'Kết quả', 'Ghi chú'].concat(inkInv ? ['TEAM', 'MO', 'SL PO', 'Chênh (HĐ − PO)', 'Tỷ lệ', 'CHECK (≤ 3 %)'] : []), true, 'FFDDEBF7');
   for (const l of lines) {
     const red = l.priceBad || l.amtBad;
     const rr = R;
+    const k = l.ink;
     put(R++, [l.it.code, l.it.po, l.it.poVia || '(?)', l.sapPo || '(không tìm thấy)', l.it.qty,
       l.hasInb ? l.base : '', l.pklTotal || '', l.hasInb ? l.base - l.it.qty : '',
       isNaN(l.it.price) ? '' : l.it.price, l.inbPrices.join(' / '),
       isNaN(l.it.amount) ? '' : l.it.amount, l.hasInb ? l.inbAmount : '',
       (l.hasInb && !isNaN(l.it.amount)) ? l.inbAmount - l.it.amount : '',
-      l.status, l.note], false,
+      l.status, l.note].concat(inkInv ? (k ? [k.team || '', k.mo || '', k.poQty == null ? '' : k.poQty, k.diff == null ? '' : k.diff, k.pct == null ? '' : k.pct, k.check || (k.pct != null ? 'LỆCH' : '')] : ['', '', '', '', '', '']) : []), false,
       isOkK(l.status) ? null : (red ? 'FFFFC7CE' : 'FFFFF2CC'));
+    if (k && k.pct != null) rs.getCell(rr, 20).numFmt = '0.0%';
     if (red) rs.getCell(rr, 14).font = { bold: true, color: { argb: 'FFC00000' } };
   }
   R++;
@@ -2724,16 +2809,20 @@ function buildSummaryWorkbook(wb, all) {
   }
 
   const d = wb.addWorksheet('CHI TIET');
+  const inkAny = all.some((a) => a.lines.some((l) => l.ink));   // có hóa đơn Inkava → thêm cột TEAM · MO · SL PO · Chênh · Tỷ lệ · CHECK
   head(d, ['Hóa đơn', 'Ngày', 'Item', 'PO (hóa đơn)', 'Loại PO', 'PO SAP', 'SL hóa đơn', 'SL inbound', 'SL packing',
-    'Lệch SL', 'Đơn giá HĐ', 'Đơn giá inbound', 'Thành tiền HĐ', 'Thành tiền inbound', 'Lệch tiền', 'Kết quả', 'Ghi chú'],
-    [20, 12, 11, 18, 9, 13, 11, 11, 11, 10, 11, 14, 14, 15, 12, 15, 70]);
+    'Lệch SL', 'Đơn giá HĐ', 'Đơn giá inbound', 'Thành tiền HĐ', 'Thành tiền inbound', 'Lệch tiền', 'Kết quả', 'Ghi chú'].concat(inkAny ? ['TEAM', 'MO', 'SL PO', 'Chênh (HĐ − PO)', 'Tỷ lệ', 'CHECK (≤ 3 %)'] : []),
+    [20, 12, 11, 18, 9, 13, 11, 11, 11, 10, 11, 14, 14, 15, 12, 15, 70].concat(inkAny ? [10, 14, 11, 12, 9, 10] : []));
   for (const a of all) {
     for (const l of a.lines) {
+      const k = l.ink;
       d.addRow([invLabel(a), a.inv.invDate, l.it.code, l.it.po, l.it.poVia || '', l.sapPo || '', l.it.qty,
         l.hasInb ? l.base : '', l.pklTotal || '', l.hasInb ? l.base - l.it.qty : '',
         isNaN(l.it.price) ? '' : l.it.price, l.inbPrices.join(' / '),
         isNaN(l.it.amount) ? '' : l.it.amount, l.hasInb ? l.inbAmount : '',
-        (l.hasInb && !isNaN(l.it.amount)) ? l.inbAmount - l.it.amount : '', l.status, l.note]);
+        (l.hasInb && !isNaN(l.it.amount)) ? l.inbAmount - l.it.amount : '', l.status, l.note]
+        .concat(inkAny ? (k ? [k.team || '', k.mo || '', k.poQty == null ? '' : k.poQty, k.diff == null ? '' : k.diff, k.pct == null ? '' : k.pct, k.check || (k.pct != null ? 'LỆCH' : '')] : ['', '', '', '', '', '']) : []));
+      if (k && k.pct != null) d.getRow(d.rowCount).getCell(22).numFmt = '0.0%';
       paint(d, (l.priceBad || l.amtBad) ? 'FFFFC7CE' : (isOk(l.status) ? null : 'FFFFF2CC'));
     }
   }
@@ -2841,15 +2930,19 @@ function renderAll(all) {
         <div class="lines"><span>Tiền hàng HĐ: <b>${fmt(a.VAL.invTotal)}</b></span><span>Theo inbound: <b>${fmt(a.VAL.inbTotal)}</b></span><span>Lệch: <b>${a.VAL.totalDiff > 0 ? '+' : ''}${fmt(a.VAL.totalDiff)}</b></span></div>
         ${a.VAL.valueLines.map((l) => `<div class="li">• <b>${esc(l.it.code)} / ${esc(l.it.po)}</b>: ${esc(l.note)}</div>`).join('')}</div>`;
     }
-    h += '<table><thead><tr><th>Item</th><th>PO</th><th>PO SAP</th><th class="n">SL HĐ</th><th class="n">SL inbound</th><th class="n">SL packing</th><th class="n">Giá HĐ</th><th class="n">Giá inb.</th><th>Kết quả</th><th>Ghi chú</th></tr></thead><tbody>';
+    const ink = a.lines.some((l) => l.ink);
+    h += '<table><thead><tr><th>Item</th><th>PO</th><th>PO SAP</th><th class="n">SL HĐ</th><th class="n">SL inbound</th><th class="n">SL packing</th><th class="n">Giá HĐ</th><th class="n">Giá inb.</th><th>Kết quả</th>'
+      + (ink ? '<th>TEAM</th><th>MO</th><th class="n">SL PO</th><th class="n">Chênh</th><th class="n">Tỷ lệ</th><th>CHECK</th>' : '') + '<th>Ghi chú</th></tr></thead><tbody>';
     for (const l of a.lines) {
       const ok = isOkK(l.status);
+      const k = l.ink || {};
+      const inkTd = ink ? `<td>${esc(k.team || '')}</td><td>${esc(k.mo || '')}${k.moNote ? ` <span class="tag warnt">${esc(k.moNote)}</span>` : ''}</td><td class="n">${k.poQty != null ? fmt(k.poQty) : '—'}</td><td class="n">${k.diff != null ? fmt(k.diff) : '—'}</td><td class="n">${esc(fmtPct(k.pct))}</td><td>${k.check ? '<span class="tag good">OK</span>' : (k.pct != null ? '<span class="tag bad">lệch</span>' : '')}</td>` : '';
       h += `<tr class="${ok ? '' : 'warn'}"><td>${esc(l.it.code)}</td>
         <td>${esc(l.it.po)}${l.it.poVia ? ` <span class="tag via">${esc(l.it.poVia)}</span>` : ''}</td>
         <td>${esc(l.sapPo || '—')}</td><td class="n">${fmt(l.it.qty)}</td>
         <td class="n">${l.hasInb ? fmt(l.base) : '—'}</td><td class="n">${l.pklTotal ? fmt(l.pklTotal) : '—'}</td>
         <td class="n">${fmt(l.it.price)}</td><td class="n ${l.priceBad ? 'bad' : ''}"><b>${l.inbPrices.map(fmt).join(' / ') || '—'}</b></td>
-        <td><span class="tag ${ok ? 'good' : 'bad'}">${esc(l.status)}</span></td><td class="note">${esc(l.note)}</td></tr>`;
+        <td><span class="tag ${ok ? 'good' : 'bad'}">${esc(l.status)}</span></td>${inkTd}<td class="note">${esc(l.note)}</td></tr>`;
     }
     h += '</tbody></table></details>';
   }

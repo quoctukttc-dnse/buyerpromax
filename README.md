@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.37 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.38 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -358,6 +358,20 @@ dò theo mã + **tổng** chỗ còn nhận của PO (cộng các dòng cùng m�
 Bộ thử `1C26TVN#00000476` (5 dòng, 36.300 cái) + inbound KYH0000300/400/500/600: 5/5 dòng ghép đúng PO, 15 dòng inbound được điền,
 tổng từng dòng hóa đơn đúng. Lưu ý: file inbound anh gửi đã điền sẵn số HĐ `1C26TVN#475` (không bù 0) trong khi hóa đơn là 476 — cần
 xác nhận lại đây là bộ của hóa đơn nào và quy ước ghi số HĐ.
+
+## Inkava — cột TEAM · MO · % lệch trong kết quả (v11.38)
+
+Theo công cụ "Đối chiếu hóa đơn Inkava" riêng của buyer, **hóa đơn Inkava** (mọi mẫu: trimming, PO SAP số thuần, gia công) có thêm 6 cột ở bảng kết quả,
+sheet *CHI TIET* của báo cáo tổng hợp và sheet *BAO CAO* của từng hóa đơn — các chủ hàng khác **không đổi**:
+- **TEAM**: theo tiền tố mã tham chiếu trên hóa đơn — `ARN-` → ARENA, `KNIT-` / `WTI-` → DEC, `LCB-` / `AOMDODQ` → HADDAD, `MANMADE` / `PRINTING CARELABEL`
+  → MANMADE; không có tiền tố thì lấy theo Supplier Ref / mô tả của dòng SAP đã ghép (`DTARENA3540` → ARENA, `KNIT-SS26-351469` → DEC).
+- **MO**: từ báo cáo **ZMME0018** (cột *Reference* = `MOxxxx`) — thả file này cùng bộ chứng từ, công cụ nhận là "Báo cáo MO" (không nhầm thành inbound hay
+  PO SCAF-SCAX), tra theo PO SAP; PO có nhiều MO thì lọc theo mã tham chiếu, còn nhiều vẫn ghi hết kèm ghi chú "PO có n MO". File ZMME0032 có cột
+  Reference dạng MO cũng dùng được.
+- **SL PO** = tổng *Quantity* của các dòng inbound đã ghép với dòng hóa đơn; **Chênh** = SL hóa đơn − SL PO; **Tỷ lệ** = Chênh / SL hóa đơn (định dạng %);
+  **CHECK** = OK khi tỷ lệ ≤ 3 % (giao thiếu → âm → OK; giao vượt quá 3 % → LỆCH).
+Thử HĐ 750 (PO SAP): TEAM trống (mã `AOMDOAP06` chưa có quy tắc), MO theo PO, chênh −10 / −11 (−0,07 % / −0,04 %) → OK; HĐ 760: TEAM ARENA (từ
+`DTARENA3540`), SL PO 88.141 của cả mã, chênh −68.590 → OK (giao một phần). Cách đối chiếu và file INB không thay đổi.
 
 ## Inkava — hóa đơn 750: đơn vị PAIR, một dòng hóa đơn cho cả PO nhiều size (v11.37)
 

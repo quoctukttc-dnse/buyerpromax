@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.37)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.38)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1424,6 +1424,17 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   của chứng từ đó (sao chép nhóm), không qua bước chọn "best" một hóa đơn.
 - Kết quả set25: 8/8 HĐ, 29/29 dòng khớp PKL (38 kiện cho 7 HĐ, Σ 2.674; 30 kiện riêng cho HĐ 5267, Σ 2.521); inbound ZMME 29 dòng →
   29/29 KHỚP, 8 file INB đúng PO, Σ IQ = Σ Quantity.
+
+## Thay đổi của v11.38 (09.11.2026) — Inkava: cột TEAM · MO · % lệch
+
+- `INKAVA_TEAMS` + `inkavaTeamFor(ref)` (tiền tố dài nhất thắng); `inkavaInfo(l, moIdx)` → `{team, mo, moNote, poQty = l.sumQty, diff, pct, check}`,
+  team dự phòng từ Supplier Ref / mô tả dòng SAP (tên team nằm trong chữ: ARENA / HADDAD / MANMADE, DEC(ATHLON)). `INKAVA_TOL = 0.03`.
+- `readMoIndex(ws)`: dòng 1 có `Purchasing Document`; cột MO = `Reference` nếu > 50 % ô dạng `MO\d+`, không thì quét cột khác; trả `{byPo: {PO: [{ref, refN, mo}]}, count}`.
+  `classify` Excel: có `purchasing document`, không phải file PO SCAF-SCAX, có cột MO và **không** có `invoice quantity` / `invoice number` → `kind = 'mo'`
+  (ZMME0018 có "Purchase Order Quantity" nên trước đây rơi vào `po` và làm `readPoWb` lỗi); file inbound có cột MO → `out.mo`. `KIND_NAME.mo`.
+- `inkavaMoIndex(cInb)` gộp mọi file `mo` + `cInb.mo`; `inkavaMoFor(idx, po, ref)`: nhiều MO → lọc theo refN (bằng / tiền tố / token ≥ 4 ký tự).
+- `run()`: `isInkavaGroup(g)` (supName / supTrained / fabName / fab.supplier có INKAVA) → `l.ink` cho từng dòng. `renderAll`, `buildSummaryWorkbook`
+  (CHI TIET, cột 18–23, cột 22 `0.0%`), `writeInvoiceReport` (BAO CAO) thêm cột chỉ khi có dòng `ink`.
 
 ## Thay đổi của v11.37 (09.11.2026) — Inkava PO SAP: đơn vị PAIR (HĐ 750)
 
