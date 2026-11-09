@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.35 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.36 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -282,6 +282,19 @@ lên 20/32 bộ trùng). OCR một hóa đơn mất khoảng 60–90 giây, có 
   đơn giá/m = giá/100, phụ phí dòng cộng vào thành tiền ↔ Surcharge Item. Packing list PDF riêng (`readPioneerPkl`, cùng mã lô HET + PO)
   ghép theo PO + mã + màu. Bộ `MF2616171` (19 dòng, 9 PO): 19/19 đúng, khớp 100 % điền tay (trước đây 5 dòng CẦN KIỂM TAY). Bộ cũ
   `MF2615049` + PKL: 5/5 đúng, 1 cảnh báo thật: dòng PEA0014500 hóa đơn cộng phụ phí 130 USD nhưng PO không có Surcharge Item.
+
+## Inkava phụ liệu — hóa đơn 760: packing list ghi nhiều đợt giao (cột "đợt 1 … đợt 4") (v11.36)
+
+Cùng PO DUY0111500 với HĐ 747, Inkava gửi lại packing list đã **đổi cột `Quantity Ship` thành bốn cột `đợt 1 | đợt 2 | đợt 3 | đợt 4`** (+ `Thực
+xuất` trống): dòng đầu mỗi nhóm mã ghi tổng giao của từng đợt (mã `ALABPRWV0496`: PO 88.141 = 9.161 + 1.516 + 19.551 + 57.913), vẫn không ghi
+giao dòng nào. HĐ `1C26TKV#00000760` (07.11.2026) giao 19.551 nhãn size `ALABPRWV0496` = đợt 3. Tool (`readPklx`) nay nhận cột `đợt k`: mỗi đợt là
+một **phương án** riêng (sheet ảo `Sheet · đợt k`); nhóm có số ở đợt k được chia theo thứ tự dòng packing list **tiếp sau phần các đợt trước**
+(đợt 1 lấy từ dòng đầu, đợt 2 tiếp theo, …); khi đối chiếu, tool chọn đợt có tổng bằng số hóa đơn (ghi chú "đã lấy cột đợt 3 (28 dòng) = 19.551")
+và vẫn cảnh báo "⚠ chỉ ghi TỔNG giao … đã chia theo thứ tự dòng". Kết quả: 1/1 `KHỚP`, 28 dòng inbound, Σ Invoice Quantity 19.551, không dòng nào
+vượt chỗ còn nhận (Over Tolerance − Delivered), tổng tiền 3.343.221 đ khớp.
+**Kiểm chứng quy tắc chia theo thứ tự dòng:** cột *Delivered Qty* trong file ZMME của PO này (đã nhập kho HĐ 747 = đợt 1) đúng bằng cách tool đã
+chia đợt 1 theo thứ tự dòng (8886: 4.141 · 2878: 1.731 · 10573: 708 · 10648: 337 · 10807: 670 · 10950: 511 · 11576: 1.063) — SAP xác nhận cách chia này.
+Riêng đợt 2 (1.516) SAP ghi vào 8886 (không theo thứ tự dòng) nên khi Inkava giao lệch thứ tự, buyer vẫn cần kiểm lại như cảnh báo.
 
 ## Inkava phụ liệu — hóa đơn 747: cột "Quantity Ship", nhóm giao một phần (v11.32)
 

@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.35)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.36)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1424,6 +1424,18 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   của chứng từ đó (sao chép nhóm), không qua bước chọn "best" một hóa đơn.
 - Kết quả set25: 8/8 HĐ, 29/29 dòng khớp PKL (38 kiện cho 7 HĐ, Σ 2.674; 30 kiện riêng cho HĐ 5267, Σ 2.521); inbound ZMME 29 dòng →
   29/29 KHỚP, 8 file INB đúng PO, Σ IQ = Σ Quantity.
+
+## Thay đổi của v11.36 (09.11.2026) — packing list Excel ghi nhiều đợt giao (cột "đợt k", Inkava HĐ 760)
+
+- `readPklx`: `C.dots` = các cột tiêu đề `đợt \d+` (có số) sau cột Quantity; khi có `dots` → `C.grpTot = q2` (tổng nhóm), `C.ship` = `Thực xuất` nếu có
+  số, không thì 0. Mỗi nhóm (dòng đầu có tổng nhóm) nhớ `dots[k]`. Sau khi đọc xong, với mỗi đợt k có số: tạo bản sao các dòng của mọi nhóm với
+  `sheet = tên sheet + ' · đợt k'`, `ship = dots[k]`, chia FIFO theo thứ tự dòng **sau khi bỏ qua** Σ dots[j<k] (phần các đợt trước), `inShip`
+  = ship > 0, `partial` = ship < sum, `dot = k`; nhóm không giao đợt k → qty 0. `total` chỉ tính dòng gốc; trả thêm `dots`.
+- `analyze` (chọn set): sheet ảo ` · đợt k` chỉ sinh **một** phương án `cột "đợt k" (n dòng)` (không thêm "bỏ dòng lọc ẩn"/"tất cả"); ghi chú
+  partial nêu cột đợt và "tiếp sau phần các đợt trước".
+- HĐ 760: 1/1 KHỚP, 28 dòng, Σ 19.551; Delivered Qty của SAP trùng cách chia đợt 1 (HĐ 747) → quy tắc FIFO theo dòng được xác nhận.
+- Môi trường dựng bị khởi động lại: thư viện `src/vendor/` khôi phục bằng `src/extract.py` từ `index.html`; bộ hồi quy 32 bộ (lô 07.10) trong
+  scratchpad đã mất — thay đổi lần này chỉ chạy khi packing list có cột `đợt`, các nhánh khác giữ nguyên.
 
 ## Thay đổi của v11.35 (08.11.2026) — mẫu riêng Phú Cường Plus
 

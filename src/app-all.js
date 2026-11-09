@@ -1171,7 +1171,11 @@ function readPklx(ws, fname) {
       else if (/^Th[ựu]c\s*xu[ấa]t$/i.test(t) && !thuc) thuc = c;
       else if (/^Quantity$/i.test(t) && !q2) q2 = c;
     }
-    if (shipCol && hasNum(shipCol)) { C.ship = shipCol; C.grpTot = q2; }
+    /* cột "đợt 1 | đợt 2 | …" (PO DUY0111500 từ HĐ 760): mỗi đợt một số giao ở dòng đầu nhóm → mỗi đợt là một phương án (sheet ảo "… · đợt k") */
+    C.dots = [];
+    for (let c = C.qty + 1; c <= 25; c++) { const m = txt(hr, c).normalize('NFC').match(/^(?:đ|Đ|d|D)(?:ợ|ơ|o|Ợ|Ơ|O)t\s*(\d+)$/); if (m && hasNum(c)) C.dots.push({ k: Number(m[1]), c }); }
+    if (C.dots.length) { C.ship = thuc && hasNum(thuc) ? thuc : 0; C.grpTot = q2; }
+    else if (shipCol && hasNum(shipCol)) { C.ship = shipCol; C.grpTot = q2; }
     else if (thuc && hasNum(thuc)) { C.ship = thuc; C.grpTot = q2; }
     else if (q2) C.ship = q2;
   }
@@ -1190,7 +1194,11 @@ function readPklx(ws, fname) {
     const shipV = C.ship ? num(cellV(C.ship)) : NaN;
     const grpTotV = C.grpTot ? num(cellV(C.grpTot)) : NaN;
     /* dòng đầu nhóm: có số ở cột shipped, hoặc có số ở cột tổng nhóm (nhóm giao 0 — không thuộc đợt này) */
-    if ((!isNaN(shipV) && shipV > 0) || (!isNaN(grpTotV) && grpTotV > 0)) { grpHead = { hid, ship: !isNaN(shipV) && shipV > 0 ? shipV : 0, sum: 0, rows: [] }; groups.push(grpHead); }
+    if ((!isNaN(shipV) && shipV > 0) || (!isNaN(grpTotV) && grpTotV > 0)) {
+      grpHead = { hid, ship: !isNaN(shipV) && shipV > 0 ? shipV : 0, sum: 0, rows: [], dots: {} };
+      (C.dots || []).forEach((d) => { const v = num(cellV(d.c)); grpHead.dots[d.k] = !isNaN(v) && v > 0 ? v : 0; });
+      groups.push(grpHead);
+    }
     const row = {
       material: mat.replace(/\s+/g, '').toUpperCase(), ref: txt(r, C.ref), spec: txt(r, C.spec),
       size: txt(r, C.size).replace(/\s+/g, '').toUpperCase().replace(/^UNKNOWN$/, ''), order: txt(r, C.order).trim(), qty: q, qtyPo: q, sheet: ws.name, hid,
@@ -1207,7 +1215,31 @@ function readPklx(ws, fname) {
     g.partial = true; let left = g.ship;
     for (const rw of g.rows) { const take = Math.min(left, rw.qtyPo); rw.qty = Math.round(take * 1000) / 1000; rw.partial = true; left = Math.round((left - take) * 1000) / 1000; }
   }
-  return { po, poFrom, rows, hidden, total: rows.reduce((a, b) => a + b.qty, 0) };
+  const total = rows.reduce((a, b) => a + b.qty, 0);
+  /* cột "đợt k": phương án riêng cho từng đợt — nhóm có số ở đợt k thì giao đúng số đó, chia theo thứ tự dòng SAU phần các đợt trước
+     (đợt 1 lấy từ dòng đầu, đợt 2 tiếp theo, …). SAP (Delivered Qty của PO DUY0111500) đã xác nhận đợt 1 chia đúng theo thứ tự dòng. */
+  if ((C.dots || []).length) {
+    const ks = [...new Set(C.dots.map((d) => d.k))].sort((a, b) => a - b);
+    for (const k of ks) {
+      if (!groups.some((g) => g.dots[k] > 0)) continue;
+      const sheet = ws.name + ' · đợt ' + k;
+      for (const g of groups) {
+        const ship = g.dots[k] || 0;
+        let skip = ks.filter((j) => j < k).reduce((a, j) => a + (g.dots[j] || 0), 0);
+        const g2 = { hid: g.hid, ship, sum: g.sum, rows: [], dots: g.dots, dot: k, partial: ship > 0 && ship < g.sum - 0.5 };
+        let left = ship;
+        for (const rw of g.rows) {
+          let avail = rw.qtyPo;
+          if (skip > 0) { const s0 = Math.min(skip, avail); skip = Math.round((skip - s0) * 1000) / 1000; avail = Math.round((avail - s0) * 1000) / 1000; }
+          const take = left > 0 ? Math.min(left, avail) : 0;
+          left = Math.round((left - take) * 1000) / 1000;
+          const r2 = Object.assign({}, rw, { sheet, qty: Math.round(take * 1000) / 1000, ship: ship > 0 ? ship : NaN, inShip: !g.hid && ship > 0, grp: g2, partial: g2.partial, dot: k });
+          g2.rows.push(r2); rows.push(r2);
+        }
+      }
+    }
+  }
+  return { po, poFrom, rows, hidden, total, dots: (C.dots || []).map((d) => d.k) };
 }
 /* gộp mọi sheet packing list trong một file; mỗi dòng nhớ tên sheet để chọn đúng sheet khi đối chiếu */
 function readPklxWb(wb, fname) {
@@ -1871,6 +1903,8 @@ function analyze(inv, pkl, rows, po, pklx) {
             /* nhóm theo cột "Quantity shipped": dòng đầu nhóm đang hiện → cả nhóm (kể cả dòng ẩn phía dưới) là hàng giao đợt này */
             const grpOk = all.some((rw) => rw.inShip !== undefined) && all.filter((rw) => rw.grp).every((rw) => Math.abs(rw.grp.sum - rw.grp.ship) < 0.5 || rw.grp.hid || rw.grp.partial || !(rw.grp.ship > 0));
             const shipRows = grpOk ? all.filter((rw) => rw.inShip === true && rw.qty > 0) : [];
+            const dotM = n.match(/ · (đợt \d+)$/);
+            if (dotM) { if (shipRows.length) sets.push({ n, lab: `cột "${dotM[1]}" (${shipRows.length} dòng)`, r: shipRows, partial: shipRows.some((rw) => rw.partial) }); return; }   // sheet ảo theo đợt: chỉ một phương án
             if (shipRows.length && shipRows.length < all.length) sets.push({ n, lab: `"${n}" (theo nhóm cột Quantity shipped, ${shipRows.length} dòng)`, r: shipRows, partial: shipRows.some((rw) => rw.partial) });
             const vis = all.filter((rw) => !rw.hid);
             if (vis.length && vis.length < all.length) sets.push({ n, lab: `"${n}" (bỏ ${all.length - vis.length} dòng lọc ẩn)`, r: vis });
@@ -1882,7 +1916,7 @@ function analyze(inv, pkl, rows, po, pklx) {
           if (ok) {
             rws = ok.r; done = true;
             if (sets.length > 1) xNote = `Packing list có ${sets.length} cách tính cho mã này (${desc()}) — đã lấy ${ok.lab} = ${fmt(it.qty)} khớp hóa đơn. `;
-            if (ok.partial) xNote += `⚠ Packing list chỉ ghi TỔNG giao ${fmt(it.qty)} cho nhóm mã này (${ok.r.filter((rw) => rw.qty > 0).length} dòng), không ghi giao dòng nào — đã chia theo thứ tự dòng packing list, kiểm lại nếu Inkava giao đơn khác. `;
+            if (ok.partial) { const dk = (ok.r.find((rw) => rw.dot) || {}).dot; xNote += `⚠ Packing list chỉ ghi TỔNG giao ${fmt(it.qty)}${dk ? ` ở cột "đợt ${dk}"` : ''} cho nhóm mã này (${ok.r.filter((rw) => rw.qty > 0).length} dòng), không ghi giao dòng nào — đã chia theo thứ tự dòng packing list${dk > 1 ? ` tiếp sau phần các đợt trước` : ''}, kiểm lại nếu Inkava giao đơn khác. `; }
           }
           if (!done) {
             for (const x of sets) {
