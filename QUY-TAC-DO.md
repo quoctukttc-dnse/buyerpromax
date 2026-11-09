@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.36)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.37)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1424,6 +1424,13 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   của chứng từ đó (sao chép nhóm), không qua bước chọn "best" một hóa đơn.
 - Kết quả set25: 8/8 HĐ, 29/29 dòng khớp PKL (38 kiện cho 7 HĐ, Σ 2.674; 30 kiện riêng cho HĐ 5267, Σ 2.521); inbound ZMME 29 dòng →
   29/29 KHỚP, 8 file INB đúng PO, Σ IQ = Σ Quantity.
+
+## Thay đổi của v11.37 (09.11.2026) — Inkava PO SAP: đơn vị PAIR (HĐ 750)
+
+- `readInkavaPo`: `NUM` nhận thêm đơn vị `PAIRS?|PRS?|Cặp|Đôi|Cuộn|Tấm` (PAIR → `unitKey` → PAA). Trước đó HĐ 750 rơi về `headerOnly`
+  ("Chưa có hóa đơn nào").
+- HĐ 750: 2/2 `KHỚP (chia nhiều dòng)` — mã `AOMDOAP06` không có trong PO → `refAbsent` rỗng (không có mã cùng họ) → pool = cả PO (4 size cùng
+  Material) → FIFO theo dòng, Σ 15.000 + 25.000.
 
 ## Thay đổi của v11.36 (09.11.2026) — packing list Excel ghi nhiều đợt giao (cột "đợt k", Inkava HĐ 760)
 

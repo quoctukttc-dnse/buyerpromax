@@ -1532,7 +1532,7 @@ function readInkavaPo(lines) {
   const invNo = serial && no ? `${serial}#${no.padStart(8, '0')}` : no;
   const dm = t.match(/Ng[àa]y\s*(\d{1,2})\s*th[áa]ng\s*(\d{1,2})\s*n[ăa]m\s*(\d{4})/i);
   const invDate = dm ? dmy(dm[1], dm[2], dm[3]) : '';
-  const NUM = /^(\d{1,3})\s+(.*?)\s*(PCS|PC|C[áa]i|B[ộo]|SET|M|KG|YDS?)\s+([\d.]+,\d{2})\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)$/i;
+  const NUM = /^(\d{1,3})\s+(.*?)\s*(PCS|PC|C[áa]i|B[ộo]|SET|M|KG|YDS?|PAIRS?|PRS?|C[ặa]p|Đ[ôo]i|Cu[ộo]n|T[ấa]m)\s+([\d.]+,\d{2})\s+([\d.]+(?:,\d+)?)\s+([\d.]+(?:,\d+)?)$/i;   // HĐ 750: đơn vị PAIR (↔ PAA)
   const POL = /^PO(45\d{8})-\s*(.*)$/;
   const SKIP = /^STT\b|tiep theo trang|^\d+\/\d+$|^Tổng số lượng|^Cộng tiền|^Số tiền viết/i;
   const blocks = [];

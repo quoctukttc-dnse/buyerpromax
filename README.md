@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.36 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.37 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -358,6 +358,16 @@ dò theo mã + **tổng** chỗ còn nhận của PO (cộng các dòng cùng m�
 Bộ thử `1C26TVN#00000476` (5 dòng, 36.300 cái) + inbound KYH0000300/400/500/600: 5/5 dòng ghép đúng PO, 15 dòng inbound được điền,
 tổng từng dòng hóa đơn đúng. Lưu ý: file inbound anh gửi đã điền sẵn số HĐ `1C26TVN#475` (không bù 0) trong khi hóa đơn là 476 — cần
 xác nhận lại đây là bộ của hóa đơn nào và quy ước ghi số HĐ.
+
+## Inkava — hóa đơn 750: đơn vị PAIR, một dòng hóa đơn cho cả PO nhiều size (v11.37)
+
+HĐ `1C26TKV#00000750` (05.11.2026): `1 PO4500019370- AOMDOAP06 PAIR 15.000,00 7.400 111.000.000` — đơn vị **PAIR** không có trong danh sách đơn vị
+của bộ đọc Inkava PO SAP (`PCS|PC|Cái|Bộ|SET|M|KG|YDS`) nên dòng hàng không được nhận, hóa đơn chỉ còn phần đầu ("Chưa có hóa đơn nào"). Sửa: nhận
+thêm `PAIR(S)|PR(S)|Cặp|Đôi|Cuộn|Tấm` (PAIR ↔ PAA của SAP). Mã `AOMDOAP06` không có trong inbound (Supplier Ref ghi `FULL 3-STRIPES LOGO Size M #95…`),
+PO có 4 dòng cùng Material `SPRIPSZZ0046` theo size M/L/XL/XXL → tool chia 15.000 theo thứ tự dòng, mỗi dòng tối đa phần còn nhận
+(`KHỚP (chia nhiều dòng)`: 1.952 + 5.404 + 4.954 + 2.690; PO 4500019287: 3.502 + 9.003 + 8.504 + 3.991 = 25.000). Σ Invoice Quantity 40.000 = Tổng số
+lượng hóa đơn, đơn giá 7.400 khớp, tổng tiền 296.000.000 đ khớp. Dòng size cuối mỗi PO nhận phần còn lại (ít hơn PO 10–11 cặp) — nếu Inkava giao
+thiếu ở size khác thì sửa tay.
 
 ## Inkava — hóa đơn GTGT ghi thẳng PO SAP số thuần (v11.18)
 
