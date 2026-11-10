@@ -2071,12 +2071,29 @@ function analyze(inv, pkl, rows, po, pklx) {
       const sz = (h) => String(h.size || '').replace(/\s+/g, '').toUpperCase().replace(/^UNKNOWN$/, '');
       const left = {};
       Object.keys(xMap).forEach((k) => { if (k[0] !== '~') left[k] = xMap[k]; });
-      const give = (hs, take) => hs.forEach((h, i) => {
-        const cap = isNaN(h.qty) ? 0 : h.qty;
-        const want = i === hs.length - 1 ? Infinity : cap;
-        const v = Math.round(take(want) * 1000) / 1000;   // tổng các dòng lẻ của packing list (1388,456 + …) có sai số dấu phẩy động
-        h.setQty = v > 0 ? v : null; xCov += Math.max(v, 0);
-      });
+      /* chỗ còn nhận của dòng inbound: Quantity − Delivered (lượt 1) rồi tới Over Tolerance − Delivered (lượt 2); phần dư cuối cùng rót vào dòng cuối.
+         Trước đây mỗi dòng lấy đủ Quantity bất kể đã nhập kho bao nhiêu → dòng đã giao một phần (HĐ 761, PO DUY0111500) bị ghi vượt dung sai. */
+      const remainOf = (h) => Math.max(0, (isNaN(h.qty) ? 0 : h.qty) - (isNaN(h.deliv) ? 0 : h.deliv));
+      const roomOf = (h) => Math.max(0, (isNaN(h.overTol) ? (isNaN(h.qty) ? 0 : h.qty) : h.overTol) - (isNaN(h.deliv) ? 0 : h.deliv));
+      /* làm tròn số nguyên giữ đúng tổng (phần lẻ lớn nhất được +1): packing list Inkava ghi số lẻ (4140,462 / 670,538) nhưng SAP nhận số nguyên
+         cho nhãn (PC) — HĐ 761 từng ra 11083,526 + 8130,474 và bị SAP từ chối định dạng */
+      const roundKeep = (vals) => {
+        const tot = Math.round(vals.reduce((a, b) => a + b, 0));
+        const fl = vals.map((v) => Math.floor(v + 1e-9));
+        let need = tot - fl.reduce((a, b) => a + b, 0);
+        const order = vals.map((v, i) => [v - Math.floor(v + 1e-9), i]).sort((a, b) => b[0] - a[0]);
+        for (const [, i] of order) { if (need <= 0) break; fl[i] += 1; need--; }
+        return fl;
+      };
+      const give = (hs, take) => {
+        const vals = hs.map(() => 0);
+        hs.forEach((h, i) => { vals[i] = take(remainOf(h)); });
+        hs.forEach((h, i) => { const extra = roomOf(h) - vals[i]; if (extra > 1e-9) vals[i] += take(extra); });
+        const rest = take(Infinity); if (rest > 0) vals[hs.length - 1] += rest;
+        const intInb = hs.every((h) => /^(PC|PCS|PAA|SET|EA|ST|PR)$/i.test(String(h.unit || '').trim()) || isNaN(h.qty) || Number.isInteger(h.qty));   // đơn vị đếm → số nguyên dù PO SAP ghi lẻ (DUY0112600: 11.083,526)
+        const out = intInb ? roundKeep(vals) : vals.map((v) => Math.round(v * 1000) / 1000);   // tổng các dòng lẻ của packing list có sai số dấu phẩy động
+        hs.forEach((h, i) => { h.setQty = out[i] > 0 ? out[i] : null; xCov += Math.max(out[i], 0); });
+      };
       const g1 = {}, rest = [];
       hit.forEach((h) => {
         h.setQty = null;
@@ -2105,6 +2122,38 @@ function analyze(inv, pkl, rows, po, pklx) {
         }
         return got;
       }));
+      /* nhóm packing list chỉ ghi TỔNG giao (chia ước lượng theo thứ tự dòng): dòng inbound bị chia vượt chỗ còn nhận → chuyển phần vượt sang
+         dòng cùng mã còn chỗ; nếu tổng chia đúng bằng tổng còn lại (Quantity − Delivered) của các dòng → đợt giao cuối, ghi mỗi dòng đúng phần còn lại */
+      if (xRows.some((rw) => rw.partial)) {
+        const parts = [...new Set(xRows.filter((rw) => rw.partial).map((rw) => norm(rw.material)))];
+        for (const pm of parts) {
+          const hs = hit.filter((h) => matKeys(h.material).includes(pm) || norm(h.material).startsWith(pm));
+          if (hs.length < 2) continue;
+          const tot = hs.reduce((a, h) => a + (h.setQty || 0), 0);
+          if (tot <= 0) continue;
+          const remainSum = hs.reduce((a, h) => a + remainOf(h), 0);
+          if (Math.abs(tot - remainSum) < 0.5) {
+            const rv = hs.every((h) => /^(PC|PCS|PAA|SET|EA|ST|PR)$/i.test(String(h.unit || '').trim())) ? roundKeep(hs.map(remainOf)) : hs.map(remainOf);
+            hs.forEach((h, i) => { h.setQty = rv[i] > 0 ? rv[i] : null; });
+            xNote += `Đợt giao cuối của mã ${pm} — ghi mỗi dòng đúng phần còn lại của PO (Quantity − Delivered). `; continue;
+          }
+          let moved = 0;
+          const over = hs.filter((h) => (h.setQty || 0) > roomOf(h) + 1e-9);
+          for (const h of over) {
+            let ex = (h.setQty || 0) - roomOf(h);
+            h.setQty = roomOf(h) > 0 ? roomOf(h) : null;
+            for (const o of hs) {
+              if (o === h || ex <= 0) continue;
+              const free = roomOf(o) - (o.setQty || 0);
+              if (free <= 0) continue;
+              const v = Math.min(free, ex); o.setQty = (o.setQty || 0) + v; ex -= v; moved += v;
+            }
+            if (ex > 0) { h.setQty = (h.setQty || 0) + ex; }   // hết chỗ thật sự → để nguyên, bước sau báo vượt dung sai
+          }
+          if (moved > 0) xNote += `Chia theo thứ tự dòng làm ${over.length} dòng vượt chỗ còn nhận (SAP đã nhập đợt trước khác thứ tự) — đã chuyển ${fmt(Math.round(moved))} sang dòng cùng mã còn chỗ. `;
+        }
+        xCov = hit.reduce((a, h) => a + (h.setQty || 0), 0);
+      }
       xCov = Math.round(xCov * 1000) / 1000;
       /* packing list ≠ hóa đơn nhưng inbound chỉ có MỘT dòng cho mã này (HĐ 695: PKL 2.345, hóa đơn 2.342, PO 2.345)
          → số hóa đơn là số để nhập SAP, ghi theo hóa đơn và giữ cảnh báo lệch packing list trong ghi chú */

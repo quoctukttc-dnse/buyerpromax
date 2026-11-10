@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.38 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.39 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -358,6 +358,19 @@ dò theo mã + **tổng** chỗ còn nhận của PO (cộng các dòng cùng m�
 Bộ thử `1C26TVN#00000476` (5 dòng, 36.300 cái) + inbound KYH0000300/400/500/600: 5/5 dòng ghép đúng PO, 15 dòng inbound được điền,
 tổng từng dòng hóa đơn đúng. Lưu ý: file inbound anh gửi đã điền sẵn số HĐ `1C26TVN#475` (không bù 0) trong khi hóa đơn là 476 — cần
 xác nhận lại đây là bộ của hóa đơn nào và quy ước ghi số HĐ.
+
+## Inkava — hóa đơn 761: file INB bị SAP từ chối định dạng (v11.39)
+
+HĐ `1C26TKV#00000761` (10.11.2026, 66 dòng, 8 PO, 328 dòng inbound) đối chiếu khớp hết nhưng SAP báo file INB sai định dạng. Hai lỗi trong file tool xuất:
+1. **8 dòng Invoice Quantity lẻ** (`11083,526 + 8130,474`, `260,942 + 32,058`, `4839,05 + 8138,95`): PO DUY0112600 trên SAP đặt số lẻ cho hai dòng cùng
+   Spec (Distributor / Nhan size-12332 / L453), tool chia theo tỉ lệ đúng PO nhưng SAP không nhận số lẻ cho đơn vị PC. Sửa: với đơn vị đếm
+   (PC/PCS/PAA/SET) tool **làm tròn số nguyên giữ đúng tổng** (dòng có phần lẻ lớn nhất được +1): 11.084 + 8.130 = 19.214.
+2. **1 dòng vượt chỗ còn nhận**: PO DUY0111500 `Nhan size-8886` ghi 19.683 trong khi còn nhận 24.538,72 − 5.657 = 18.881,72 — đợt 4 (57.913) chia theo thứ tự
+   dòng packing list tiếp sau các đợt trước, nhưng SAP đã nhập đợt 2 vào 8886 không theo thứ tự. Sửa: khi chia packing list vào inbound, mỗi dòng lấy tối đa
+   *Quantity − Delivered* rồi tới *Over Tolerance − Delivered*; nhóm "chỉ ghi TỔNG giao" có dòng vượt chỗ thì chuyển phần vượt sang dòng cùng mã còn chỗ; tổng chia
+   bằng đúng tổng còn lại của PO → **đợt giao cuối**, ghi mỗi dòng đúng *Quantity − Delivered* (ghi chú "Đợt giao cuối của mã …").
+Kết quả sau sửa: 66/66 `KHỚP`, 328 dòng, Σ Invoice Quantity 731.572 = Tổng số lượng hóa đơn, không dòng lẻ, không dòng vượt chỗ còn nhận; HĐ 750 / 760 không đổi.
+**File INB của HĐ 761 xuất trước v11.39 cần xuất lại.**
 
 ## Inkava — cột TEAM · MO · % lệch trong kết quả (v11.38)
 

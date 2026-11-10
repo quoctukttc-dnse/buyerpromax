@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.38)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.39)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1424,6 +1424,15 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   của chứng từ đó (sao chép nhóm), không qua bước chọn "best" một hóa đơn.
 - Kết quả set25: 8/8 HĐ, 29/29 dòng khớp PKL (38 kiện cho 7 HĐ, Σ 2.674; 30 kiện riêng cho HĐ 5267, Σ 2.521); inbound ZMME 29 dòng →
   29/29 KHỚP, 8 file INB đúng PO, Σ IQ = Σ Quantity.
+
+## Thay đổi của v11.39 (10.11.2026) — chia packing list vào inbound: số nguyên, chặn theo chỗ còn nhận (Inkava HĐ 761)
+
+- `analyze` (khối `xMap`): `give(hs, take)` chia ba lượt — `remainOf` = Quantity − Delivered, rồi `roomOf` = Over Tolerance − Delivered, phần dư cuối
+  vào dòng cuối (trước: mỗi dòng lấy đủ Quantity, dòng cuối lấy hết). `roundKeep(vals)` làm tròn số nguyên giữ tổng (phần lẻ lớn nhất +1) khi đơn vị
+  dòng inbound là PC/PCS/PAA/SET/EA/ST/PR hoặc Quantity nguyên.
+- Nhóm `xRows` có `partial` (chỉ ghi tổng giao): theo từng mã, nếu Σ setQty ≈ Σ remainOf → đợt cuối, setQty = remainOf (làm tròn); ngược lại dòng
+  `setQty > roomOf` chuyển phần vượt sang dòng cùng mã còn chỗ (`moved`, ghi chú); hết chỗ thật → giữ để bước sau báo. `xCov` tính lại.
+- HĐ 761: 0 dòng lẻ, 0 dòng vượt chỗ (trước: 8 + 1); HĐ 750/760 không đổi.
 
 ## Thay đổi của v11.38 (09.11.2026) — Inkava: cột TEAM · MO · % lệch
 
