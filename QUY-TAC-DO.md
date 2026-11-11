@@ -1,4 +1,4 @@
-# Nguyên tắc dò của công cụ Inbound SAP (v11.39)
+# Nguyên tắc dò của công cụ Inbound SAP (v11.40)
 
 Tài liệu này mô tả **chính xác** cách công cụ tìm và so khớp dữ liệu, để bạn kiểm tra lại được
 mọi con số nó đưa ra. Không có "thông minh" gì cả — chỉ là một chuỗi luật ưu tiên, chạy theo
@@ -1424,6 +1424,32 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   của chứng từ đó (sao chép nhóm), không qua bước chọn "best" một hóa đơn.
 - Kết quả set25: 8/8 HĐ, 29/29 dòng khớp PKL (38 kiện cho 7 HĐ, Σ 2.674; 30 kiện riêng cho HĐ 5267, Σ 2.521); inbound ZMME 29 dòng →
   29/29 KHỚP, 8 file INB đúng PO, Σ IQ = Σ Quantity.
+
+## OF. Điền order form supplier từ PO SCAVI — `order.html` (từ v11.40, 11.11.2026)
+
+- **Kiến trúc**: `src/order.js` (IIFE, `OrderCore` xuất cho Node để kiểm thử) + `src/order-src.html`; `build.py` ghép thành `site/order.html` → `order.html`.
+  Không dùng ExcelJS: xlsx đọc/ghi ở mức zip + XML để giữ nguyên mọi phần không sửa.
+- **Zip**: `zipRead` (EOCD → central directory → entry {name, method, crc, csize, usize, time, date, extAttr, comp}); `zipEntryText` giải nén
+  `deflate-raw` bằng `DecompressionStream`; `zipWrite(zip, changed)` chép nguyên dữ liệu nén của entry không đổi, entry đổi nén lại bằng `CompressionStream`
+  (CRC32 tự tính), ghi lại local header + central directory + EOCD.
+- **Đọc sheet nhẹ**: `parseSharedStrings`, `parseSheetCells` (regex `<c …>`, thuộc tính `r` có thể không đứng đầu — PO SCAVI ghi `<c t="s" r="A18" s="22">`),
+  giá trị theo `t` (s / inlineStr / str / b / e / số); `openBook` đọc `workbook.xml` + `_rels` để ánh xạ tên sheet → đường dẫn.
+- **Ghi ô** `setCell(xml, ref, {num}|{text}, styleHint)`: tìm `<row r>` rồi `<c r>` trong sheetData (hỗ trợ self-closing), thay cả phần tử, giữ `s`;
+  chữ ghi `t="inlineStr"`; ô công thức không ghi đè; thiếu ô/dòng → chèn đúng thứ tự cột/dòng với style gợi ý (ô cùng cột phía trên). `forceRecalc`
+  thêm `fullCalcOnLoad="1"` vào `<calcPr>`.
+- **PO SCAVI** `readScaviPo`: dòng tiêu đề có `MATERIALCODE` + `QTY…`; cột theo nhãn; dòng hàng = `No.` số nguyên + Material; ngày serial → dd/mm/yyyy;
+  phần đầu theo nhãn → ô có giá trị kế bên phải (`PO No:`, `Order Date:`, `Supplier:`, `Buyer/Invoice To:`, `Address:` lần 2, `Tax Code:` lần 2); `etdMin`.
+  `parseSpec(spec, itemCode)`: style 6 số đầu; bỏ item code; phần còn lại `[COO-]màu-size`.
+- **Hồ sơ** `AVERY_ID_LABEL`: detect sheet có `UPC_BARCODE_IN` + cột "Quantity" cùng dòng; ưu tiên sheet `REGULAR`; plan: PO `AZ(supRef) === 'ID'`,
+  khóa `style|AZ(màu)|AZ(size)`; `zeroMissing` ghi 0; header theo nhãn `PO#`, `Order Date:`, `Request Ship Date:`, `BILL TO :`, `ADDRESS :` → ô kế phải, chỉ khi trống.
+- **Hồ sơ** `AVERY_SIZE_FORM`: detect `Customer Item#` + `US Size` + `Quantity` cùng dòng; sizes = ô cột US Size liên tiếp dưới tiêu đề; `options()` → style
+  ứng viên trong PO (theo item code trong Supp. Ref / Spec), chọn sẵn theo ô *LE style#* (6 số) hoặc tên file, màu/COO theo token tên file; plan lọc style/màu/COO,
+  cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
+- Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
+
+## Thay đổi của v11.40 (11.11.2026) — trang `order.html` điền order form Avery từ PO SCAVI
+
+- Thêm `src/order.js`, `src/order-src.html`, mục build trong `build.py`; link từ đầu `index.html`. Luồng đối chiếu inbound không đổi.
 
 ## Thay đổi của v11.39 (10.11.2026) — chia packing list vào inbound: số nguyên, chặn theo chỗ còn nhận (Inkava HĐ 761)
 

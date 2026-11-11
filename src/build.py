@@ -27,3 +27,15 @@ out = HERE / 'site' / 'index.html'
 out.parent.mkdir(exist_ok=True)
 out.write_text(shell, encoding='utf8')
 print('OK', out, len(shell), 'ký tự')
+
+# ---- order.html: trang điền order form supplier từ PO SCAVI (không dùng thư viện ngoài) ----
+osrc = HERE / 'order-src.html'
+if osrc.exists() and (HERE / 'order.js').exists():
+    oshell = osrc.read_text(encoding='utf8')
+    ver = re_ver = None
+    import re
+    m = re.search(r'class="ver">(v[\d.]+ · [\d.]+)', shell)
+    oshell = oshell.replace('@@ORDER_VER@@', (m.group(1) if m else '') + ' · điền order form')
+    oshell = oshell.replace('@@ORDER_APP@@', (HERE / 'order.js').read_text(encoding='utf8'))
+    (HERE / 'site' / 'order.html').write_text(oshell, encoding='utf8')
+    print('OK', HERE / 'site' / 'order.html', len(oshell), 'ký tự')

@@ -1,10 +1,30 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.39 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.40 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
 
 Toàn bộ xử lý chạy **trong trình duyệt** (ExcelJS + pdf.js nhúng sẵn). Không gửi file lên máy chủ, chạy được offline
 (riêng OCR cho PDF scan cần mạng ở lần đầu để tải bộ nhận dạng).
+
+## Công cụ phụ: điền order form supplier từ PO SCAVI (`order.html`, v11.40)
+
+Trang riêng (link ở đầu trang chính; nguồn `src/order-src.html` + `src/order.js`, không dùng thư viện ngoài, không chạm luồng đối chiếu inbound).
+Thả **PO SCAVI** (Excel "PURCHASE ORDER": `No. | Material Code | Description | Supp. Ref. | Size | Color | Spec. | Qty. | Unit | Price | ETD | ETA`)
+cùng **form mẫu của supplier** (đã có sẵn các dòng SKU, buyer chỉ điền số lượng). Công cụ ghép từng dòng form với dòng PO, điền **Quantity** và trả lại
+**đúng file form gốc**: xlsx được mở như zip, chỉ XML của sheet được điền và `workbook.xml` (bật `fullCalcOnLoad` để Excel tính lại ô Total) thay đổi;
+định dạng, dropdown, VLOOKUP, data validation mở rộng, control, hình… giữ nguyên từng byte. Tên file xuất = tên form (+ ` - <PO>` nếu tên chưa có số PO).
+Hồ sơ mẫu hiện có (`PROFILES` trong `order.js`):
+- **Avery — Lands' End STYLE ID Label** (`ID LABEL - PO AVV0136000.xlsx`): sheet `REGULAR` (file có thêm Bedding / Kids Sleepwear thì chỉ điền REGULAR);
+  dòng tiêu đề là dòng có `UPC_BARCODE_IN*`, cột Quantity là cột ghi "Quantity" trên dòng đó; khóa dòng form = Style (B) · màu (F) · size (G) ↔ dòng PO
+  Supp. Ref `ID`, Spec `style-màu-size` (`522866-BKY-10P`). Thử: 307 dòng form, 300/300 dòng PO khớp, 7 dòng form không có trên PO ghi 0, Σ 37.253 = Σ PO,
+  **trùng 307/307** với bản buyer đã điền tay.
+- **Avery — size / care label order form** (`P25T-LE-SW - 522866 - PETITE - 3RE - BKY - BLA - US.xlsx`): sheet có *Customer Item#* + *US Size* + *Quantity*
+  (`Print Size-COO-Content`); Item code = ô dưới "Customer Item#" (`P25T-LE-SW`); mỗi form một style — chọn sẵn theo ô *LE style#* / tên file, có thể tick lại
+  (kèm lọc màu / COO nếu tên file ghi); cộng dồn các màu theo size; Spec PO `522866-P25T-LE-SW-US-BKY-2P`. Thử: 9 size, Σ 1.294 = Σ PO, **trùng 9/9**.
+Phần đầu form chỉ điền khi ô còn **trống**: PO# = số PO SCAVI, Order Date = Order Date PO, Request Ship Date = ETD sớm nhất, Bill to = Buyer/Invoice To +
+Address của PO (ô đã có giá trị thì giữ, ví dụ PO# `10061` trên form ID LABEL). Kết quả hiện Σ form / Σ PO, mã PO không có dòng trên form, dòng form ghi 0,
+danh sách ô đã ghi. Trình duyệt cần `DecompressionStream` (Chrome/Edge 103+, Safari 16.4+). Thêm form khác: gửi một PO + một form đã điền mẫu → thêm một hồ sơ
+vào `PROFILES` (`detect` nhận diện sheet/ô, `plan` ghép và trả danh sách ô cần ghi).
 
 ## Cách dùng
 
