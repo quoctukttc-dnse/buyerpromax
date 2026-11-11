@@ -1447,6 +1447,13 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.40c (11.11.2026) — order form: Corele V RFID sticker + PO phụ liệu Corele
+
+- `readScaviPo`: tiêu đề nhận `Quantity` (không chỉ `Qty.`), thêm cột `Order No | Reference | Story` vào item; `PO No: AVV0155600` ghi gộp trong một ô.
+- Hồ sơ `AVERY_CORELE_RFID`: detect dòng 1–3 có `Quantity* / SIZE* / COLOR* / STYLE*` (+ `PO*`, `BARCODE*`); plan: PO Supp. Ref/desc có RFID|STICKER,
+  Spec `style_màuEN#màuVN` → khóa `AZ(style)|AZ(size)|colorKey(màuVN)` (bỏ dấu, Đ→D) + Order No; dự phòng so tiền tố màu khi Spec bị cắt (duy nhất).
+- Form AVV0155600: 35/35 trùng bản buyer điền, Σ 14.041.
+
 ## Thay đổi của v11.40b (11.11.2026) — order form: size có ngoặc "L (14-16)" (PO AVV0156900)
 
 - `parseSpec`: tách "-" ngoài ngoặc (`US-AW3-L (14-16)` → [US, AW3, L (14-16)]); size so theo `AZ` (`L1416` ↔ form "L 14-16"), dự phòng cột Size của PO

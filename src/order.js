@@ -231,11 +231,12 @@
       let hdr = null;
       for (const [r, cs] of byRow) {
         const txt = cs.map((c) => AZ(c.v));
-        if (txt.includes('MATERIALCODE') && txt.some((t) => /^QTY/.test(t))) { hdr = { r, cs }; break; }
+        if (txt.includes('MATERIALCODE') && txt.some((t) => /^(QTY|QUANTITY)/.test(t))) { hdr = { r, cs }; break; }
       }
       if (!hdr) continue;
       const col = (re) => { const c = hdr.cs.find((x) => re.test(String(x.v == null ? '' : x.v).replace(/\s+/g, ' ').trim())); return c ? c.L : ''; };
-      const C = { no: col(/^No\.?$/i), material: col(/^Material\s*Code$/i), desc: col(/^Description$/i), supRef: col(/^Supp\.?\s*Ref/i), size: col(/^Size$/i), color: col(/^Colou?r$/i), spec: col(/^Spec/i), qty: col(/^Qty/i), unit: col(/^Unit$/i), price: col(/^Price$/i), etd: col(/^ETD$/i), eta: col(/^ETA$/i) };
+      const C = { no: col(/^No\.?$/i), material: col(/^Material\s*Code$/i), desc: col(/^Description$/i), supRef: col(/^Supp\.?\s*Ref/i), size: col(/^Size$/i), color: col(/^Colou?r$/i), spec: col(/^Spec/i), qty: col(/^(Qty|Quantity)/i), unit: col(/^Unit$/i), price: col(/^Price$/i), etd: col(/^ETD$/i), eta: col(/^ETA$/i),
+        orderNo: col(/^Order\s*No/i), reference: col(/^Reference$/i), story: col(/^Story$/i) };   // PO phụ liệu Corele: thêm Order No | Reference | Story, cột "Quantity"
       const items = [];
       const rows = [...byRow.keys()].filter((r) => r > hdr.r).sort((a, b) => a - b);
       for (const r of rows) {
@@ -243,7 +244,8 @@
         const no = g(C.no), mat = g(C.material), qty = g(C.qty);
         if (mat == null && no == null) { if (items.length && /^[A-Za-z]/.test(String(cellS(sh, 'A' + r)))) break; continue; }
         if (!mat || !(Number(qty) >= 0) || !/^\d+$/.test(String(no == null ? '' : no).trim())) continue;
-        items.push({ no: +no, material: String(mat).trim(), desc: String(g(C.desc) == null ? '' : g(C.desc)).trim(), supRef: String(g(C.supRef) == null ? '' : g(C.supRef)).trim(), size: String(g(C.size) == null ? '' : g(C.size)).trim(), color: String(g(C.color) == null ? '' : g(C.color)).trim(), spec: String(g(C.spec) == null ? '' : g(C.spec)).trim(), qty: Number(qty), unit: String(g(C.unit) == null ? '' : g(C.unit)).trim(), price: Number(g(C.price)), etd: anyDate(g(C.etd)), eta: anyDate(g(C.eta)), row: r });
+        const S = (L) => String(g(L) == null ? '' : g(L)).trim();
+        items.push({ no: +no, material: String(mat).trim(), desc: S(C.desc), supRef: S(C.supRef), size: S(C.size), color: S(C.color), spec: S(C.spec), qty: Number(qty), unit: S(C.unit), price: Number(g(C.price)), etd: anyDate(g(C.etd)), eta: anyDate(g(C.eta)), orderNo: S(C.orderNo), reference: S(C.reference), story: S(C.story), row: r });
       }
       if (!items.length) continue;
       /* phần đầu: nhãn → ô có giá trị kế bên phải cùng dòng */
@@ -262,7 +264,9 @@
         }
         return '';
       };
-      const po = String(labelVal(/^PO\s*No\.?\s*:?$/i) || '').trim();
+      /* "PO No:" + ô kế bên (Avery) hoặc gộp một ô "PO No: AVV0155600" (PO phụ liệu Corele) */
+      let po = String(labelVal(/^PO\s*No\.?\s*:?$/i) || '').trim();
+      if (!po) for (const [, c] of sh.cells) { const m = String(c.v == null ? '' : c.v).match(/PO\s*No\.?\s*:\s*([A-Z]{2,3}\d{7,8})/i); if (m) { po = m[1].toUpperCase(); break; } }
       return {
         po, orderDate: anyDate(labelVal(/^Order\s*Date\s*:?$/i)), supplier: String(labelVal(/^Supplier\s*:?$/i) || '').trim(),
         buyer: String(labelVal(/^Buyer\s*\/?\s*Invoice\s*To\s*:?$/i) || '').trim(), buyerAddr: String(labelVal(/^Address\s*:?$/i, 2) || labelVal(/^Address\s*:?$/i) || '').trim(),
@@ -420,6 +424,65 @@
         const LS = findLabel(/^LE\s*style#?$/i); if (LS && sel.length === 1) put(LS, sel[0], 'LE style#');
       }
       return { writes, report: { formRows: ctx.sizes.length, filled: writes.filter((w) => 'num' in w && w.num > 0).length, zero: zero.length, zeroList: zero, notInForm, sumForm: writes.reduce((a, w) => a + (w.num || 0), 0), sumPo: rows.reduce((a, it) => a + it.qty, 0), poRows: rows.length, head, sheet: ctx.sheet, note: `Item ${ctx.itemCode}${sel.length ? ' · style ' + sel.join(', ') : ' · chưa chọn style'}${opts.colors && opts.colors.length ? ' · màu ' + opts.colors.join('/') : ''}${opts.coos && opts.coos.length ? ' · COO ' + opts.coos.join('/') : ''}` } };
+    },
+  });
+
+  /* Avery — Corele V RFID sticker (file "Corele RFID sticker 34x54mm-AVV0155600 …"): sheet có dòng 1 "Quantity* | CATEGORY* | SIZE* | COLOR* | STYLE* |
+     BARCODE* | PRODUCTION YEAR* | PO* | RETAIL PRICE* | BRAND*", dòng dữ liệu từ dòng có STYLE; cột Quantity là cột A.
+     PO: Spec "02169-6_4 Toasted almond/2 Black#4 Da/2 Đen" = style _ màu tiếng Anh # màu tiếng Việt; Size = cột Size; Order No (261022187) = cột PO* của form.
+     Khóa: style | size | màu tiếng Việt (bỏ dấu, bỏ khoảng trắng) [+ Order No khi form ghi]. */
+  const foldVN = (t) => String(t == null ? '' : t).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[đĐ]/g, 'D');
+  const colorKey = (t) => AZ(foldVN(t));
+  PROFILES.push({
+    id: 'AVERY_CORELE_RFID', name: 'Avery Dennison — Corele V RFID sticker',
+    detect(book) {
+      for (const sh of book.sheets) {
+        let hdrRow = 0; const cols = {};
+        for (const [ref, c] of sh.cells) {
+          const R = splitRef(ref); if (R.row > 3) continue;
+          const t = String(c.v || '').trim().toUpperCase().replace(/\*$/, '').trim();
+          if (/^QUANTITY$/.test(t)) { cols.qty = R.L; hdrRow = hdrRow || R.row; }
+          if (/^SIZE$/.test(t)) cols.size = R.L; if (/^COLOU?R$/.test(t)) cols.color = R.L; if (/^STYLE$/.test(t)) cols.style = R.L; if (/^PO$/.test(t)) cols.po = R.L; if (/^BARCODE$/.test(t)) cols.barcode = R.L;
+        }
+        if (!cols.qty || !cols.size || !cols.color || !cols.style) continue;
+        let first = 0, n = 0;
+        for (let r = hdrRow + 1; r <= hdrRow + 3000; r++) { if (cellS(sh, cols.style + r)) { if (!first) first = r; n++; } else if (n) break; }
+        if (!n) continue;
+        return { sheet: sh.name, hdrRow, cols, first, rows: n };
+      }
+      return null;
+    },
+    plan(book, ctx, po, opts) {
+      const sh = book.sheets.find((s) => s.name === ctx.sheet);
+      const { cols } = ctx;
+      const poRows = po.items.filter((it) => /RFID|STICKER/i.test(it.supRef + ' ' + it.desc));
+      const byKey = new Map(), byKeyNoPo = new Map();
+      for (const it of poRows) {
+        const sp = String(it.spec || ''); const style = sp.split('_')[0].trim(); const vn = sp.includes('#') ? sp.slice(sp.lastIndexOf('#') + 1) : sp.slice(style.length + 1);
+        const k = [AZ(style), AZ(it.size), colorKey(vn)].join('|');
+        byKeyNoPo.set(k, (byKeyNoPo.get(k) || 0) + it.qty);
+        const kp = k + '|' + AZ(it.orderNo); byKey.set(kp, (byKey.get(kp) || 0) + it.qty);
+      }
+      const used = new Set(), writes = [], zero = [], formRows = [];
+      for (let r = ctx.first; r <= ctx.first + 3000; r++) {
+        const style = cellS(sh, cols.style + r); if (!style) { if (formRows.length) break; continue; }
+        const size = cellS(sh, cols.size + r), color = cellS(sh, cols.color + r), pno = cols.po ? cellS(sh, cols.po + r) : '';
+        formRows.push(r);
+        const k = [AZ(style), AZ(size), colorKey(color)].join('|');
+        const kp = k + '|' + AZ(pno);
+        let v = null, hit = '';
+        if (pno && byKey.has(kp)) { v = byKey.get(kp); hit = kp; } else if (byKeyNoPo.has(k)) { v = byKeyNoPo.get(k); hit = k; }
+        else {
+          /* Spec của PO bị cắt ngắn (70 ký tự: "#2 Da/ 2 Đen/ 2 Trắng" ↔ form "2Da/2Đen/2Trắng kem") → so tiền tố màu, chỉ nhận khi duy nhất */
+          const pre = [AZ(style), AZ(size)].join('|') + '|', ck = colorKey(color);
+          const cands = [...byKeyNoPo.keys()].filter((x) => x.startsWith(pre) && !used.has(x)).filter((x) => { const c = x.slice(pre.length); return c.length >= 4 && (ck.startsWith(c) || c.startsWith(ck)); });
+          if (cands.length === 1) { v = byKeyNoPo.get(cands[0]); hit = cands[0]; }
+        }
+        if (v != null) { writes.push({ sheet: ctx.sheet, ref: cols.qty + r, num: v, what: `${style} · ${size} · ${color}${pno ? ' · PO ' + pno : ''}` }); used.add(hit); used.add(k); }
+        else if (opts.zeroMissing) { writes.push({ sheet: ctx.sheet, ref: cols.qty + r, num: 0, what: `${style} · ${size} · ${color} (không có trên PO)` }); zero.push(`${style} ${size} ${color}`); }
+      }
+      const notInForm = [...byKeyNoPo.keys()].filter((k) => !used.has(k)).map((k) => k.replace(/\|/g, ' · '));
+      return { writes, report: { formRows: formRows.length, filled: writes.filter((w) => 'num' in w && w.num > 0).length, zero: zero.length, zeroList: zero, notInForm, sumForm: writes.reduce((a, w) => a + (w.num || 0), 0), sumPo: poRows.reduce((a, it) => a + it.qty, 0), poRows: poRows.length, head: [], sheet: ctx.sheet, note: 'khóa style · size · màu tiếng Việt (sau "#" của Spec) · Order No' } };
     },
   });
 
