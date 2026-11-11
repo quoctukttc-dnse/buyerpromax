@@ -21,6 +21,7 @@ Hồ sơ mẫu hiện có (`PROFILES` trong `order.js`):
 - **Avery — size / care label order form** (`P25T-LE-SW - 522866 - PETITE - 3RE - BKY - BLA - US.xlsx`): sheet có *Customer Item#* + *US Size* + *Quantity*
   (`Print Size-COO-Content`); Item code = ô dưới "Customer Item#" (`P25T-LE-SW`); mỗi form một style — chọn sẵn theo ô *LE style#* / tên file, có thể tick lại
   (kèm lọc màu / COO nếu tên file ghi); cộng dồn các màu theo size; Spec PO `522866-P25T-LE-SW-US-BKY-2P`. Thử: 9 size, Σ 1.294 = Σ PO, **trùng 9/9**.
+  Size ghi khoảng `L (14-16)` (PO AVV0156900, form "L 14-16") cũng khớp; form 555328 AW3/JYT: 5 size, Σ 2.580 = Σ PO.
 Phần đầu form chỉ điền khi ô còn **trống**: PO# = số PO SCAVI, Order Date = Order Date PO, Request Ship Date = ETD sớm nhất, Bill to = Buyer/Invoice To +
 Address của PO (ô đã có giá trị thì giữ, ví dụ PO# `10061` trên form ID LABEL). Kết quả hiện Σ form / Σ PO, mã PO không có dòng trên form, dòng form ghi 0,
 danh sách ô đã ghi. Trình duyệt cần `DecompressionStream` (Chrome/Edge 103+, Safari 16.4+). Thêm form khác: gửi một PO + một form đã điền mẫu → thêm một hồ sơ

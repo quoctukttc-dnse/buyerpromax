@@ -1447,6 +1447,12 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.40b (11.11.2026) — order form: size có ngoặc "L (14-16)" (PO AVV0156900)
+
+- `parseSpec`: tách "-" ngoài ngoặc (`US-AW3-L (14-16)` → [US, AW3, L (14-16)]); size so theo `AZ` (`L1416` ↔ form "L 14-16"), dự phòng cột Size của PO
+  ↔ chữ đầu size form khi duy nhất. Ô *LE style#* "154489 - 555328 COLOR AW3 JYT" → lấy số 6 chữ số có trong PO (555328).
+- Form 555328 REGULAR AW3/JYT: XS 410 · S 883 · M 920 · L 315 · XL 52 = 2.580 = Σ PO; form 522866 không đổi.
+
 ## Thay đổi của v11.40 (11.11.2026) — trang `order.html` điền order form Avery từ PO SCAVI
 
 - Thêm `src/order.js`, `src/order-src.html`, mục build trong `build.py`; link từ đầu `index.html`. Luồng đối chiếu inbound không đổi.

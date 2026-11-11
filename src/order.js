@@ -278,8 +278,12 @@
     const style = (s.match(/^(\d{6})\b/) || [])[1] || '';
     let rest = s.replace(/^\d{6}-?/, '');
     if (itemCode) { const i = rest.toUpperCase().indexOf(itemCode.toUpperCase()); if (i >= 0) rest = rest.slice(i + itemCode.length).replace(/^-/, ''); }
-    const parts = rest.split('-').map((x) => x.trim()).filter(Boolean);
-    return { style, parts, size: parts[parts.length - 1] || '', color: parts.length >= 2 ? parts[parts.length - 2] : '', coo: parts.length >= 3 ? parts[0] : '' };
+    /* tách theo "-" nhưng KHÔNG cắt dấu gạch nằm trong ngoặc: "US-AW3-L (14-16)" → [US, AW3, L (14-16)] (PO AVV0156900) */
+    const parts = []; let cur = '', depth = 0;
+    for (const ch of rest) { if (ch === '(') depth++; if (ch === ')') depth = Math.max(0, depth - 1); if (ch === '-' && depth === 0) { parts.push(cur); cur = ''; } else cur += ch; }
+    parts.push(cur);
+    const ps = parts.map((x) => x.trim()).filter(Boolean);
+    return { style, parts: ps, size: ps[ps.length - 1] || '', color: ps.length >= 2 ? ps[ps.length - 2] : '', coo: ps.length >= 3 ? ps[0] : '' };
   }
 
   /* ---------------------------------------- HỒ SƠ MẪU FORM ---------------------------------------- */
@@ -371,7 +375,7 @@
       const styles = [...new Set(rows.map((it) => parseSpec(it.spec, ctx.itemCode).style).filter(Boolean))].sort();
       const fn = String(fname || '').toUpperCase();
       const fromName = styles.filter((s) => fn.includes(s));
-      const cellStyle = (String(ctx.styleCell || '').match(/\b(\d{6})\b/) || [])[1] || '';   // ô LE style# có thể ghi "522866 COLOR 3RE BKY BLA"
+      const cellStyle = (String(ctx.styleCell || '').match(/\b\d{6}\b/g) || []).find((x) => styles.includes(x)) || '';   // ô LE style# có thể ghi "154489 - 555328 COLOR AW3 JYT"
       const pre = cellStyle && styles.includes(cellStyle) ? [cellStyle] : (fromName.length ? fromName : (styles.length === 1 ? styles : []));
       const colors = [...new Set(rows.map((it) => parseSpec(it.spec, ctx.itemCode).color).filter(Boolean))].sort();
       const coos = [...new Set(rows.map((it) => parseSpec(it.spec, ctx.itemCode).coo).filter(Boolean))].sort();
@@ -386,12 +390,21 @@
       if (sel.length) rows = rows.filter((it) => sel.includes(parseSpec(it.spec, ctx.itemCode).style));
       if (opts.colors && opts.colors.length) rows = rows.filter((it) => opts.colors.includes(parseSpec(it.spec, ctx.itemCode).color));
       if (opts.coos && opts.coos.length) rows = rows.filter((it) => opts.coos.includes(parseSpec(it.spec, ctx.itemCode).coo));
-      const bySize = new Map();
-      for (const it of rows) { const k = AZ(parseSpec(it.spec, ctx.itemCode).size || it.size); bySize.set(k, (bySize.get(k) || 0) + it.qty); }
+      /* khóa size: chữ + số sau khi bỏ ký tự khác ("L (14-16)" ↔ "L 14-16" → L1416; "10P" ↔ "10P"); dự phòng: cột Size của PO (L) ↔ chữ đầu của size form */
+      const bySize = new Map(), byLetter = new Map();
+      for (const it of rows) {
+        const k = AZ(parseSpec(it.spec, ctx.itemCode).size || it.size);
+        bySize.set(k, (bySize.get(k) || 0) + it.qty);
+        const L = AZ(it.size); if (L) byLetter.set(L, (byLetter.get(L) || 0) + it.qty);
+      }
       const writes = [], used = new Set(), zero = [];
       for (const s of ctx.sizes) {
         const k = AZ(s.size);
-        if (bySize.has(k)) { writes.push({ sheet: ctx.sheet, ref: ctx.qtyCol + s.r, num: bySize.get(k), what: `size ${s.size}` }); used.add(k); }
+        const letter = AZ(String(s.size).trim().split(/[\s(]/)[0]);
+        let v = null, hit = '';
+        if (bySize.has(k)) { v = bySize.get(k); hit = k; }
+        else if (letter && byLetter.has(letter) && [...bySize.keys()].filter((x) => x.startsWith(letter) && !/^[A-Z]*\d/.test(x.slice(letter.length))).length === 1) { hit = [...bySize.keys()].find((x) => x.startsWith(letter)); v = bySize.get(hit); }
+        if (v != null) { writes.push({ sheet: ctx.sheet, ref: ctx.qtyCol + s.r, num: v, what: `size ${s.size}` }); used.add(hit); }
         else if (opts.zeroMissing) { writes.push({ sheet: ctx.sheet, ref: ctx.qtyCol + s.r, num: 0, what: `size ${s.size} (không có trên PO)` }); zero.push(s.size); }
       }
       const notInForm = [...bySize.keys()].filter((k) => !used.has(k));
