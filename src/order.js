@@ -486,6 +486,82 @@
     },
   });
 
+  /* Avery — Lacoste care label order form (GBY): sheet "Order form" (hoặc sheet đầu có tiêu đề "Item Code*" + "Style No*" + "quantity"):
+     dòng tiêu đề có "Item Code*", "Style No*", cột size = "Accessories(配件尺码）" (XXS…3XL) hoặc SizeK/SizeC, cột "quantity".
+     PO: Supp. Ref bắt đầu bằng Item Code (FGUW154x35ADVN), Spec "CARE LABEL FGUW AH795/FGUW" (+ "… ADD", "… ADD1" = trang phụ cùng số lượng → không cộng),
+     Size = cột Size của PO. Khóa: item code · style · size. */
+  PROFILES.push({
+    id: 'AVERY_LACOSTE_CARE', name: 'Avery Dennison — Lacoste care label order form',
+    detect(book) {
+      const sheets = book.sheets.slice().sort((a, b) => (/^Order\s*form$/i.test(b.name) ? 1 : 0) - (/^Order\s*form$/i.test(a.name) ? 1 : 0));
+      for (const sh of sheets) {
+        let hdrRow = 0; const cols = {};
+        for (const [ref, c] of sh.cells) {
+          const R = splitRef(ref); if (R.row > 60) continue;
+          const t = String(c.v || '').replace(/\s+/g, ' ').trim();
+          if (/^Item\s*Code\*?$/i.test(t)) { cols.item = R.L; hdrRow = R.row; }
+          if (/^Style\s*No\*?$/i.test(t)) cols.style = R.L;
+          if (/^quantity$/i.test(t)) cols.qty = R.L;
+          if (/^Accessories/i.test(t)) cols.sizeAcc = R.L;
+          if (/^SizeK$/i.test(t)) cols.sizeK = R.L; if (/^SizeC$/i.test(t)) cols.sizeC = R.L;
+          if (/^V\s*code$/i.test(t)) cols.vcode = R.L;
+        }
+        if (!hdrRow || !cols.item || !cols.style || !cols.qty) continue;
+        const sameRow = (L) => L && [...sh.cells.keys()].some((ref) => ref === L + hdrRow);
+        if (!sameRow(cols.style) || !sameRow(cols.qty)) continue;
+        let n = 0; for (let r = hdrRow + 1; r <= hdrRow + 2000; r++) { if (cellS(sh, cols.item + r) && cellS(sh, cols.style + r)) n++; else if (n) break; }
+        if (!n) continue;
+        return { sheet: sh.name, hdrRow, cols, rows: n };
+      }
+      return null;
+    },
+    plan(book, ctx, po, opts) {
+      const sh = book.sheets.find((s) => s.name === ctx.sheet);
+      const { cols } = ctx;
+      const formRows = [];
+      for (let r = ctx.hdrRow + 1; r <= ctx.hdrRow + 2000; r++) {
+        const item = cellS(sh, cols.item + r), style = cellS(sh, cols.style + r);
+        if (!item || !style) { if (formRows.length) break; continue; }
+        const size = (cols.sizeAcc && cellS(sh, cols.sizeAcc + r)) || (cols.sizeC && cellS(sh, cols.sizeC + r)) || (cols.sizeK && cellS(sh, cols.sizeK + r)) || '';
+        formRows.push({ r, item, style, size });
+      }
+      const items = [...new Set(formRows.map((x) => AZ(x.item)))];
+      const poRows = po.items.filter((it) => items.some((k) => k && (AZ(it.supRef).startsWith(k) || AZ(it.spec).includes(k))));
+      /* nhóm PO theo item · style · size; dòng gốc = Spec không có "ADD" sau item code */
+      const groups = new Map();
+      for (const it of poRows) {
+        const item = items.find((k) => AZ(it.supRef).startsWith(k) || AZ(it.spec).includes(k));
+        const styleM = String(it.spec || '').match(/\b([A-Z]{2}\d{3,4}[A-Z0-9]*)\b(?=\s*\/)/) || String(it.spec || '').match(/\b([A-Z]{2}\d{3,4})\b/);
+        const style = styleM ? styleM[1] : '';
+        const k = [item, AZ(style), AZ(it.size)].join('|');
+        const g = groups.get(k) || { base: null, extra: [], all: [] };
+        const isAdd = /\bADD\d*\s*$/i.test(String(it.spec || ''));
+        if (!isAdd) g.base = (g.base || 0) + it.qty; else g.extra.push(it);
+        g.all.push(it); groups.set(k, g);
+      }
+      const writes = [], used = new Set(), zero = [];
+      for (const f of formRows) {
+        const k = [AZ(f.item), AZ(f.style), AZ(f.size)].join('|');
+        const g = groups.get(k);
+        if (g) { const v = g.base != null ? g.base : Math.max(...g.all.map((x) => x.qty)); writes.push({ sheet: ctx.sheet, ref: cols.qty + f.r, num: v, what: `${f.item} · ${f.style} · ${f.size}${g.extra.length ? ` (bỏ ${g.extra.length} dòng ADD)` : ''}` }); used.add(k); }
+        else if (opts.zeroMissing) { writes.push({ sheet: ctx.sheet, ref: cols.qty + f.r, num: 0, what: `${f.item} · ${f.style} · ${f.size} (không có trên PO)` }); zero.push(`${f.style} ${f.size}`); }
+      }
+      const notInForm = [...groups.keys()].filter((k) => !used.has(k)).map((k) => k.replace(/\|/g, ' · '));
+      const extraN = [...groups.values()].reduce((a, g) => a + g.extra.length, 0);
+      const head = [];
+      if (opts.fillHeader) {
+        const findLabel = (re) => { for (const [ref, c] of sh.cells) { const R = splitRef(ref); if (R.row < ctx.hdrRow && R.col <= 4 && re.test(String(c.v || '').replace(/\s+/g, ' ').trim())) return R; } return null; };
+        const put = (R, text, what) => { if (!R || !text) return; const ref = colLetter(R.col + 1) + R.row; if (cellS(sh, ref) === '') { writes.push({ sheet: ctx.sheet, ref, text, what }); head.push(`${what}: ${text}`); } else head.push(`${what}: giữ "${cellS(sh, ref)}"`); };
+        put(findLabel(/^Order\s*Date\s*:?$/i), po.orderDate, 'Order Date');
+        put(findLabel(/Required\s*Ship\s*Date/i), po.etdMin, 'Required Ship Date');
+        put(findLabel(/^Company\s*Name\s*:?$/i), po.buyer, 'Bill-to Company');
+        put(findLabel(/^Address\s*:?$/i), po.buyerAddr, 'Bill-to Address');
+      }
+      const baseSum = [...groups.values()].reduce((a, g) => a + (g.base || 0), 0);
+      return { writes, report: { formRows: formRows.length, filled: writes.filter((w) => 'num' in w && w.num > 0).length, zero: zero.length, zeroList: zero, notInForm, sumForm: writes.reduce((a, w) => a + (w.num || 0), 0), sumPo: baseSum, poRows: poRows.length, head, sheet: ctx.sheet, note: `item ${items.join(', ')} · ${extraN ? extraN + ' dòng PO "ADD/ADD1" (trang phụ) không cộng vào form · ' : ''}Σ PO tính theo dòng gốc` } };
+    },
+  });
+
   function detectForm(book) {
     for (const p of PROFILES) { const ctx = p.detect(book); if (ctx) return { profile: p, ctx }; }
     return null;

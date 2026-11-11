@@ -1447,6 +1447,15 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.40d (11.11.2026) — order form: Avery Lacoste care label (GBY)
+
+- Hồ sơ `AVERY_LACOSTE_CARE`: ưu tiên sheet `Order form`; detect dòng tiêu đề (≤ 60) có `Item Code*` + `Style No*` + `quantity` cùng dòng; size =
+  `Accessories(配件尺码）` > `SizeC` > `SizeK`. PO: Supp. Ref bắt đầu bằng item code hoặc Spec chứa; style = mã `[A-Z]{2}\d{3,4}` trước "/" trong Spec;
+  nhóm item·style·size: `base` = Σ dòng không có `ADD\d*` cuối Spec, `extra` = dòng ADD (không cộng); Σ PO báo theo dòng gốc.
+- Form AVV0151200 AH795: 8/8 trùng bản buyer điền (XXS = 0), 14 dòng ADD/ADD1 bỏ qua.
+- r-pac Haddad (SMS order file, Korean hang tag form): form chi tiết theo PO Haddad · style · màu · size, PO SCAVI gộp (FC0524 962 = Σ 10 dòng form)
+  → không điền từ PO được; chờ buyer xác nhận chiều xử lý.
+
 ## Thay đổi của v11.40c (11.11.2026) — order form: Corele V RFID sticker + PO phụ liệu Corele
 
 - `readScaviPo`: tiêu đề nhận `Quantity` (không chỉ `Qty.`), thêm cột `Order No | Reference | Story` vào item; `PO No: AVV0155600` ghi gộp trong một ô.
