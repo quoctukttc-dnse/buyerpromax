@@ -1447,6 +1447,12 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.40g (12.11.2026) — r-pac: bảng thị trường; Armani: DATE / DELY DATE
+
+- `RPAC_REGION` = {PANAMA 34, BRAZIL H6, CROATIA BDS, SEA MAPINDO, USADTC US, EUROPE HBE, CANADA CNH}; thị trường khác so `AZ(region) === AZ(mã)`;
+  không khớp → loại mã đã thuộc thị trường khác. SMS 7933 vẫn 53/53, hết dòng nhiều ứng viên.
+- `SILVER_ARMANI`: DATE = hôm nay (dd.mm.yyyy), DELY DATE = ETD PO (đổi "/" → ".") hoặc hôm nay + 21 ngày kèm ghi chú.
+
 ## Thay đổi của v11.40f (12.11.2026) — order form Silver Printing / Emporio Armani
 
 - `SILVER_ARMANI`: detect sheet có "ARMANI ORDER FORM" + dòng tiêu đề (≤ 40) có `ITEM NO.`; mỗi cặp cột = ITEM NO + ô tiêu đề kế bên có chữ (DESCRIPTION) +

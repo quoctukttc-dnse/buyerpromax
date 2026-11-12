@@ -637,7 +637,9 @@ a{color:var(--brand)}
   /* ===== r-pac (Haddad / Lacoste): OF do Packaging điền sẵn mọi cột trừ số lượng; buyer VLOOKUP số lượng từ PO theo Item / Region / Color / Size.
      PO SCAVI (RPV…): Spec "P6107H Hangtag/7933/34/02S" = item / ref Haddad / mã thị trường / mã màu, cột Size "10A/S". Một PO gồm nhiều ref;
      ref của OF lấy từ tên file ("…20260730_7933_334" → 7933) hoặc người dùng chọn. */
-  const RPAC_REGION = { EUROPE: 'HBE', CANADA: 'CNH' };   // Panama / Brazil ↔ 34 / H6: chờ buyer xác nhận
+  /* bảng thị trường OF → mã trong Spec PO (buyer xác nhận 12.11.2026): Panama 34 · Brazil H6 · Croatia BDS · SEA MAP INDO · USA_DTC US;
+     Europe HBE · Canada CNH (theo dữ liệu PO RPV0033400); thị trường khác: tên trên PO và OF như nhau */
+  const RPAC_REGION = { PANAMA: '34', BRAZIL: 'H6', CROATIA: 'BDS', SEA: 'MAPINDO', USADTC: 'US', EUROPE: 'HBE', CANADA: 'CNH' };
   const poRefOf = (it) => { const p = String(it.spec || '').split('/'); return p.length >= 4 ? p[1].trim() : ''; };
   const sizeKey = (t) => AZ(String(t || '').split('/')[0]).replace(/^0+(?=\d)/, '');
   function rpacRefOptions(ctx, po, fname) {
@@ -679,10 +681,14 @@ a{color:var(--brand)}
         if (/^EXAMPLE$/i.test(cellS(sh, (cols.vendor || 'A') + r))) continue;
         formRows++;
         const region = cols.region ? cellS(sh, cols.region + r) : '', color = cellS(sh, cols.color + r), size = cellS(sh, cols.size + r);
-        const code = RPAC_REGION[AZ(region)] || '';
         let cands = pool.filter((it) => !used.has(it) && String(it.spec).toUpperCase().startsWith(item.toUpperCase()) && AZ(String(it.spec).split('/')[3]) === AZ(color) && sizeKey(it.size) === sizeKey(size));
-        if (code) cands = cands.filter((it) => AZ(String(it.spec).split('/')[2]) === code);
-        else { const known = new Set(Object.values(RPAC_REGION)); const c2 = cands.filter((it) => !known.has(AZ(String(it.spec).split('/')[2]))); if (c2.length) cands = c2; }   // thị trường chưa biết mã → loại các mã đã thuộc thị trường khác
+        const code = RPAC_REGION[AZ(region)] || '';
+        if (code) { const c1 = cands.filter((it) => AZ(String(it.spec).split('/')[2]) === code); if (c1.length || cands.length > 1) cands = c1; }
+        else if (region) {
+          const same = cands.filter((it) => AZ(String(it.spec).split('/')[2]) === AZ(region));   // thị trường khác: tên trên PO và OF như nhau
+          if (same.length) cands = same;
+          else { const known = new Set(Object.values(RPAC_REGION)); const c2 = cands.filter((it) => !known.has(AZ(String(it.spec).split('/')[2]))); if (c2.length) cands = c2; }
+        }
         const what = `${item} · ${region} · ${color} · ${size}`;
         if (cands.length === 1 || (cands.length > 1 && new Set(cands.map((x) => x.qty)).size === 1)) {
           const pick = cands[0]; used.add(pick);
@@ -696,7 +702,7 @@ a{color:var(--brand)}
       const notInForm = pool.filter((it) => !used.has(it)).map((it) => `${it.spec} ${it.size} = ${it.qty}`);
       const regNote = Object.entries(regionSeen).map(([k, v]) => `${k} → ${[...v].join('/')}`).join(', ');
       return { writes, report: { formRows, filled: writes.filter((w) => w.num > 0).length, zero: miss.length, zeroList: miss, notInForm, sumForm: writes.reduce((a, w) => a + (w.num || 0), 0), sumPo: pool.reduce((a, it) => a + it.qty, 0), poRows: pool.length, head: [], sheet: ctx.sheet,
-        note: `ref ${refs.join(', ') || '(tất cả)'} · khóa item · màu · size (+ thị trường ${Object.keys(RPAC_REGION).join('/')})${regNote ? ' · mã thị trường gặp: ' + regNote : ''}${amb.length ? ` · ⚠ ${amb.length} dòng nhiều ứng viên: ${amb.slice(0, 4).join('; ')}${amb.length > 4 ? '…' : ''}` : ''}` } };
+        note: `ref ${refs.join(', ') || '(tất cả)'} · khóa item · màu · size · thị trường${regNote ? ' (' + regNote + ')' : ''}${amb.length ? ` · ⚠ ${amb.length} dòng nhiều ứng viên: ${amb.slice(0, 4).join('; ')}${amb.length > 4 ? '…' : ''}` : ''}` } };
     },
   });
   /* r-pac — HADDAD Korean Hang Tag Order Form (sheet "Order Form …"): ID | HADDAD PO# | PO Date | Vendor ID | … | Ticket Item# | Lacoste Style | Season 1 | Season 2 |
@@ -817,9 +823,11 @@ a{color:var(--brand)}
       if (opts.fillHeader) {
         const findLabel = (re) => { for (const [ref, c] of sh.cells) { const R = splitRef(ref); if (R.row < ctx.hdrRow && re.test(String(c.v || '').replace(/\s+/g, ' ').trim())) return R; } return null; };
         const over = (R, text, what) => { if (!R || !text) return; const ref = colLetter(R.col + 1) + R.row; const old = cellS(sh, ref); writes.push({ sheet: ctx.sheet, ref, text, what }); head.push(`${what}: ${text}${old && old !== text ? ` (thay "${old}")` : ''}`); };
+        const dmy = (d) => `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+        const today = new Date(), d21 = new Date(today.getTime() + 21 * 86400000);
         over(findLabel(/^PO#?\s*:?$/i), po.po, 'PO#');
-        over(findLabel(/^DATE\s*:?$/i), po.orderDate, 'DATE');
-        over(findLabel(/^DELY\s*DATE\s*:?$/i), po.etdMin, 'DELY DATE');
+        over(findLabel(/^DATE\s*:?$/i), dmy(today), 'DATE (hôm nay)');
+        over(findLabel(/^DELY\s*DATE\s*:?$/i), po.etdMin ? po.etdMin.replace(/\//g, '.') : dmy(d21), po.etdMin ? 'DELY DATE (ETD PO)' : 'DELY DATE (hôm nay + 3 tuần, sửa nếu cần)');
       }
       const sumForm = writes.filter((w) => 'num' in w).reduce((a, w) => a + w.num, 0), sumPo = po.items.reduce((a, it) => a + it.qty, 0);
       return { writes, report: { formRows: existing.size, filled: placedExisting.length + placedNew.length, zero: 0, zeroList: [], notInForm: noRoom, sumForm, sumPo, poRows: po.items.length, head, sheet: ctx.sheet,
