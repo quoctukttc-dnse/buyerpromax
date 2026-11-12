@@ -1447,6 +1447,13 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.40h (12.11.2026) — Avery HK Adore Me order form (care / HTL / paper tag)
+
+- `AVERY_HK_ADOREME`: detect mỗi sheet có nhãn `Item Code` (mã ở ô dưới) + tiêu đề `Quantity (pcs)` (+ `*Size`, `*Style No` / `STYLE ADOREME`, `PO#`,
+  `*Item description`); ctx.sheets nhiều sheet. plan: bỏ sheet có PO# khác PO hiện tại; `AM_ALIAS` (AM-TAG-26-01 ↔ AM-MAIN-001); style PO = Reference trước
+  `_` > Spec trước `/` > Color sau `-`; khóa size AZ + style (bằng hoặc tiền tố); PO không chia size (UNKNOWN) → không ghi, báo.
+- PO AV60006500: HTL 78/78, care 16/16 (+2 dòng PO không có trên form), tag không điền.
+
 ## Thay đổi của v11.40g (12.11.2026) — r-pac: bảng thị trường; Armani: DATE / DELY DATE
 
 - `RPAC_REGION` = {PANAMA 34, BRAZIL H6, CROATIA BDS, SEA MAPINDO, USADTC US, EUROPE HBE, CANADA CNH}; thị trường khác so `AZ(region) === AZ(mã)`;

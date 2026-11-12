@@ -763,6 +763,73 @@
     },
   });
 
+  /* Avery Dennison Hong Kong — Adore Me order form (PFL care label / HTL label / paper tag): mỗi sheet một Item Code (ô dưới nhãn "Item Code"),
+     dòng tiêu đề "PO# | *Size | *RN# | *Style No | … | Quantity (pcs)" (paper tag: "*Size | *Item description | *UPC | Quantity (pcs) | … | STYLE ADOREME | COLOR").
+     PO (AV6…): Supp. Ref = Item Code; style ở cột Reference (phần trước "_": "SW-14113-BIK_SCA057-PA-BIK-X" → SW-14113-BIK) hoặc Spec ("SW-15787-TPI/ Dot 134"),
+     hoặc Color ("GREY-SW-09993-TPI"); Size = cột Size. Khóa: item code · style · size. Sheet có cột PO# ghi PO khác (AV60003300…) → bỏ qua. */
+  const AM_ALIAS = { AMTAG2601: ['AMMAIN001'] };
+  PROFILES.push({
+    id: 'AVERY_HK_ADOREME', name: 'Avery Dennison HK — Adore Me order form',
+    detect(book) {
+      const sheets = [];
+      for (const sh of book.sheets) {
+        let itemRef = null, hdrRow = 0; const cols = {};
+        for (const [ref, c] of sh.cells) {
+          const R = splitRef(ref); if (R.row > 40) continue;
+          const t = String(c.v || '').replace(/\s+/g, ' ').trim();
+          if (/^Item Code$/i.test(t) && !itemRef) itemRef = R;
+          if (/^Quantity\s*\(pcs\)$/i.test(t)) { cols.qty = R.L; hdrRow = R.row; }
+        }
+        if (!itemRef || !hdrRow) continue;
+        for (const [ref, c] of sh.cells) {
+          const R = splitRef(ref); if (R.row !== hdrRow) continue;
+          const t = String(c.v || '').replace(/\s+/g, ' ').trim();
+          if (/^\*?Size\b/i.test(t)) cols.size = R.L; if (/^\*?Style No/i.test(t) || /^STYLE ADOREME/i.test(t)) cols.style = R.L; if (/^PO#?$/i.test(t)) cols.po = R.L; if (/^\*?Item description/i.test(t)) cols.sku = R.L;
+        }
+        if (!cols.size || !cols.qty) continue;
+        const itemCode = cellS(sh, itemRef.L + (itemRef.row + 1));
+        if (!itemCode) continue;
+        let n = 0; const pos = new Set();
+        for (let r = hdrRow + 1; r <= hdrRow + 3000; r++) { const sz = cellS(sh, cols.size + r); if (!sz) { if (n) break; continue; } n++; if (cols.po) { const p = cellS(sh, cols.po + r); if (p) pos.add(p.toUpperCase()); } }
+        if (!n) continue;
+        sheets.push({ sheet: sh.name, itemCode, hdrRow, cols, rows: n, pos: [...pos] });
+      }
+      if (!sheets.length) return null;
+      return { sheet: sheets.map((x) => x.sheet).join(' + '), sheets, rows: sheets.reduce((a, x) => a + x.rows, 0) };
+    },
+    plan(book, ctx, po, opts) {
+      const styleOf = (it) => { const r = String(it.reference || '').trim(); if (r) return r.split('_')[0].trim(); const sp = String(it.spec || '').split('/')[0].trim(); if (sp) return sp; const c = String(it.color || ''); const m = c.match(/-(.+)$/); return m ? m[1].trim() : ''; };
+      const writes = [], notes = [], skipped = [], zeroAll = [], notInFormAll = [];
+      let formRows = 0, filled = 0, sumForm = 0, sumPo = 0, poRowsN = 0;
+      for (const S of ctx.sheets) {
+        const sh = book.sheets.find((s) => s.name === S.sheet);
+        const other = S.pos.filter((p) => p !== String(po.po).toUpperCase());
+        if (other.length && !S.pos.includes(String(po.po).toUpperCase())) { skipped.push(`${S.sheet} (PO ${other.join(', ')})`); continue; }
+        const codes = [AZ(S.itemCode)].concat(AM_ALIAS[AZ(S.itemCode)] || []);
+        const rows = po.items.filter((it) => codes.includes(AZ(it.supRef)));
+        poRowsN += rows.length; sumPo += rows.reduce((a, it) => a + it.qty, 0);
+        if (!rows.length) { notes.push(`${S.sheet}: PO không có Supp. Ref ${S.itemCode}`); continue; }
+        const hasSize = (it) => it.size && !/^UNKNOWN$/i.test(it.size);
+        if (rows.every((it) => !hasSize(it))) { notes.push(`${S.sheet}: PO chỉ có ${rows.length} dòng tổng ${fmtN(rows.reduce((a, it) => a + it.qty, 0))} cho ${S.itemCode} (${rows.map((it) => it.supRef).filter((v, i, a) => a.indexOf(v) === i).join(', ')}), không chia theo size → không điền ${S.rows} dòng form`); continue; }
+        const used = new Set(); const zero = [];
+        for (let r = S.hdrRow + 1; r <= S.hdrRow + 3000; r++) {
+          const size = cellS(sh, S.cols.size + r); if (!size) { if (formRows) break; continue; }
+          formRows++;
+          let style = S.cols.style ? cellS(sh, S.cols.style + r) : '';
+          if (!style && S.cols.sku) { const m = cellS(sh, S.cols.sku + r).match(/\b([A-Z]{2}-\d{4,6}-[A-Z]{2,4})\b/); if (m) style = m[1]; }
+          const cands = rows.filter((it) => !used.has(it) && AZ(it.size) === AZ(size) && (!style || AZ(styleOf(it)) === AZ(style) || AZ(styleOf(it)).startsWith(AZ(style))));
+          const what = `${S.sheet} · ${style || '?'} · ${size}`;
+          if (cands.length) { used.add(cands[0]); writes.push({ sheet: S.sheet, ref: S.cols.qty + r, num: cands[0].qty, what }); filled++; sumForm += cands[0].qty; }
+          else { zero.push(`${style} ${size}`); if (opts.zeroMissing) writes.push({ sheet: S.sheet, ref: S.cols.qty + r, num: 0, what: what + ' (không có trên PO)' }); }
+        }
+        zeroAll.push(...zero.map((z) => S.sheet + ': ' + z));
+        notInFormAll.push(...rows.filter((it) => !used.has(it)).map((it) => `${S.sheet}: ${styleOf(it)} ${it.size} = ${fmtN(it.qty)}`));
+      }
+      return { writes, report: { formRows, filled, zero: zeroAll.length, zeroList: zeroAll, notInForm: notInFormAll, sumForm, sumPo, poRows: poRowsN, head: [], sheet: ctx.sheets.map((x) => `${x.sheet} (${x.itemCode})`).join(', '),
+        note: [skipped.length ? `bỏ qua sheet của PO khác: ${skipped.join('; ')}` : '', ...notes].filter(Boolean).join(' · ') } };
+    },
+  });
+
   function detectForm(book) {
     for (const p of PROFILES) { const ctx = p.detect(book); if (ctx) return { profile: p, ctx }; }
     return null;
