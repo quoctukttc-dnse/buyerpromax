@@ -681,6 +681,80 @@
     },
   });
 
+  /* Silver Printing — EMPORIO ARMANI ORDER FORM: form chuẩn chung (catalogue ITEM NO. | DESCRIPTION | PCS | UNIT PRICE, hai cột trái A/B/C và phải G/I/J).
+     PO SCAVI (SLV…): mã Armani sau dấu "#" trong Spec / Supp. Ref ("PK11330 Z8004 Y0041#GA010XX1484CB"); gộp theo mã. Mã có sẵn trên form → ghi PCS vào
+     dòng đó; mã chưa có → ghi ITEM NO · DESCRIPTION · PCS vào các dòng trống dưới bảng (trái trước, phải sau), như buyer copy từ PO dán vào.
+     Phần đầu (DATE / PO# / DELY DATE) của form mẫu là của PO cũ → ghi đè bằng PO mới. */
+  PROFILES.push({
+    id: 'SILVER_ARMANI', name: 'Silver Printing — Emporio Armani order form',
+    detect(book) {
+      const cands = [];
+      for (const sh of book.sheets) {
+        let hdrRow = 0; let armani = false; const pairs = [];
+        for (const [ref, c] of sh.cells) {
+          const R = splitRef(ref); const t = String(c.v || '').replace(/\s+/g, ' ').trim();
+          if (/ARMANI ORDER FORM/i.test(t)) armani = true;
+          if (/^ITEM NO\.?$/i.test(t) && R.row <= 40) { hdrRow = hdrRow || R.row; pairs.push(R); }
+        }
+        if (!armani || !hdrRow) continue;
+        /* mỗi cặp: cột ITEM NO, cột DESCRIPTION (kế bên có chữ), cột PCS (ô "PCS" cùng dòng tiêu đề gần nhất bên phải) */
+        const row = pairs.filter((R) => R.row === hdrRow).sort((a, b) => a.col - b.col);
+        const pcsCols = []; for (const [ref, c] of sh.cells) { const R = splitRef(ref); if (R.row === hdrRow && /^PCS$/i.test(String(c.v || '').trim())) pcsCols.push(R.col); }
+        const cols = row.map((R) => { const pcs = pcsCols.filter((c) => c > R.col).sort((a, b) => a - b)[0]; const descC = [...sh.cells.entries()].filter(([k, c]) => c.v != null && String(c.v).trim() !== '').map(([k]) => splitRef(k)).filter((x) => x.row === hdrRow && x.col > R.col && x.col < (pcs || 99)).sort((a, b) => a.col - b.col)[0]; return pcs ? { item: R.L, desc: descC ? descC.L : colLetter(R.col + 1), pcs: colLetter(pcs) } : null; }).filter(Boolean);
+        if (!cols.length) continue;
+        let footer = 0, last = hdrRow; const items = new Map();
+        for (let r = hdrRow + 1; r <= hdrRow + 600; r++) {
+          const a = cellS(sh, 'A' + r);
+          if (/^\d\)\s/.test(a) || /PRODUCTION LEADTIME|TRACKING NUMBER/i.test(a)) { footer = r; break; }
+          for (const cp of cols) { const v = cellS(sh, cp.item + r); const m = v.match(/GA\d{3}[A-Z]{2}\d{4}[A-Z]{2}/); if (m) { items.set(m[0], { r, cp }); last = r; } }
+        }
+        cands.push({ sheet: sh.name, hdrRow, cols, footer: footer || hdrRow + 600, last, items: [...items], n: items.size });
+      }
+      if (!cands.length) return null;
+      return Object.assign({ all: cands.map((c) => c.sheet), cands }, cands[0]);
+    },
+    options(ctx, po, fname) { return { styles: ctx.all, pre: [ctx.sheet], colors: [], colorsPre: [], coos: [], cooPre: [], poRows: po.items.length, label: 'Sheet điền' }; },
+    plan(book, ctx0, po, opts) {
+      const pick = (opts.styles || [])[0]; const ctx = (ctx0.cands || []).find((c) => c.sheet === pick) || ctx0;
+      const sh = book.sheets.find((s) => s.name === ctx.sheet);
+      const agg = new Map();
+      for (const it of po.items) {
+        const m = (String(it.spec || '') + ' ' + String(it.supRef || '')).match(/#\s*(GA\d{3}[A-Z]{2}\d{4}[A-Z]{2})/);
+        const code = m ? m[1] : (String(it.supRef || '').trim() || '?');
+        const a = agg.get(code) || { qty: 0, n: 0, desc: new Set(), sup: new Set() };
+        a.qty += it.qty; a.n++; if (it.desc) a.desc.add(it.desc); if (it.supRef) a.sup.add(it.supRef); agg.set(code, a);
+      }
+      const existing = new Map(ctx.items);
+      const writes = [], placedExisting = [], placedNew = [], noRoom = [];
+      /* dòng trống: dưới dòng hàng cuối tới trước footer, trái (cặp 1) rồi phải (cặp 2) */
+      const slots = [];
+      for (const cp of ctx.cols) for (let r = ctx.hdrRow + 1; r < ctx.footer; r++) { if (!cellS(sh, cp.item + r) && !cellS(sh, cp.desc + r) && !cellS(sh, cp.pcs + r)) slots.push({ r, cp }); }
+      slots.sort((a, b) => (ctx.cols.indexOf(a.cp) - ctx.cols.indexOf(b.cp)) || (a.r - b.r));
+      let si = 0;
+      for (const [code, a] of [...agg].sort()) {
+        const descTxt = [...a.desc][0] ? ([...a.desc][0] + ([...a.sup][0] ? ' / ' + [...a.sup][0] : '')) : [...a.sup][0] || '';
+        if (existing.has(code)) { const { r, cp } = existing.get(code); writes.push({ sheet: ctx.sheet, ref: cp.pcs + r, num: a.qty, what: `${code} (dòng có sẵn ${r})` }); placedExisting.push(code); continue; }
+        const sl = slots[si++];
+        if (!sl) { noRoom.push(`${code} = ${fmtN(a.qty)}`); continue; }
+        writes.push({ sheet: ctx.sheet, ref: sl.cp.item + sl.r, text: code, what: `${code} → dòng trống ${sl.r}` });
+        writes.push({ sheet: ctx.sheet, ref: sl.cp.desc + sl.r, text: descTxt, what: `mô tả ${code}` });
+        writes.push({ sheet: ctx.sheet, ref: sl.cp.pcs + sl.r, num: a.qty, what: `PCS ${code}` });
+        placedNew.push(code);
+      }
+      const head = [];
+      if (opts.fillHeader) {
+        const findLabel = (re) => { for (const [ref, c] of sh.cells) { const R = splitRef(ref); if (R.row < ctx.hdrRow && re.test(String(c.v || '').replace(/\s+/g, ' ').trim())) return R; } return null; };
+        const over = (R, text, what) => { if (!R || !text) return; const ref = colLetter(R.col + 1) + R.row; const old = cellS(sh, ref); writes.push({ sheet: ctx.sheet, ref, text, what }); head.push(`${what}: ${text}${old && old !== text ? ` (thay "${old}")` : ''}`); };
+        over(findLabel(/^PO#?\s*:?$/i), po.po, 'PO#');
+        over(findLabel(/^DATE\s*:?$/i), po.orderDate, 'DATE');
+        over(findLabel(/^DELY\s*DATE\s*:?$/i), po.etdMin, 'DELY DATE');
+      }
+      const sumForm = writes.filter((w) => 'num' in w).reduce((a, w) => a + w.num, 0), sumPo = po.items.reduce((a, it) => a + it.qty, 0);
+      return { writes, report: { formRows: existing.size, filled: placedExisting.length + placedNew.length, zero: 0, zeroList: [], notInForm: noRoom, sumForm, sumPo, poRows: po.items.length, head, sheet: ctx.sheet,
+        note: `${agg.size} mã trên PO: ${placedExisting.length} có sẵn trên form, ${placedNew.length} ghi vào dòng trống (dòng ${slots[0] ? slots[0].r : '-'}…), ${noRoom.length} hết chỗ${(ctx0.all || []).length > 1 ? ` · sheet khác: ${ctx0.all.filter((x) => x !== ctx.sheet).join(', ')}` : ''}` } };
+    },
+  });
+
   function detectForm(book) {
     for (const p of PROFILES) { const ctx = p.detect(book); if (ctx) return { profile: p, ctx }; }
     return null;

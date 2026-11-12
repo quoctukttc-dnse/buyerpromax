@@ -39,6 +39,12 @@ Hồ sơ mẫu hiện có (`PROFILES` trong `order.js`):
   để trống và báo). Korean hang tag (sheet `Order Form …`, tiêu đề `QTY (PCS)`): màu Korea (166 / 001) → màu Lacoste (UGW / W8L) qua sheet danh mục trong
   chính file (`LACOSTE KOREA STYLE # wo…` + `KOREA COLOR #` → `COLOR`), size `10A` ↔ phần trước "/" của Size PO. Thử PO RPV0033400: SMS ref 7933 **53/53**
   (Σ 9.088), Korean hang tag ref 7867 **10/10** (Σ 962), trùng bản buyer điền. Dòng EXAMPLE của mẫu bị bỏ qua.
+- **Silver Printing — Emporio Armani order form** (`ARMANI order form 13VAT-SS - SILVER.xlsx`): form chuẩn chung, catalogue `ITEM NO. | DESCRIPTION | PCS`
+  hai cột (A/B/C và G/I/J) trên nhiều sheet (From #001, #002 AX, paper, FSC LOGO, FLASHER, LF543 — chọn sheet, mặc định sheet đầu). PO (SLV…) mã Armani
+  sau dấu `#` của Spec / Supp. Ref (`PK11330 Z8004 Y0041#GA010XX1484CB`) gộp theo mã; mã có sẵn trên form → ghi PCS vào dòng đó, mã chưa có → ghi
+  ITEM NO · DESCRIPTION (mô tả PO / Supp. Ref) · PCS vào các **dòng trống dưới bảng** (trái trước, phải sau, trước mục "2) PRODUCTION LEADTIME"), đúng như
+  buyer copy từ PO dán vào; hết chỗ thì báo. PO# ở phần đầu (của PO cũ trên form mẫu) được **ghi đè**. Thử PO SLV0008000: 28 mã, 0 có sẵn, 28 ghi vào dòng
+  198–215, Σ 567.574 = Σ PO.
 Phần đầu form chỉ điền khi ô còn **trống**: PO# = số PO SCAVI, Order Date = Order Date PO, Request Ship Date = ETD sớm nhất, Bill to = Buyer/Invoice To +
 Address của PO (ô đã có giá trị thì giữ, ví dụ PO# `10061` trên form ID LABEL). Kết quả hiện Σ form / Σ PO, mã PO không có dòng trên form, dòng form ghi 0,
 danh sách ô đã ghi. Trình duyệt cần `DecompressionStream` (Chrome/Edge 103+, Safari 16.4+). Thêm form khác: gửi một PO + một form đã điền mẫu → thêm một hồ sơ

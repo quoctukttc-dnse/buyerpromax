@@ -1447,6 +1447,13 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.40f (12.11.2026) — order form Silver Printing / Emporio Armani
+
+- `SILVER_ARMANI`: detect sheet có "ARMANI ORDER FORM" + dòng tiêu đề (≤ 40) có `ITEM NO.`; mỗi cặp cột = ITEM NO + ô tiêu đề kế bên có chữ (DESCRIPTION) +
+  `PCS` gần nhất bên phải; footer = dòng A bắt đầu `\d)` hoặc PRODUCTION LEADTIME; `items` = mã `GA\d{3}[A-Z]{2}\d{4}[A-Z]{2}` có sẵn. `options` → chọn
+  sheet. plan: gộp PO theo mã sau `#`; mã có sẵn → PCS; chưa có → slot trống (item/desc/pcs đều trống) trái rồi phải; `over()` ghi đè PO# / DATE / DELY DATE.
+- PO SLV0008000: 28 mã vào dòng 198–215 sheet From #001, Σ 567.574.
+
 ## Thay đổi của v11.40e (12.11.2026) — order form r-pac Haddad (SMS order file, Korean hang tag)
 
 - `poRefOf(it)` = phần 2 của Spec 4 phần; `rpacRefOptions` → ref ứng viên trong PO, chọn sẵn theo token tên file; UI nhãn "Ref Haddad".
