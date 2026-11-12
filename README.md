@@ -49,9 +49,10 @@ Hồ sơ mẫu hiện có (`PROFILES` trong `order.js`):
 - **Avery Dennison Hong Kong — Adore Me order form** (PFL care label, HTL label, paper tag; PO `AV6…`): mỗi sheet một Item Code (ô dưới nhãn
   `Item Code`), dòng tiêu đề `PO# | *Size | *RN# | *Style No | … | Quantity (pcs)` (paper tag: `*Size | *Item description | *UPC | Quantity (pcs) | … | STYLE
   ADOREME`). PO: Supp. Ref = Item Code, style ở cột **Reference** (phần trước `_`: `SW-14113-BIK_SCA057-PA-BIK-X`) / Spec / Color, Size = cột Size. Khóa
-  item · style · size; sheet có cột PO# ghi PO khác (AV60003300) bị bỏ qua. Thử PO AV60006500: HTL 2 sheet 78/78 trùng số buyer đã điền (Σ 12.966);
-  PFL care 16 dòng Σ 1.365, 2 dòng PO (SW-15817-HGW 2X/3X) không có trên form → báo; paper tag AM-TAG-26-01: PO chỉ có một dòng `AM-MAIN-001` 1.365 không
-  chia size → không điền, báo.
+  item · style · size (+ **màu** cho paper tag: cột COLOR của form ↔ phần 2 của Spec `SW-15808-TPI/BEGONIA PINK/Dot 134`); style nhận dạng theo mẫu
+  `SW-14110-TPI` dù Reference ghi `SCA057-BR-BAL-SW-14110-TPI`; sheet có cột PO# ghi PO khác (AV60003300) bị bỏ qua; PO không chia size (`AM-MAIN-001`
+  một dòng) → không điền, báo. Thử PO AV60006500 (bản 12.11): paper tag **156/156** trùng bản buyer điền (Σ 24.378), PFL care 16/16 (Σ 1.365, 2 size
+  2X/3X của SW-15817-HGW đã bỏ khỏi BOM), HTL 4 sheet BLK/WHT/GRY/GRY-SMALL **118/118** (Σ 23.160).
 Phần đầu form chỉ điền khi ô còn **trống**: PO# = số PO SCAVI, Order Date = Order Date PO, Request Ship Date = ETD sớm nhất, Bill to = Buyer/Invoice To +
 Address của PO (ô đã có giá trị thì giữ, ví dụ PO# `10061` trên form ID LABEL). Kết quả hiện Σ form / Σ PO, mã PO không có dòng trên form, dòng form ghi 0,
 danh sách ô đã ghi. Trình duyệt cần `DecompressionStream` (Chrome/Edge 103+, Safari 16.4+). Thêm form khác: gửi một PO + một form đã điền mẫu → thêm một hồ sơ

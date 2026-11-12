@@ -857,6 +857,7 @@ a{color:var(--brand)}
           const R = splitRef(ref); if (R.row !== hdrRow) continue;
           const t = String(c.v || '').replace(/\s+/g, ' ').trim();
           if (/^\*?Size\b/i.test(t)) cols.size = R.L; if (/^\*?Style No/i.test(t) || /^STYLE ADOREME/i.test(t)) cols.style = R.L; if (/^PO#?$/i.test(t)) cols.po = R.L; if (/^\*?Item description/i.test(t)) cols.sku = R.L;
+          if (/^COLOU?R$/i.test(t)) cols.color = R.L;
         }
         if (!cols.size || !cols.qty) continue;
         const itemCode = cellS(sh, itemRef.L + (itemRef.row + 1));
@@ -870,15 +871,18 @@ a{color:var(--brand)}
       return { sheet: sheets.map((x) => x.sheet).join(' + '), sheets, rows: sheets.reduce((a, x) => a + x.rows, 0) };
     },
     plan(book, ctx, po, opts) {
-      const styleOf = (it) => { const r = String(it.reference || '').trim(); if (r) return r.split('_')[0].trim(); const sp = String(it.spec || '').split('/')[0].trim(); if (sp) return sp; const c = String(it.color || ''); const m = c.match(/-(.+)$/); return m ? m[1].trim() : ''; };
+      /* style Adore Me dạng SW-14110-TPI / PA-15906-HIP nằm ở Reference ("SW-14113-BIK_SCA057-PA-BIK-X", PO mới: "SCA057-BR-BAL-SW-14110-TPI"), Spec hoặc Color */
+      const STYLE_RE = /\b[A-Z]{2}-\d{4,6}-[A-Z]{2,4}\b/;
+      const styleOf = (it) => { for (const t of [it.reference, it.spec, it.color]) { const m = String(t || '').toUpperCase().match(STYLE_RE); if (m) return m[0]; } const r = String(it.reference || '').trim(); if (r) return r.split('_')[0].trim(); return String(it.spec || '').split('/')[0].trim(); };
+      const formStyle = (t) => { const m = String(t || '').toUpperCase().match(STYLE_RE); return m ? m[0] : String(t || '').trim(); };
       const writes = [], notes = [], skipped = [], zeroAll = [], notInFormAll = [];
       let formRows = 0, filled = 0, sumForm = 0, sumPo = 0, poRowsN = 0;
       for (const S of ctx.sheets) {
         const sh = book.sheets.find((s) => s.name === S.sheet);
         const other = S.pos.filter((p) => p !== String(po.po).toUpperCase());
         if (other.length && !S.pos.includes(String(po.po).toUpperCase())) { skipped.push(`${S.sheet} (PO ${other.join(', ')})`); continue; }
-        const codes = [AZ(S.itemCode)].concat(AM_ALIAS[AZ(S.itemCode)] || []);
-        const rows = po.items.filter((it) => codes.includes(AZ(it.supRef)));
+        let rows = po.items.filter((it) => AZ(it.supRef) === AZ(S.itemCode));
+        if (!rows.length) rows = po.items.filter((it) => (AM_ALIAS[AZ(S.itemCode)] || []).includes(AZ(it.supRef)));   // mã tương đương chỉ dùng khi PO không có đúng Item Code
         poRowsN += rows.length; sumPo += rows.reduce((a, it) => a + it.qty, 0);
         if (!rows.length) { notes.push(`${S.sheet}: PO không có Supp. Ref ${S.itemCode}`); continue; }
         const hasSize = (it) => it.size && !/^UNKNOWN$/i.test(it.size);
@@ -887,10 +891,15 @@ a{color:var(--brand)}
         for (let r = S.hdrRow + 1; r <= S.hdrRow + 3000; r++) {
           const size = cellS(sh, S.cols.size + r); if (!size) { if (formRows) break; continue; }
           formRows++;
-          let style = S.cols.style ? cellS(sh, S.cols.style + r) : '';
-          if (!style && S.cols.sku) { const m = cellS(sh, S.cols.sku + r).match(/\b([A-Z]{2}-\d{4,6}-[A-Z]{2,4})\b/); if (m) style = m[1]; }
-          const cands = rows.filter((it) => !used.has(it) && AZ(it.size) === AZ(size) && (!style || AZ(styleOf(it)) === AZ(style) || AZ(styleOf(it)).startsWith(AZ(style))));
-          const what = `${S.sheet} · ${style || '?'} · ${size}`;
+          let style = S.cols.style ? formStyle(cellS(sh, S.cols.style + r)) : '';
+          if (!style && S.cols.sku) style = formStyle(cellS(sh, S.cols.sku + r)) === cellS(sh, S.cols.sku + r) ? '' : formStyle(cellS(sh, S.cols.sku + r));
+          let cands = rows.filter((it) => !used.has(it) && AZ(it.size) === AZ(size) && (!style || AZ(styleOf(it)) === AZ(style) || AZ(styleOf(it)).startsWith(AZ(style))));
+          /* paper tag: cùng style + size nhưng khác màu (BEGONIA PINK / Meadow Green) → so cột COLOR của form với phần 2 của Spec ("SW-15808-TPI/BEGONIA PINK/Dot 134") */
+          const color = S.cols.color ? cellS(sh, S.cols.color + r) : '';
+          const colorOf = (it) => { const p = String(it.spec || '').split('/'); return p.length >= 3 ? p[1].trim() : String(it.color || '').replace(/-.*$/, ''); };
+          if (cands.length > 1 && color) { const c2 = cands.filter((it) => AZ(colorOf(it)) === AZ(color)); if (c2.length) cands = c2; }
+          const what = `${S.sheet} · ${style || '?'}${color ? ' · ' + color : ''} · ${size}`;
+          if (cands.length > 1 && new Set(cands.map((x) => x.qty)).size > 1) { zero.push(`${style} ${size}: ${cands.length} dòng PO khác màu (${cands.map((it) => colorOf(it) + ':' + it.qty).join(', ')}) — form không ghi màu`); continue; }
           if (cands.length) { used.add(cands[0]); writes.push({ sheet: S.sheet, ref: S.cols.qty + r, num: cands[0].qty, what }); filled++; sumForm += cands[0].qty; }
           else { zero.push(`${style} ${size}`); if (opts.zeroMissing) writes.push({ sheet: S.sheet, ref: S.cols.qty + r, num: 0, what: what + ' (không có trên PO)' }); }
         }

@@ -1447,6 +1447,12 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.40i (12.11.2026) — Adore Me: màu cho paper tag, style theo mẫu, alias chỉ khi thiếu
+
+- `STYLE_RE = /[A-Z]{2}-\d{4,6}-[A-Z]{2,4}/` tìm trong Reference → Spec → Color (PO mới ghi `SCA057-BR-BAL-SW-14110-TPI`); form: cột Style / SKU qua `formStyle`.
+- Cột `COLOR` của form ↔ `colorOf(it)` = phần 2 Spec (3 phần) hoặc Color trước "-"; nhiều ứng viên khác màu mà form không ghi màu → để trống + báo.
+- `AM_ALIAS` chỉ dùng khi PO không có đúng Item Code. PO AV60006500 (12.11): tag 156/156, care 16/16, HTL 118/118.
+
 ## Thay đổi của v11.40h (12.11.2026) — Avery HK Adore Me order form (care / HTL / paper tag)
 
 - `AVERY_HK_ADOREME`: detect mỗi sheet có nhãn `Item Code` (mã ở ô dưới) + tiêu đề `Quantity (pcs)` (+ `*Size`, `*Style No` / `STYLE ADOREME`, `PO#`,
