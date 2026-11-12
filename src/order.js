@@ -562,6 +562,125 @@
     },
   });
 
+  /* ===== r-pac (Haddad / Lacoste): OF do Packaging điền sẵn mọi cột trừ số lượng; buyer VLOOKUP số lượng từ PO theo Item / Region / Color / Size.
+     PO SCAVI (RPV…): Spec "P6107H Hangtag/7933/34/02S" = item / ref Haddad / mã thị trường / mã màu, cột Size "10A/S". Một PO gồm nhiều ref;
+     ref của OF lấy từ tên file ("…20260730_7933_334" → 7933) hoặc người dùng chọn. */
+  const RPAC_REGION = { EUROPE: 'HBE', CANADA: 'CNH' };   // Panama / Brazil ↔ 34 / H6: chờ buyer xác nhận
+  const poRefOf = (it) => { const p = String(it.spec || '').split('/'); return p.length >= 4 ? p[1].trim() : ''; };
+  const sizeKey = (t) => AZ(String(t || '').split('/')[0]).replace(/^0+(?=\d)/, '');
+  function rpacRefOptions(ctx, po, fname) {
+    const refs = [...new Set(po.items.map(poRefOf).filter((r) => /^\d{3,5}$/.test(r)))].sort();
+    const toks = String(fname || '').split(/[^A-Za-z0-9]+/);
+    const pre = refs.filter((r) => toks.includes(r));
+    return { styles: refs, pre: pre.length ? pre : (refs.length === 1 ? refs : []), colors: [], colorsPre: [], coos: [], cooPre: [], poRows: po.items.filter((it) => poRefOf(it)).length, label: 'Ref Haddad' };
+  }
+  /* r-pac — Lacoste SMS order file (sheet "Data_…"): Vendor ID | PO# | PO Date | Region | Item code | SEASON | Production Date | Order quantity | Style | Color Code | … | US Size */
+  PROFILES.push({
+    id: 'RPAC_SMS', name: 'r-pac — Lacoste SMS order file (Haddad)',
+    detect(book) {
+      for (const sh of book.sheets) {
+        let hdrRow = 0; const cols = {};
+        for (const [ref, c] of sh.cells) {
+          const R = splitRef(ref); if (R.row > 12) continue;
+          const t = String(c.v || '').replace(/\s+/g, ' ').trim();
+          if (/^Order quantity$/i.test(t)) { cols.qty = R.L; hdrRow = R.row; }
+          if (/^Item code$/i.test(t)) cols.item = R.L; if (/^Region$/i.test(t)) cols.region = R.L; if (/^Color Code$/i.test(t)) cols.color = R.L;
+          if (/^US Size$/i.test(t)) cols.size = R.L; if (/^PO#$/i.test(t)) cols.hpo = R.L; if (/^Vendor ID$/i.test(t)) cols.vendor = R.L; if (/^Style$/i.test(t)) cols.style = R.L;
+        }
+        if (!hdrRow || !cols.item || !cols.color || !cols.size) continue;
+        let n = 0; for (let r = hdrRow + 1; r <= hdrRow + 5000; r++) { const it = cellS(sh, cols.item + r); if (!it) { if (n) break; continue; } if (/^EXAMPLE$/i.test(cellS(sh, (cols.vendor || 'A') + r))) continue; n++; }
+        if (!n) continue;
+        return { sheet: sh.name, hdrRow, cols, rows: n };
+      }
+      return null;
+    },
+    options: rpacRefOptions,
+    plan(book, ctx, po, opts) {
+      const sh = book.sheets.find((s) => s.name === ctx.sheet); const { cols } = ctx;
+      const refs = opts.styles || [];
+      const formItems = new Set(); for (let r = ctx.hdrRow + 1; r <= ctx.hdrRow + 5000; r++) { const it = cellS(sh, cols.item + r); if (!it) { if (formItems.size) break; continue; } formItems.add(it.toUpperCase()); }
+      let pool = po.items.filter((it) => poRefOf(it) && (!refs.length || refs.includes(poRefOf(it))) && [...formItems].some((k) => String(it.spec).toUpperCase().startsWith(k)));
+      const used = new Set(), writes = [], amb = [], miss = [], regionSeen = {};
+      let formRows = 0;
+      for (let r = ctx.hdrRow + 1; r <= ctx.hdrRow + 5000; r++) {
+        const item = cellS(sh, cols.item + r); if (!item) { if (formRows) break; continue; }
+        if (/^EXAMPLE$/i.test(cellS(sh, (cols.vendor || 'A') + r))) continue;
+        formRows++;
+        const region = cols.region ? cellS(sh, cols.region + r) : '', color = cellS(sh, cols.color + r), size = cellS(sh, cols.size + r);
+        const code = RPAC_REGION[AZ(region)] || '';
+        let cands = pool.filter((it) => !used.has(it) && String(it.spec).toUpperCase().startsWith(item.toUpperCase()) && AZ(String(it.spec).split('/')[3]) === AZ(color) && sizeKey(it.size) === sizeKey(size));
+        if (code) cands = cands.filter((it) => AZ(String(it.spec).split('/')[2]) === code);
+        else { const known = new Set(Object.values(RPAC_REGION)); const c2 = cands.filter((it) => !known.has(AZ(String(it.spec).split('/')[2]))); if (c2.length) cands = c2; }   // thị trường chưa biết mã → loại các mã đã thuộc thị trường khác
+        const what = `${item} · ${region} · ${color} · ${size}`;
+        if (cands.length === 1 || (cands.length > 1 && new Set(cands.map((x) => x.qty)).size === 1)) {
+          const pick = cands[0]; used.add(pick);
+          const mk = String(pick.spec).split('/')[2];
+          regionSeen[region] = regionSeen[region] || new Set(); regionSeen[region].add(mk);
+          writes.push({ sheet: ctx.sheet, ref: cols.qty + r, num: pick.qty, what: what + (cands.length > 1 ? ` (${cands.length} dòng PO cùng SL, thị trường ${cands.map((x) => String(x.spec).split('/')[2]).join('/')})` : '') });
+          if (cands.length > 1) amb.push(what);
+        } else if (cands.length > 1) { amb.push(what + ` — ${cands.length} dòng PO khác SL (${cands.map((x) => String(x.spec).split('/')[2] + ':' + x.qty).join(', ')}) → để trống`); }
+        else { miss.push(what); if (opts.zeroMissing) writes.push({ sheet: ctx.sheet, ref: cols.qty + r, num: 0, what: what + ' (không có trên PO)' }); }
+      }
+      const notInForm = pool.filter((it) => !used.has(it)).map((it) => `${it.spec} ${it.size} = ${it.qty}`);
+      const regNote = Object.entries(regionSeen).map(([k, v]) => `${k} → ${[...v].join('/')}`).join(', ');
+      return { writes, report: { formRows, filled: writes.filter((w) => w.num > 0).length, zero: miss.length, zeroList: miss, notInForm, sumForm: writes.reduce((a, w) => a + (w.num || 0), 0), sumPo: pool.reduce((a, it) => a + it.qty, 0), poRows: pool.length, head: [], sheet: ctx.sheet,
+        note: `ref ${refs.join(', ') || '(tất cả)'} · khóa item · màu · size (+ thị trường ${Object.keys(RPAC_REGION).join('/')})${regNote ? ' · mã thị trường gặp: ' + regNote : ''}${amb.length ? ` · ⚠ ${amb.length} dòng nhiều ứng viên: ${amb.slice(0, 4).join('; ')}${amb.length > 4 ? '…' : ''}` : ''}` } };
+    },
+  });
+  /* r-pac — HADDAD Korean Hang Tag Order Form (sheet "Order Form …"): ID | HADDAD PO# | PO Date | Vendor ID | … | Ticket Item# | Lacoste Style | Season 1 | Season 2 |
+     Korean colour | Korean size | QTY (PCS). Màu Korea → màu Lacoste qua sheet danh mục (cột "LACOSTE KOREA STYLE # wo…" + "KOREA COLOR #" → "COLOR").
+     PO: Spec "Hangtag FC7648/7867/KOREA/S3C", Size "10A/S" (so phần trước "/" với Korean size, bỏ số 0 đầu). */
+  PROFILES.push({
+    id: 'RPAC_KHT', name: 'r-pac — HADDAD Korean Hang Tag Order Form',
+    detect(book) {
+      for (const sh of book.sheets) {
+        let hdrRow = 0; const cols = {};
+        for (const [ref, c] of sh.cells) {
+          const R = splitRef(ref); if (R.row > 6) continue;
+          const t = String(c.v || '').replace(/\s+/g, ' ').trim();
+          if (/^QTY\s*\(PCS\)$/i.test(t)) { cols.qty = R.L; hdrRow = R.row; }
+          if (/^Ticket Item#?$/i.test(t)) cols.item = R.L; if (/^Lacoste\s*Style$/i.test(t)) cols.style = R.L; if (/^Korean colou?r$/i.test(t)) cols.kcol = R.L;
+          if (/^Korean size$/i.test(t)) cols.size = R.L; if (/^HADDAD PO#?$/i.test(t)) cols.hpo = R.L;
+        }
+        if (!hdrRow || !cols.item || !cols.kcol || !cols.size) continue;
+        let n = 0; for (let r = hdrRow + 1; r <= hdrRow + 3000; r++) { const it = cellS(sh, cols.item + r); if (!it) { if (n) break; continue; } if (/^EXAMPLE$/i.test(cellS(sh, (cols.hpo || 'B') + r))) continue; n++; }
+        if (!n) continue;
+        /* bảng màu Korea ↔ Lacoste */
+        const cmap = new Map();
+        for (const s2 of book.sheets) {
+          let h = 0; const cc = {};
+          for (const [ref, c] of s2.cells) { const R = splitRef(ref); if (R.row > 3) continue; const t = String(c.v || '').trim(); if (/^COLOR$/i.test(t)) { cc.color = R.L; h = R.row; } if (/^KOREA COLOR/i.test(t)) cc.kcol = R.L; if (/^LACOSTE KOREA STYLE # wo/i.test(t)) cc.style = R.L; }
+          if (!h || !cc.color || !cc.kcol) continue;
+          for (let r = h + 1; r <= h + 5000; r++) { const k = cellS(s2, cc.kcol + r), col = cellS(s2, cc.color + r); if (!k && !col) { if (r > h + 50) break; continue; } if (!k || !col) continue; const st = cc.style ? cellS(s2, cc.style + r) : ''; cmap.set(AZ(st) + '|' + AZ(k), col); if (!cmap.has('|' + AZ(k))) cmap.set('|' + AZ(k), col); }
+        }
+        return { sheet: sh.name, hdrRow, cols, rows: n, cmap: [...cmap] };
+      }
+      return null;
+    },
+    options: rpacRefOptions,
+    plan(book, ctx, po, opts) {
+      const sh = book.sheets.find((s) => s.name === ctx.sheet); const { cols } = ctx; const cmap = new Map(ctx.cmap || []);
+      const refs = opts.styles || [];
+      const formItems = new Set(); for (let r = ctx.hdrRow + 1; r <= ctx.hdrRow + 3000; r++) { const it = cellS(sh, cols.item + r); if (!it) { if (formItems.size) break; continue; } formItems.add(AZ(it)); }
+      const pool = po.items.filter((it) => poRefOf(it) && (!refs.length || refs.includes(poRefOf(it))) && [...formItems].some((k) => AZ(String(it.spec).split('/')[0]).includes(k)));
+      const used = new Set(), writes = [], miss = [], amb = []; let formRows = 0;
+      for (let r = ctx.hdrRow + 1; r <= ctx.hdrRow + 3000; r++) {
+        const item = cellS(sh, cols.item + r); if (!item) { if (formRows) break; continue; }
+        if (/^EXAMPLE$/i.test(cellS(sh, (cols.hpo || 'B') + r))) continue;
+        formRows++;
+        const style = cols.style ? cellS(sh, cols.style + r) : '', kcol = cellS(sh, cols.kcol + r), size = cellS(sh, cols.size + r);
+        const lcol = cmap.get(AZ(style) + '|' + AZ(kcol)) || cmap.get('|' + AZ(kcol)) || kcol;
+        const cands = pool.filter((it) => !used.has(it) && AZ(String(it.spec).split('/')[0]).includes(AZ(item)) && AZ(String(it.spec).split('/')[3]) === AZ(lcol) && sizeKey(it.size) === sizeKey(size));
+        const what = `${item} · ${style} · ${kcol}${lcol !== kcol ? '→' + lcol : ''} · ${size}`;
+        if (cands.length === 1 || (cands.length > 1 && new Set(cands.map((x) => x.qty)).size === 1)) { used.add(cands[0]); writes.push({ sheet: ctx.sheet, ref: cols.qty + r, num: cands[0].qty, what }); if (cands.length > 1) amb.push(what); }
+        else if (cands.length > 1) amb.push(what + ' — nhiều dòng PO khác SL → để trống');
+        else { miss.push(what); if (opts.zeroMissing) writes.push({ sheet: ctx.sheet, ref: cols.qty + r, num: 0, what: what + ' (không có trên PO)' }); }
+      }
+      const notInForm = pool.filter((it) => !used.has(it)).map((it) => `${it.spec} ${it.size} = ${it.qty}`);
+      return { writes, report: { formRows, filled: writes.filter((w) => w.num > 0).length, zero: miss.length, zeroList: miss, notInForm, sumForm: writes.reduce((a, w) => a + (w.num || 0), 0), sumPo: pool.reduce((a, it) => a + it.qty, 0), poRows: pool.length, head: [], sheet: ctx.sheet, note: `ref ${refs.join(', ') || '(tất cả)'} · màu Korea → Lacoste qua sheet danh mục (${cmap.size} mã)${amb.length ? ' · ⚠ ' + amb.join('; ') : ''}` } };
+    },
+  });
+
   function detectForm(book) {
     for (const p of PROFILES) { const ctx = p.detect(book); if (ctx) return { profile: p, ctx }; }
     return null;
@@ -638,7 +757,7 @@
           const o = f.profile.options(f.ctx, p.po, f.file.name);
           if (!f.sel) f.sel = { styles: o.pre.slice(), colors: o.colorsPre.slice(), coos: o.cooPre.slice() };
           opt += `<div class="small">Item <b>${esc(f.ctx.itemCode)}</b> — ${o.poRows} dòng PO</div>`;
-          opt += `<div class="small">Style: ${o.styles.map((s) => `<label class="chk"><input type="checkbox" data-f="${i}" data-k="styles" value="${esc(s)}" ${f.sel.styles.includes(s) ? 'checked' : ''}> ${esc(s)}</label>`).join(' ') || '(không có trong PO)'}</div>`;
+          opt += `<div class="small">${esc(o.label || 'Style')}: ${o.styles.map((s) => `<label class="chk"><input type="checkbox" data-f="${i}" data-k="styles" value="${esc(s)}" ${f.sel.styles.includes(s) ? 'checked' : ''}> ${esc(s)}</label>`).join(' ') || '(không có trong PO)'}</div>`;
           if (o.colors.length > 1) opt += `<div class="small">Màu (bỏ trống = tất cả): ${o.colors.map((s) => `<label class="chk"><input type="checkbox" data-f="${i}" data-k="colors" value="${esc(s)}" ${f.sel.colors.includes(s) ? 'checked' : ''}> ${esc(s)}</label>`).join(' ')}</div>`;
           if (o.coos.length > 1) opt += `<div class="small">COO: ${o.coos.map((s) => `<label class="chk"><input type="checkbox" data-f="${i}" data-k="coos" value="${esc(s)}" ${f.sel.coos.includes(s) ? 'checked' : ''}> ${esc(s)}</label>`).join(' ')}</div>`;
         } else if (f.ctx.rows != null) opt = `<span class="small">${f.ctx.rows} dòng SKU có sẵn</span>`;

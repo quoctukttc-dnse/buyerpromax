@@ -1447,6 +1447,17 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.40e (12.11.2026) — order form r-pac Haddad (SMS order file, Korean hang tag)
+
+- `poRefOf(it)` = phần 2 của Spec 4 phần; `rpacRefOptions` → ref ứng viên trong PO, chọn sẵn theo token tên file; UI nhãn "Ref Haddad".
+- `RPAC_SMS`: detect dòng tiêu đề (≤ 12) có `Order quantity` + `Item code` + `Color Code` + `US Size`; bỏ dòng Vendor ID = EXAMPLE; pool = dòng PO cùng ref
+  và item có trên form; ứng viên = item (tiền tố Spec) · màu (phần 4) · `sizeKey` (phần trước "/", bỏ 0 đầu); thị trường: `RPAC_REGION` {EUROPE: HBE,
+  CANADA: CNH} lọc thẳng, thị trường chưa biết → loại mã đã thuộc thị trường khác; nhiều ứng viên cùng SL → điền + ghi chú, khác SL → để trống + ⚠;
+  mỗi dòng PO dùng một lần.
+- `RPAC_KHT`: detect `QTY (PCS)` + `Ticket Item#` + `Korean colour` + `Korean size` (≤ dòng 6); `cmap` từ sheet danh mục (`COLOR`, `KOREA COLOR #`,
+  `LACOSTE KOREA STYLE # wo`) khóa `style|kcol` và `|kcol`; ứng viên = item ⊂ phần 1 Spec · màu Lacoste · sizeKey.
+- PO RPV0033400: SMS 7933 53/53, KHT 7867 10/10.
+
 ## Thay đổi của v11.40d (11.11.2026) — order form: Avery Lacoste care label (GBY)
 
 - Hồ sơ `AVERY_LACOSTE_CARE`: ưu tiên sheet `Order form`; detect dòng tiêu đề (≤ 60) có `Item Code*` + `Style No*` + `quantity` cùng dòng; size =

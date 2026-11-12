@@ -32,6 +32,13 @@ Hồ sơ mẫu hiện có (`PROFILES` trong `order.js`):
   (cột Accessories XXS…3XL, hoặc SizeC/SizeK) ↔ PO Supp. Ref `FGUW154x35ADVN`, Spec `CARE LABEL FGUW AH795/FGUW`, Size của PO. Dòng PO `…/FGUW ADD`,
   `… ADD1` (trang phụ, cùng số lượng) **không cộng** vào form — form ghi số bộ nhãn. Phần đầu: Order Date, Required Ship Date (ETD), Bill-to Company /
   Address khi trống. Thử: 8 size, Σ 57 = Σ PO dòng gốc, **trùng 8/8** với bản buyer điền.
+- **r-pac — Lacoste SMS order file (Haddad)** và **HADDAD Korean Hang Tag Order Form**: OF do Packaging điền sẵn mọi cột (Haddad PO#, barcode, key…), buyer
+  chỉ điền số lượng; một PO SCAVI gồm nhiều ref Haddad, OF là một ref (lấy từ tên file `…_7933_334`, `… 7867`, có thể tick lại). PO (RPV…) Spec
+  `P6107H Hangtag/7933/34/02S` = item / ref / mã thị trường / màu, Size `10A/S`. SMS (sheet `Data_…`, dòng tiêu đề có `Order quantity`): khóa Item code ·
+  Color Code · US Size · Region (Europe → HBE, Canada → CNH; Panama / Brazil ↔ 34 / H6 chưa xác nhận → khi hai dòng PO cùng số lượng vẫn điền, khác số thì
+  để trống và báo). Korean hang tag (sheet `Order Form …`, tiêu đề `QTY (PCS)`): màu Korea (166 / 001) → màu Lacoste (UGW / W8L) qua sheet danh mục trong
+  chính file (`LACOSTE KOREA STYLE # wo…` + `KOREA COLOR #` → `COLOR`), size `10A` ↔ phần trước "/" của Size PO. Thử PO RPV0033400: SMS ref 7933 **53/53**
+  (Σ 9.088), Korean hang tag ref 7867 **10/10** (Σ 962), trùng bản buyer điền. Dòng EXAMPLE của mẫu bị bỏ qua.
 Phần đầu form chỉ điền khi ô còn **trống**: PO# = số PO SCAVI, Order Date = Order Date PO, Request Ship Date = ETD sớm nhất, Bill to = Buyer/Invoice To +
 Address của PO (ô đã có giá trị thì giữ, ví dụ PO# `10061` trên form ID LABEL). Kết quả hiện Σ form / Σ PO, mã PO không có dòng trên form, dòng form ghi 0,
 danh sách ô đã ghi. Trình duyệt cần `DecompressionStream` (Chrome/Edge 103+, Safari 16.4+). Thêm form khác: gửi một PO + một form đã điền mẫu → thêm một hồ sơ
