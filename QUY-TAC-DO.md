@@ -1447,6 +1447,18 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.42 (13.11.2026) — sửa gốc lỗi "trang không chạy": chờ tải xong trang rồi mới chạy mã
+
+- Hộp báo lỗi v11.41 cho kết quả trên Safari 27 (macOS): `SyntaxError: Unexpected end of script (dòng 1865)` — mã trang chỉ có 1 865
+  dòng trong khi thực tế 7 066 dòng → **mã bị cắt giữa chừng**, không phải lỗi cú pháp.
+- Nguyên nhân (đua điều kiện trong bootstrap `index-src.html`): script khởi động nằm trước khối `#app-src` (cuối file, ~450 KB) và chạy
+  ngay khi hai thư viện (blob) nạp xong — vài chục ms. Trên mạng nhanh/máy thử cả trang 4,2 MB đã về nên không sao; trên mạng
+  chậm phần đuôi chưa tải, `textContent` của `#app-src` chỉ có phần đã về → chạy mã cắt cụt → SyntaxError → không gắn được sự kiện
+  click / drop → "bấm upload hoặc kéo thả không chạy". Tái hiện được trên Chromium bằng máy chủ gửi file từng 64 KB (0,06 s/khúc).
+- Sửa: `Promise.all([... thư viện ..., domReady])` với `domReady` = `DOMContentLoaded` (hoặc `readyState !== 'loading'`) — chỉ đọc
+  `#app-src` khi trình duyệt đã phân tích xong toàn bộ trang. Sau sửa: máy chủ chậm → trang sẵn sàng, thả HĐ 750 → "Khớp toàn bộ".
+- `order.html` không bị: mã nằm trong `<script>` thường, trình duyệt chỉ chạy khi đã nhận đủ.
+
 ## Thay đổi của v11.41 (13.11.2026) — bộ báo lỗi khởi động trang (trang "không chạy" khi bấm upload / kéo thả)
 
 - Phản hồi: trang inbound bấm upload hoặc kéo thả không có phản ứng. Trên trình duyệt kiểm thử (Chromium mới) trang chạy đúng
