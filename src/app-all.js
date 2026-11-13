@@ -3047,3 +3047,5 @@ $('#dlall').addEventListener('click', () => {
   OUTPUTS.forEach((o, i) => setTimeout(() => $('#dlx' + i).click(), i * 400));
 });
 renderSlots();
+/* báo cho bộ báo lỗi khởi động (index-src.html) là trang đã sẵn sàng */
+if (window.__BOOT) { window.__BOOT.ready = true; window.__BOOT.hide(); }

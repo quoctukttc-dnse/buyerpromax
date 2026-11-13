@@ -1447,6 +1447,20 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.41 (13.11.2026) — bộ báo lỗi khởi động trang (trang "không chạy" khi bấm upload / kéo thả)
+
+- Phản hồi: trang inbound bấm upload hoặc kéo thả không có phản ứng. Trên trình duyệt kiểm thử (Chromium mới) trang chạy đúng
+  (thả HĐ 750 + ZMME → "Khớp toàn bộ"), mã inbound không đổi từ v11.39 → nguyên nhân ở phía trình duyệt / máy người dùng
+  (bản cũ không chạy được PDF.js — cần ES2022, tức Chrome/Edge từ 2022; chính sách công ty chặn script `blob:`; mạng chậm;
+  cache bản cũ). Trước đây các lỗi này **im lặng**: mã trang không chạy → không gắn được sự kiện click / drop.
+- Thêm vào `index-src.html` một đoạn script nhỏ chạy trước mọi thứ (`window.__BOOT`): bắt `error` / `unhandledrejection` khi trang
+  chưa sẵn sàng và hẹn 20 giây; nếu mã trang hoặc thư viện không chạy được → hiện hộp đỏ cố định dưới trang ghi rõ lỗi, số dòng,
+  tên trình duyệt (userAgent) và cách thử (Ctrl+F5, Chrome/Edge mới, chụp màn hình gửi người phụ trách).
+- Bootstrap kiểm tra `window.ExcelJS` và `window.pdfjsLib` tồn tại sau khi nạp (thư viện nạp nhưng không chạy được trên trình duyệt cũ
+  → trước đây rơi vào TypeError khó hiểu); lỗi nạp thư viện hiện qua hộp này thay cho `alert`.
+- Cuối `app-all.js`: `window.__BOOT.ready = true` và ẩn hộp — trang bình thường không thấy gì khác. Thêm favicon SVG nội tuyến (bỏ lỗi 404 favicon).
+- Kiểm thử: trang bình thường → không hộp; giả lập mã trang lỗi (TypeError / SyntaxError) và thư viện hỏng → hộp hiện đúng thông điệp.
+
 ## Thay đổi của v11.40i (12.11.2026) — Adore Me: màu cho paper tag, style theo mẫu, alias chỉ khi thiếu
 
 - `STYLE_RE = /[A-Z]{2}-\d{4,6}-[A-Z]{2,4}/` tìm trong Reference → Spec → Color (PO mới ghi `SCA057-BR-BAL-SW-14110-TPI`); form: cột Style / SKU qua `formStyle`.

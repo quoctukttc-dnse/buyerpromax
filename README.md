@@ -1,4 +1,4 @@
-# Inbound SAP – Đối chiếu hóa đơn (v11.40 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
+# Inbound SAP – Đối chiếu hóa đơn (v11.41 — 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc)
 
 Trang web tĩnh (1 file `index.html`) xử lý **nhiều hóa đơn cùng lúc**: điền số/ngày hóa đơn vào file
 inbound SAP và đối chiếu số lượng – đơn giá – thành tiền giữa **hóa đơn – inbound – packing list – PO SCAF-SCAX**.
@@ -59,6 +59,8 @@ danh sách ô đã ghi. Trình duyệt cần `DecompressionStream` (Chrome/Edge 
 vào `PROFILES` (`detect` nhận diện sheet/ô, `plan` ghép và trả danh sách ô cần ghi).
 
 ## Cách dùng
+
+> **Trang không phản ứng khi bấm upload / kéo thả?** Từ v11.41 trang tự hiện hộp đỏ dưới màn hình ghi rõ lỗi và tên trình duyệt nếu mã trang hoặc thư viện không chạy được (trình duyệt cũ, chính sách chặn script, mạng chậm). Thử Ctrl+F5, dùng Chrome/Edge bản mới (từ 2022); còn lỗi thì chụp màn hình hộp đỏ gửi người phụ trách.
 
 1. Mở `index.html` bằng Chrome/Edge (tiêu đề phải có nhãn **v8**).
 2. **Kéo cả thư mục** (ví dụ `ATUS-test` gồm nhiều thư mục con, mỗi thư mục một hóa đơn) vào ô lớn,

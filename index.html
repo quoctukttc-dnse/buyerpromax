@@ -81,10 +81,41 @@ ul.rules{margin:8px 0 0;padding-left:20px;color:var(--muted);font-size:13px}
 ul.rules li{margin:3px 0}
 code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12.5px}
 </style>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%231f5fa8'/%3E%3Ctext x='8' y='12' font-size='10' text-anchor='middle' fill='%23fff' font-family='Arial'%3EI%3C/text%3E%3C/svg%3E">
+<script>
+/* Bộ báo lỗi khởi động: nếu thư viện hoặc mã trang không chạy được trên trình duyệt (bản cũ, chính sách chặn script blob:,
+   mạng chậm) thì hiện rõ lý do + tên trình duyệt ngay trên trang thay vì im lặng — người dùng chụp màn hình gửi là đủ để sửa. */
+(function(){
+  var box=null;
+  function show(msg){
+    try{
+      if(!box){ box=document.createElement('div'); box.id='booterr';
+        box.style.cssText='position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;background:#7a1f1f;color:#fff;padding:10px 14px;border-radius:8px;font:13px/1.45 system-ui,Segoe UI,Arial,sans-serif;white-space:pre-wrap;box-shadow:0 4px 18px rgba(0,0,0,.35)';
+        (document.body||document.documentElement).appendChild(box); }
+      box.textContent=msg;
+    }catch(e){}
+  }
+  function hide(){ try{ if(box&&box.parentNode) box.parentNode.removeChild(box); box=null; }catch(e){} }
+  var ua=navigator.userAgent;
+  var tail='\nTrình duyệt: '+ua+'\nThử: nhấn Ctrl+F5 để tải lại; mở bằng Chrome hoặc Edge bản mới (từ 2022). Nếu vẫn lỗi, chụp màn hình dòng này gửi người phụ trách.';
+  window.__BOOT={ready:false,show:show,hide:hide,ua:ua};
+  window.addEventListener('error',function(e){
+    if(window.__BOOT.ready||!e||!e.message) return;
+    show('Trang không khởi động được — '+e.message+(e.lineno?' (dòng '+e.lineno+')':'')+tail);
+  });
+  window.addEventListener('unhandledrejection',function(e){
+    if(window.__BOOT.ready) return; var r=e&&e.reason;
+    show('Trang không khởi động được — '+((r&&r.message)||r)+tail);
+  });
+  setTimeout(function(){
+    if(!window.__BOOT.ready) show('Trang chưa khởi động xong sau 20 giây — thư viện chưa nạp được (mạng chậm, hoặc trình duyệt / chính sách máy công ty chặn script dạng blob:).'+tail);
+  },20000);
+})();
+</script>
 </head>
 <body>
 <div class="wrap">
-  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.40 · 11.11.2026 · 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
+  <h1>Inbound SAP – Đối chiếu hóa đơn <span class="ver">v11.41 · 13.11.2026 · 27 mẫu riêng + bộ đọc chung + OCR + .xls + .doc</span></h1>
   <p class="sub" style="margin-bottom:8px">Công cụ phụ: <a href="order.html"><b>Điền order form supplier từ PO SCAVI</b></a> (Avery Lands' End ID Label · size / care label form) — trang riêng, không ảnh hưởng phần đối chiếu.</p>
   <p class="sub">Kéo cả thư mục (nhiều hóa đơn) vào đây. Công cụ tự nhận diện <b>chủ hàng</b> và loại file — trimming (hóa đơn PDF của ITL, Inkava, Thiên Gia), vải (chứng từ Excel của Techwork, New Style–BLAO, Quanzhou Hengyu, J&amp;H Yubo) và <b>mọi chủ hàng khác</b> bằng bộ đọc chung (Excel/PDF có bảng hàng: Capital, Carvico, Celeb, Cheung Hing, Derun, Stretchline, Pioneer, PT Winner, Hoa Nghiêm, Freetex…) — ghép thành từng bộ rồi đối chiếu. Chưa có inbound thì xuất <b>danh sách PO</b> để tạo trên SAP; chưa có packing list thì chỉ đối chiếu với hóa đơn. PDF dạng ảnh (scan) được OCR ngay trong trình duyệt (cần mạng, kết quả gắn nhãn để kiểm tra kỹ); file .xls và Word .doc (97-2003) được đọc ngay trong trình duyệt; chủ hàng chưa được huấn luyện thì công cụ cảnh báo và đề nghị liên hệ người phụ trách. Mọi xử lý chạy trong trình duyệt.</p>
 
@@ -353,11 +384,15 @@ code{background:var(--brand-soft);padding:1px 5px;border-radius:4px;font-size:12
   }
   var JS='application/javascript';
   Promise.all([loadScript(b64blob('lib-exceljs',JS)),loadScript(b64blob('lib-pdfjs',JS))]).then(function(){
+    if(!window.ExcelJS||!window.pdfjsLib){ throw new Error('thư viện ExcelJS/PDF.js không chạy được trên trình duyệt này (bản quá cũ)'); }
     window.pdfjsLib.GlobalWorkerOptions.workerSrc=URL.createObjectURL(b64blob('lib-pdfworker',JS));
     /* SheetJS (đọc .xls 97-2003) chỉ nạp khi gặp file .xls */
     var sj=null; window.loadSheetJS=function(){ if(!sj) sj=loadScript(b64blob('lib-sheetjs',JS)).then(function(){return window.XLSX;}); return sj; };
     var s=document.createElement('script');s.textContent=document.getElementById('app-src').textContent;document.body.appendChild(s);
-  }).catch(function(e){alert('Không tải được thư viện: '+e);});
+  }).catch(function(e){
+    var msg='Không tải được thư viện: '+(e&&e.message||e);
+    if(window.__BOOT) window.__BOOT.show(msg+'\nTrình duyệt: '+navigator.userAgent+'\nThử: Ctrl+F5; mở bằng Chrome/Edge bản mới (từ 2022); chụp màn hình dòng này gửi người phụ trách.'); else alert(msg);
+  });
 })();
 </script>
 <script type="text/plain" id="app-src">/* ==== fab.js ==== */
@@ -7423,6 +7458,8 @@ $('#dlall').addEventListener('click', () => {
   OUTPUTS.forEach((o, i) => setTimeout(() => $('#dlx' + i).click(), i * 400));
 });
 renderSlots();
+/* báo cho bộ báo lỗi khởi động (index-src.html) là trang đã sẵn sàng */
+if (window.__BOOT) { window.__BOOT.ready = true; window.__BOOT.hide(); }
 </script>
 </body>
 </html>
