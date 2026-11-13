@@ -185,28 +185,64 @@ async function xlsToXlsx(buf) {
   if (!wb || !wb.SheetNames || !wb.SheetNames.length) throw new Error('không có sheet');
   return X.write(wb, { type: 'array', bookType: 'xlsx', cellDates: true });
 }
+/* Nhiều luồng OCR song song (tesseract Scheduler): PDF scan nhiều trang (Mainetti 34 trang HĐ + 61 trang PKL, 13.11.2026) trước đây
+   OCR tuần tự một luồng ~7 giây/trang → hơn 10 phút. Nay dùng (số nhân CPU − 1, tối đa 4) luồng; luồng đầu dùng chung với ocrWorker(). */
+let OCR_SCHED = null, OCR_SCHED_N = 1;
+async function ocrScheduler() {
+  if (OCR_SCHED) return OCR_SCHED;
+  const first = await ocrWorker();
+  const n = Math.max(1, Math.min(OCR_CFG.workers || 4, (navigator.hardwareConcurrency || 2) - 1));
+  const sch = Tesseract.createScheduler();
+  sch.addWorker(first);
+  const opts = { legacyCore: false, legacyLang: false };
+  if (OCR_CFG.workerPath) opts.workerPath = OCR_CFG.workerPath;
+  if (OCR_CFG.corePath) opts.corePath = OCR_CFG.corePath;
+  if (OCR_CFG.langPath) opts.langPath = OCR_CFG.langPath;
+  const extra = await Promise.all(Array.from({ length: n - 1 }, async () => {
+    try { const w = await Tesseract.createWorker(OCR_CFG.langs, 1, opts); await w.setParameters({ preserve_interword_spaces: '1' }); return w; } catch (e) { return null; }
+  }));
+  for (const w of extra) if (w) sch.addWorker(w);
+  OCR_SCHED_N = sch.getNumWorkers(); OCR_SCHED = sch;
+  return sch;
+}
 async function ocrPdfPages(file) {
   const data = new Uint8Array(await file.arrayBuffer());
   const pdf = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
-  const worker = await ocrWorker();
-  const pages = [];
+  const sch = await ocrScheduler();
   const scale = OCR_CFG.scale || 3;
-  for (let p = 1; p <= pdf.numPages; p++) {
-    ocrStatus(`Đang OCR ${file.name} — trang ${p}/${pdf.numPages}…`);
+  const N = pdf.numPages, pages = new Array(N);
+  let done = 0;
+  const t0 = Date.now();
+  const status = () => {
+    const el = Math.round((Date.now() - t0) / 1000);
+    const eta = done ? Math.round(el / done * (N - done)) : 0;
+    ocrStatus(`Đang OCR ${file.name} — xong ${done}/${N} trang (${OCR_SCHED_N} luồng${done ? `, còn ~${eta} giây` : ''})…`);
+  };
+  status();
+  /* vẽ trang trên luồng chính, OCR song song; giữ tối đa 2 × số luồng trang đang chờ để không ngốn bộ nhớ (mỗi trang ~18 MB) */
+  const inflight = new Set();
+  for (let p = 1; p <= N; p++) {
+    while (inflight.size >= OCR_SCHED_N * 2) await Promise.race(inflight);
     const page = await pdf.getPage(p);
     const vp = page.getViewport({ scale });
     const canvas = document.createElement('canvas');
     canvas.width = Math.ceil(vp.width); canvas.height = Math.ceil(vp.height);
     await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
-    const { data: d } = await worker.recognize(canvas, {}, { blocks: true, text: false });
-    const words = [];
-    let li = 0;
-    for (const b of (d.blocks || [])) for (const pg of (b.paragraphs || [])) for (const ln of (pg.lines || [])) {
-      li++;
-      for (const w of (ln.words || [])) if (w.text && w.text.trim()) words.push({ line: li, x0: w.bbox.x0, y0: w.bbox.y0, x1: w.bbox.x1, y1: w.bbox.y1, text: w.text, conf: w.confidence });
-    }
-    pages.push(ocrWordsToItems(words, scale, canvas.height));
+    const h = canvas.height;
+    const job = sch.addJob('recognize', canvas, {}, { blocks: true, text: false }).then(({ data: d }) => {
+      const words = [];
+      let li = 0;
+      for (const b of (d.blocks || [])) for (const pg of (b.paragraphs || [])) for (const ln of (pg.lines || [])) {
+        li++;
+        for (const w of (ln.words || [])) if (w.text && w.text.trim()) words.push({ line: li, x0: w.bbox.x0, y0: w.bbox.y0, x1: w.bbox.x1, y1: w.bbox.y1, text: w.text, conf: w.confidence });
+      }
+      pages[p - 1] = ocrWordsToItems(words, scale, h);
+      canvas.width = canvas.height = 0;
+      done++; status();
+    }).finally(() => inflight.delete(job));
+    inflight.add(job);
   }
+  await Promise.all(inflight);
   ocrStatus('');
   (window.__OCR__ = window.__OCR__ || {})[file.name] = pages;
   return pages;

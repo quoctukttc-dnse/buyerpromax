@@ -1447,6 +1447,20 @@ V4 dò thẳng theo Material. Số HĐ: dòng sau `Invoice NO.:`; ngày `2026/10
   cộng theo size; header `PO#`, `Order Date:`, `Request Ship Date:`, `Bill to Company Name:`, `Bill to Address:`, `LE style#`.
 - Kiểm thử Node (`order_test.mjs`): xóa số lượng rồi điền lại → trùng 307/307 và 9/9 với bản buyer điền; zip chỉ đổi `xl/workbook.xml` + sheet điền.
 
+## Thay đổi của v11.43 (13.11.2026) — OCR nhiều luồng song song (PDF scan nhiều trang)
+
+- Phản hồi: bộ Mainetti 10.11 (HĐ 34 trang + phiếu xuất kho 61 trang, cả hai "Microsoft: Print To PDF" từ ảnh, không có lớp chữ) nhận
+  diện rất chậm. Đo trên máy 4 nhân: OCR tuần tự một luồng ~6,7 giây/trang (độ phân giải 2 hay 3 gần như không đổi thời gian; `eng`
+  thay `eng+vie` nhanh hơn 33 % nhưng mất dấu tiếng Việt — không đổi) → 95 trang ≈ 11 phút.
+- `ocrPdfPages` dùng `Tesseract.createScheduler()` với (số nhân CPU − 1, tối đa 4, `OCR_CFG.workers`) worker; luồng đầu là worker của
+  `ocrWorker()` (dùng chung với OCR theo ô của Vanessa). Trang được vẽ tuần tự trên luồng chính, nhận dạng song song; giữ tối đa
+  2 × số luồng trang đang chờ (mỗi canvas A4 ×3 ≈ 18 MB); canvas giải phóng ngay sau khi nhận dạng xong. Kết quả từng trang y hệt
+  trước (cùng tham số, cùng `ocrWordsToItems`), chỉ khác thứ tự chạy. Dòng trạng thái ghi "xong k/N trang (n luồng, còn ~x giây)".
+- Đo lại: 34 trang 77 giây (trước ~230), 61 trang 80 giây — trên Mac nhiều nhân sẽ nhanh hơn nữa.
+- Lưu ý riêng bộ này: OCR đọc được mã hàng / số lượng / đơn giá / thành tiền nhưng số HĐ (chữ đỏ) mất trên nhiều trang, "tháng 11"
+  đọc thành "tháng 1" ở vài trang, mô tả nhãn bị logo chìm MAINETTI che → tách hóa đơn và ghép inbound không tin được. Bộ đọc Mainetti
+  (`readMainetti`, `readMainettiPxk`) vẫn chỉ chạy với PDF chữ (`!ocr`); cần file gốc từ VNPT (mã tra cứu trên hóa đơn) và phiếu xuất kho PDF gốc.
+
 ## Thay đổi của v11.42 (13.11.2026) — sửa gốc lỗi "trang không chạy": chờ tải xong trang rồi mới chạy mã
 
 - Hộp báo lỗi v11.41 cho kết quả trên Safari 27 (macOS): `SyntaxError: Unexpected end of script (dòng 1865)` — mã trang chỉ có 1 865
